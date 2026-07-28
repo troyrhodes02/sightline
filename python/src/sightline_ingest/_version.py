@@ -34,3 +34,34 @@ def code_version() -> str:
         return "unknown"
 
     return result.stdout.strip() or "unknown"
+
+
+def code_dirty() -> bool:
+    """Whether the working tree differs from the recorded sha.
+
+    A run from a modified, uncommitted tree is not attributable to its
+    commit, and ``verify --strict`` refuses it. Order: explicit ``GIT_DIRTY``
+    env (set by CI alongside ``GIT_SHA``; a CI checkout is clean by
+    construction) → ``git status --porcelain`` → ``True`` when git cannot
+    answer, because "cannot show the tree was clean" and "dirty" earn the
+    same level of trust.
+    """
+    env_dirty = os.environ.get("GIT_DIRTY")
+    if env_dirty is not None:
+        return env_dirty.strip().lower() in ("1", "true", "yes")
+    if os.environ.get("GIT_SHA"):
+        return False
+
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=Path(__file__).resolve().parent,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=True,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return True
+
+    return bool(result.stdout.strip())

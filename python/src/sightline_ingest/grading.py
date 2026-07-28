@@ -39,3 +39,24 @@ class GradingCorpus:
             )
             cols = [d[0] for d in cur.description]
             return pl.DataFrame([dict(zip(cols, r)) for r in cur.fetchall()], orient="row")
+
+    def final_player_stats_for_game(self, *, game_id: str) -> pl.DataFrame:
+        """Every player's corrected stat line for one game, in one read.
+
+        The harness grades a whole game at a time. Still grading-only: the
+        feature-path modules are swept for any reference to this module
+        (test_verify: feature code cannot reach the grading corpus), so a
+        future import shows up as a failing guard, not a silent leak.
+        """
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"select player_id, version, {', '.join(_STAT_COLS)} "
+                "from player_game_stats where game_id = %(gid)s "
+                "order by player_id",
+                {"gid": game_id},
+            )
+            cols = [d[0] for d in cur.description]
+            rows = cur.fetchall()
+            if not rows:
+                return pl.DataFrame({c: [] for c in cols})
+            return pl.DataFrame([dict(zip(cols, r)) for r in rows], orient="row")
