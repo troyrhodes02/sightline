@@ -12,6 +12,14 @@ dist
 dist-ssr
 *.local
 
+# Environment — never commit real secrets. `.env.example` IS committed.
+.env
+.env.*
+!.env.example
+
+# Prisma generated client (regenerated from schema; not source of truth)
+/generated/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
