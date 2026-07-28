@@ -262,3 +262,111 @@ def reap_stale_runs(connect: ConnectionFactory, *, older_than_hours: int = 24) -
         reaped = cur.rowcount
         conn.commit()
     return reaped
+
+
+_INSERT_BIN = """
+insert into calibration_bins (
+    id, backtest_run_id, stat_type, season, era, bin_index, bin_low, bin_high,
+    predicted_mean, observed_rate, threshold_observations, projection_count,
+    below_floor
+) values (
+    gen_random_uuid(), %(run_id)s, %(stat_type)s::"StatType", %(season)s,
+    %(era)s::"WeatherEra", %(bin_index)s, %(bin_low)s, %(bin_high)s,
+    %(predicted_mean)s, %(observed_rate)s, %(threshold_observations)s,
+    %(projection_count)s, %(below_floor)s
+)
+"""
+
+
+def complete_run(
+    connect: ConnectionFactory,
+    run_id: str,
+    *,
+    totals,
+    aggregates: dict,
+    aggregates_version: int,
+    bins: list[dict],
+    predictions_digest: str,
+    aggregate_digest: str,
+    calibration_digest: str,
+    finished_at: datetime,
+) -> None:
+    """Move a run to `completed`, with its bins, in one transaction.
+
+    Both writes or neither. A run marked completed whose calibration bins
+    failed to land would be a result with a missing reliability curve, and
+    Pitch 6 would render the absence as "no data" rather than as a fault.
+    """
+    with connect() as conn, conn.cursor() as cur:
+        for row in bins:
+            cur.execute(_INSERT_BIN, {"run_id": run_id, **row})
+        cur.execute(
+            """
+            update backtest_runs set
+                status = 'completed',
+                candidate_count = %(candidates)s,
+                projected_count = %(projected)s,
+                unprojectable_count = %(unprojectable)s,
+                excluded_count = %(excluded)s,
+                comparison_count = %(comparison)s,
+                threshold_obs_count = %(thresholds)s,
+                aggregates = %(aggregates)s,
+                aggregates_version = %(aggregates_version)s,
+                predictions_digest = %(predictions_digest)s,
+                aggregate_digest = %(aggregate_digest)s,
+                calibration_digest = %(calibration_digest)s,
+                finished_at = %(finished_at)s,
+                updated_at = now()
+            where id = %(id)s
+            """,
+            {
+                "id": run_id,
+                "candidates": totals.candidates, "projected": totals.projected,
+                "unprojectable": totals.unprojectable, "excluded": totals.excluded,
+                "comparison": totals.comparison,
+                "thresholds": totals.threshold_observations,
+                "aggregates": json.dumps(aggregates, sort_keys=True, default=str),
+                "aggregates_version": aggregates_version,
+                "predictions_digest": predictions_digest,
+                "aggregate_digest": aggregate_digest,
+                "calibration_digest": calibration_digest,
+                "finished_at": finished_at,
+            },
+        )
+        conn.commit()
+
+
+def load_run(connect: ConnectionFactory, run_id: str) -> dict | None:
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "select id, status, aggregates, aggregates_version, predictions_digest, "
+            "aggregate_digest, calibration_digest, corpus_digest, "
+            "engine_config_digest, artifact_path, model_version, code_version, "
+            "code_dirty, seed, rng_draws, evaluation_window, season_from, "
+            "season_to, stat_types::text[] as stat_types, cutoff_policy, "
+            "threshold_policy_version, grading_target, candidate_count, "
+            "projected_count, unprojectable_count, excluded_count, "
+            "comparison_count, threshold_obs_count, started_at, finished_at, "
+            "error_message from backtest_runs where id = %s",
+            (run_id,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return None
+        cols = [d[0] for d in cur.description]
+        return dict(zip(cols, row))
+
+
+def load_calibration_bins(connect: ConnectionFactory, run_id: str) -> list[dict]:
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "select stat_type::text as stat_type, season, era::text as era, "
+            "bin_index, bin_low, bin_high, predicted_mean, observed_rate, "
+            "threshold_observations, projection_count, below_floor "
+            "from calibration_bins where backtest_run_id = %s "
+            "order by stat_type nulls first, season nulls first, "
+            "era nulls first, bin_index",
+            (run_id,),
+        )
+        cols = [d[0] for d in cur.description]
+        return [dict(zip(cols, row)) for row in cur.fetchall()]

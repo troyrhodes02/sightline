@@ -161,7 +161,7 @@ def test_run_produces_artefacts_and_reconciles_its_population(
 ) -> None:
     outcome = run_backtest(corpus, _config(artifact_base), persist=persist)
 
-    assert outcome.status == "ready", outcome.error
+    assert outcome.status == "completed", outcome.error
     totals = outcome.totals
     assert totals.candidates > 0
     assert (
@@ -266,29 +266,58 @@ def test_limit_games_bounds_the_run(corpus, artifact_base) -> None:
 # --- Run lifecycle -----------------------------------------------------------
 
 
-def test_a_run_in_flight_is_not_a_readable_result(corpus, artifact_base) -> None:
+def test_a_completed_run_carries_its_reproducibility_evidence(
+    corpus, artifact_base
+) -> None:
     outcome = run_backtest(corpus, _config(artifact_base), persist=persist)
-    rows = persist.list_runs(corpus)
-    stored = [r for r in rows if r.id == outcome.run_id][0]
-    # Aggregation (SIG-18) is what completes a run: a completed run must carry
-    # all three digests and two of them do not exist yet.
-    assert stored.status == "running"
-    assert stored.is_result is False
+    stored = persist.load_run(corpus, outcome.run_id)
+
+    assert stored["status"] == "completed"
+    # The CHECK constraint refuses a completed run without all three, so this
+    # asserts the harness supplied them rather than that the database allowed it.
+    assert stored["predictions_digest"]
+    assert stored["aggregate_digest"]
+    assert stored["calibration_digest"]
+    assert stored["finished_at"] is not None
+    assert stored["rng_draws"] == 0
+    assert stored["aggregates"]["aggregatesVersion"] == 1
+
+
+def test_calibration_bins_land_with_the_run(corpus, artifact_base) -> None:
+    outcome = run_backtest(corpus, _config(artifact_base), persist=persist)
+    bins = persist.load_calibration_bins(corpus, outcome.run_id)
+    assert bins
+    for row in bins:
+        assert row["projection_count"] <= row["threshold_observations"]
+        axes = sum(
+            1 for key in ("stat_type", "season", "era") if row[key] is not None
+        )
+        assert axes <= 1
 
 
 def test_reap_marks_abandoned_runs_interrupted_never_completed(
     corpus, artifact_base
 ) -> None:
-    outcome = run_backtest(corpus, _config(artifact_base), persist=persist)
+    # A run abandoned before it could complete: inserted, never finished.
+    from sightline_model.constants import MODEL_VERSION
+
+    run_id = persist.insert_run(
+        corpus, config=_config(artifact_base), model_version=MODEL_VERSION,
+        code_version="abc1234", code_dirty=False, engine_config={"k": 1},
+        engine_config_digest="cfg", corpus_digest="corp",
+        cutoff_policy="kickoff_minus_90m/v1", threshold_policy_version="grid-v1",
+        grading_target="official_corrected", artifact_path=str(artifact_base),
+        started_at=datetime(2026, 7, 20, 9, 0),
+    )
     with corpus() as conn, conn.cursor() as cur:
         cur.execute(
             "update backtest_runs set started_at = now() - interval '48 hours' "
-            "where id = %s", (outcome.run_id,),
+            "where id = %s", (run_id,),
         )
         conn.commit()
 
     assert persist.reap_stale_runs(corpus) == 1
-    stored = [r for r in persist.list_runs(corpus) if r.id == outcome.run_id][0]
+    stored = [r for r in persist.list_runs(corpus) if r.id == run_id][0]
     assert stored.status == "interrupted"
     assert stored.is_result is False
 

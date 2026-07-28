@@ -240,11 +240,10 @@ def _run_backtest(args: argparse.Namespace, connect) -> int:
         f"({totals.comparison:,} in the comparison population)"
     )
     print(f"artefacts: {outcome.root}")
-    if outcome.status == "ready":
-        # Aggregation (SIG-18) is what moves the row to `completed`, because a
-        # completed run must carry all three digests and two of them do not
-        # exist until the metrics layer computes them.
-        print("aggregation pending — the run is not yet a readable result")
+    if outcome.status == "completed":
+        print(f"digests: predictions {outcome.predictions_digest[:16]}… "
+              f"aggregate {outcome.aggregate_digest[:16]}… "
+              f"calibration {outcome.calibration_digest[:16]}…")
         return EXIT_OK
     print(f"error: {outcome.error}", file=sys.stderr)
     return EXIT_FAILED
