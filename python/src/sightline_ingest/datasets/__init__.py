@@ -8,6 +8,6 @@ each importing ``registry.register`` to add itself here.
 
 from __future__ import annotations
 
-from . import teams, players, schedule, identities, pbp, stats, context  # noqa: F401,E402 - import registers datasets
-
-# Later PRs add: weather.
+from . import (  # noqa: F401,E402 - import registers datasets
+    teams, players, schedule, identities, pbp, stats, context, weather,
+)
