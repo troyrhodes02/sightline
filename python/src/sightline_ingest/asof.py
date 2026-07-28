@@ -51,7 +51,68 @@ _PUBLISHED_BY_SQL = (
 
 def _rows_to_df(cur) -> pl.DataFrame:
     cols = [d[0] for d in cur.description]
-    return pl.DataFrame([dict(zip(cols, r)) for r in cur.fetchall()], orient="row")
+    rows = cur.fetchall()
+    if not rows:
+        # An empty result still carries its column names. A bare pl.DataFrame([])
+        # has no schema at all, which turns "this player had no eligible
+        # history" into an AttributeError three call frames away instead of an
+        # empty frame the caller can reason about.
+        return pl.DataFrame({c: [] for c in cols})
+    return pl.DataFrame([dict(zip(cols, r)) for r in rows], orient="row")
+
+
+# ---------------------------------------------------------------------------
+# SQL templates shared by the single-row and batched reads.
+#
+# The batched variants exist because a multi-season backtest issues one read per
+# candidate, and per-candidate round trips do not finish in tolerable time. They
+# are NOT a second implementation: each template is filled in with a different
+# player predicate and ordering, so the cutoff bound, the publication-time
+# expression, and the correction roll-back are literally the same SQL text on
+# both paths. A copy would drift on the first edit, and the direction it drifts
+# is the one that leaks.
+# ---------------------------------------------------------------------------
+
+_TRAILING_SQL = f"""
+    select {{extra_select}}pgs.game_id, g.kickoff_at, pgs.team_abbr_at_game,
+           {", ".join(f"pgs.{c}" for c in _STAT_COLS)},
+           (select c.prior_values from player_game_stat_corrections c
+            where c.player_game_stat_id = pgs.id
+              and c.correction_known_at > %(cutoff)s
+            order by c.correction_known_at asc limit 1) as rollback_values
+    from player_game_stats pgs
+    join games g on g.id = pgs.game_id
+    join games tg on tg.id = %(before)s
+    where {{player_predicate}}
+      and g.kickoff_at < tg.kickoff_at
+      and {_PUBLISHED_BY_SQL} <= %(cutoff)s
+    order by {{order_by}}
+"""
+
+_CONTEXT_SQL = """
+    select {extra_select}context_type, numeric_value, text_value, known_at,
+           known_at_reconstructed
+    from player_game_context
+    where {player_predicate} and game_id = %(gid)s
+      and context_type = %(ctype)s and known_at <= %(cutoff)s
+    order by {order_by}
+"""
+
+# Previous eligible game per player, in one pass. DISTINCT ON is the Postgres
+# idiom for "latest row per group" and needs the leading ORDER BY column to
+# match the grouping key.
+_PREV_GAME_SQL = f"""
+    select distinct on (pgs.player_id)
+           pgs.player_id, g.kickoff_at, ht.nflverse_abbr
+    from player_game_stats pgs
+    join games g on g.id = pgs.game_id
+    join teams ht on g.home_team_id = ht.id
+    where pgs.player_id = any(%(pids)s::text[])
+      and g.id <> %(gid)s
+      and g.kickoff_at < %(target_kick)s
+      and {_PUBLISHED_BY_SQL} <= %(cutoff)s
+    order by pgs.player_id, g.kickoff_at desc
+"""
 
 
 def _haversine_km(a: tuple[float, float], b: tuple[float, float]) -> float:
@@ -60,6 +121,46 @@ def _haversine_km(a: tuple[float, float], b: tuple[float, float]) -> float:
     dlat, dlon = lat2 - lat1, lon2 - lon1
     h = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
     return round(2 * r * math.asin(math.sqrt(h)), 1)
+
+
+def _apply_rollbacks(cur) -> pl.DataFrame:
+    """Materialise trailing-stat rows, rolling back post-cutoff corrections.
+
+    Shared by the single-row and batched trailing reads, so a correction can
+    never be honoured on one path and missed on the other.
+    """
+    cols = [d[0] for d in cur.description]
+    rows = []
+    for raw in cur.fetchall():
+        row = dict(zip(cols, raw))
+        rollback = row.pop("rollback_values")
+        if rollback is not None:
+            # A correction landed after the cutoff: use the value that was
+            # current at the cutoff, not the corrected one. prior_values
+            # round-trips through JSON (Decimals become floats), so coerce
+            # back to the column kinds ingest writes — a frame must not mix
+            # dtypes depending on whether a rollback applied.
+            for c in _STAT_COLS:
+                if c in rollback:
+                    v = rollback[c]
+                    row[c] = to_decimal(v) if _STAT_KINDS[c] == "decimal" else to_int(v)
+        rows.append(row)
+    if not rows:
+        return pl.DataFrame({c: [] for c in cols if c != "rollback_values"})
+    return pl.DataFrame(rows, orient="row")
+
+
+def _rest_and_travel_from(
+    target_kick, target_home: str | None, prev_kick, prev_home: str | None
+) -> dict:
+    """The derivation itself, shared by the single-row and batched paths."""
+    if target_home is None or prev_kick is None:
+        return {"rest_days": None, "travel_km": None}
+    rest_days = (target_kick.date() - prev_kick.date()).days
+    travel_km = None
+    if target_home in STADIUM_COORDS and prev_home in STADIUM_COORDS:
+        travel_km = _haversine_km(STADIUM_COORDS[prev_home], STADIUM_COORDS[target_home])
+    return {"rest_days": rest_days, "travel_km": travel_km}
 
 
 class AsOfCorpus:
@@ -83,13 +184,38 @@ class AsOfCorpus:
         """All observations of a context type known as of the cutoff (asc by knownAt)."""
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
-                "select context_type, numeric_value, text_value, known_at, "
-                "known_at_reconstructed "
-                "from player_game_context "
-                "where player_id = %(pid)s and game_id = %(gid)s "
-                "and context_type = %(ctype)s and known_at <= %(cutoff)s "
-                "order by known_at",
+                _CONTEXT_SQL.format(
+                    extra_select="",
+                    player_predicate="player_id = %(pid)s",
+                    order_by="known_at",
+                ),
                 {"pid": player_id, "gid": game_id, "ctype": context_type, "cutoff": self._cutoff},
+            )
+            return _rows_to_df(cur)
+
+    def player_context_batch(
+        self, *, player_ids: list[str], game_id: str, context_type: str
+    ) -> pl.DataFrame:
+        """``player_context`` for many players in one round trip.
+
+        Same SQL, same cutoff bound; ``player_id`` is added to the projection
+        and to the ordering so the caller can group without assuming the input
+        order was preserved.
+        """
+        # No empty-input special case: an empty array simply matches nothing.
+        # The ::text[] cast is required because Postgres cannot infer the
+        # element type of an empty parameterised array.
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                _CONTEXT_SQL.format(
+                    extra_select="player_id, ",
+                    player_predicate="player_id = any(%(pids)s::text[])",
+                    order_by="player_id, known_at",
+                ),
+                {
+                    "pids": list(player_ids), "gid": game_id,
+                    "ctype": context_type, "cutoff": self._cutoff,
+                },
             )
             return _rows_to_df(cur)
 
@@ -148,40 +274,40 @@ class AsOfCorpus:
         """
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
-                f"""
-                select pgs.game_id, g.kickoff_at, pgs.team_abbr_at_game,
-                       {", ".join(f"pgs.{c}" for c in _STAT_COLS)},
-                       (select c.prior_values from player_game_stat_corrections c
-                        where c.player_game_stat_id = pgs.id
-                          and c.correction_known_at > %(cutoff)s
-                        order by c.correction_known_at asc limit 1) as rollback_values
-                from player_game_stats pgs
-                join games g on g.id = pgs.game_id
-                join games tg on tg.id = %(before)s
-                where pgs.player_id = %(pid)s
-                  and g.kickoff_at < tg.kickoff_at
-                  and {_PUBLISHED_BY_SQL} <= %(cutoff)s
-                order by g.kickoff_at
-                """,
+                _TRAILING_SQL.format(
+                    extra_select="",
+                    player_predicate="pgs.player_id = %(pid)s",
+                    order_by="g.kickoff_at",
+                ),
                 {"pid": player_id, "before": before_game_id, "cutoff": self._cutoff},
             )
-            rows = []
-            cols = [d[0] for d in cur.description]
-            for raw in cur.fetchall():
-                row = dict(zip(cols, raw))
-                rollback = row.pop("rollback_values")
-                if rollback is not None:
-                    # A correction landed after the cutoff: use the value that was
-                    # current at the cutoff, not the corrected one. prior_values
-                    # round-trips through JSON (Decimals become floats), so coerce
-                    # back to the column kinds ingest writes — a frame must not
-                    # mix dtypes depending on whether a rollback applied.
-                    for c in _STAT_COLS:
-                        if c in rollback:
-                            v = rollback[c]
-                            row[c] = to_decimal(v) if _STAT_KINDS[c] == "decimal" else to_int(v)
-                rows.append(row)
-            return pl.DataFrame(rows, orient="row")
+            return _apply_rollbacks(cur)
+
+    def trailing_player_stats_batch(
+        self, *, player_ids: list[str], before_game_id: str
+    ) -> pl.DataFrame:
+        """``trailing_player_stats`` for many players in one round trip.
+
+        The harness reads once per (game, cutoff) for every candidate player in
+        that game rather than once per candidate. Identical SQL, identical
+        cutoff bound, identical correction roll-back — the only differences are
+        the player predicate, ``player_id`` in the projection, and
+        ``player_id`` leading the ordering.
+        """
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                _TRAILING_SQL.format(
+                    extra_select="pgs.player_id, ",
+                    player_predicate="pgs.player_id = any(%(pids)s::text[])",
+                    order_by="pgs.player_id, g.kickoff_at",
+                ),
+                {
+                    "pids": list(player_ids),
+                    "before": before_game_id,
+                    "cutoff": self._cutoff,
+                },
+            )
+            return _apply_rollbacks(cur)
 
     # --- Derived on read --------------------------------------------------
 
@@ -232,10 +358,62 @@ class AsOfCorpus:
 
         if target_row is None or prev is None:
             return {"rest_days": None, "travel_km": None}
-        target_home = target_row[0]
         prev_kick, prev_home = prev
-        rest_days = (target_kick.date() - prev_kick.date()).days
-        travel_km = None
-        if target_home in STADIUM_COORDS and prev_home in STADIUM_COORDS:
-            travel_km = _haversine_km(STADIUM_COORDS[prev_home], STADIUM_COORDS[target_home])
-        return {"rest_days": rest_days, "travel_km": travel_km}
+        return _rest_and_travel_from(target_kick, target_row[0], prev_kick, prev_home)
+
+    def rest_and_travel_batch(
+        self, *, player_ids: list[str], game_id: str
+    ) -> pl.DataFrame:
+        """``rest_and_travel`` for many players in one round trip.
+
+        Returns one row per requested player — including players with no
+        eligible previous game, whose values are null. Dropping them would make
+        the caller unable to distinguish "no prior game" from "player absent
+        from the batch", and those are different facts.
+        """
+        empty = pl.DataFrame(
+            {"player_id": list(player_ids),
+             "rest_days": [None] * len(player_ids),
+             "travel_km": [None] * len(player_ids)},
+            schema={"player_id": pl.String, "rest_days": pl.Int64,
+                    "travel_km": pl.Float64},
+        )
+
+        sched = self.schedule_as_known(game_id=game_id)
+        if sched.height == 0:
+            # The game did not exist yet from this vantage point.
+            return empty
+        target_kick = sched["kickoff_at"][0]
+
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "select ht.nflverse_abbr from games g "
+                "join teams ht on g.home_team_id = ht.id where g.id = %(gid)s",
+                {"gid": game_id},
+            )
+            target_row = cur.fetchone()
+            if target_row is None:
+                return empty
+
+            cur.execute(
+                _PREV_GAME_SQL,
+                {
+                    "pids": list(player_ids), "gid": game_id,
+                    "target_kick": target_kick, "cutoff": self._cutoff,
+                },
+            )
+            previous = {pid: (kick, home) for pid, kick, home in cur.fetchall()}
+
+        derived = [
+            _rest_and_travel_from(target_kick, target_row[0], *previous.get(pid, (None, None)))
+            for pid in player_ids
+        ]
+        return pl.DataFrame(
+            {
+                "player_id": list(player_ids),
+                "rest_days": [d["rest_days"] for d in derived],
+                "travel_km": [d["travel_km"] for d in derived],
+            },
+            schema={"player_id": pl.String, "rest_days": pl.Int64,
+                    "travel_km": pl.Float64},
+        )
