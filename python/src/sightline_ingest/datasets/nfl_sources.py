@@ -26,3 +26,15 @@ def fetch_schedules(seasons: list[int]) -> pl.DataFrame:
     import nflreadpy as nfl
 
     return nfl.load_schedules(seasons=seasons)
+
+
+def fetch_pbp(seasons: list[int]) -> pl.DataFrame:
+    import nflreadpy as nfl
+
+    return nfl.load_pbp(seasons=seasons)
+
+
+def fetch_player_stats(seasons: list[int]) -> pl.DataFrame:
+    import nflreadpy as nfl
+
+    return nfl.load_player_stats(seasons=seasons)
