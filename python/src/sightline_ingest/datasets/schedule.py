@@ -7,6 +7,12 @@ change still sees the kickoff/venue that was known at the earlier cutoff.
 
 Idempotence falls out of this: re-ingesting an unchanged schedule detects no
 change and appends nothing.
+
+Known reconstruction caveat (documented, accepted): a bulk HISTORICAL load sees
+only the final schedule, so a game that was flexed years ago stores its final
+kickoff as known at the release bound — the pre-flex kickoff is not
+recoverable from nflverse. This collapses old flexes; it never affects seasons
+ingested live, where every change lands as its own revision.
 """
 
 from __future__ import annotations
@@ -23,24 +29,26 @@ from ..registry import Dataset, register
 from ._common import (
     game_id,
     parse_kickoff,
+    postseason_release_knownat,
     require_columns,
     schedule_release_knownat,
+    season_range,
     season_type,
 )
 from .nfl_sources import fetch_schedules
 
 _REQUIRED = [
     "game_id", "season", "week", "game_type", "gameday", "gametime",
-    "home_team", "away_team", "roof", "stadium", "result",
+    "home_team", "away_team", "roof", "stadium", "location", "result",
 ]
 
 _INSERT_GAME = """
 insert into games (
     id, season, week, season_type, home_team_id, away_team_id,
-    venue, is_dome, status, kickoff_at, updated_at
+    venue, is_dome, is_neutral_site, status, kickoff_at, updated_at
 ) values (
     %(id)s, %(season)s, %(week)s, %(season_type)s, %(home)s, %(away)s,
-    %(venue)s, %(is_dome)s, %(status)s, %(kickoff)s, now()
+    %(venue)s, %(is_dome)s, %(is_neutral_site)s, %(status)s, %(kickoff)s, now()
 )
 """
 
@@ -67,12 +75,6 @@ class ScheduleError(IngestError):
     """A schedule row could not be ingested (e.g. an unknown team abbr)."""
 
 
-def _season_list(season_from: int | None, season_to: int | None) -> list[int]:
-    if season_from is None or season_to is None:
-        raise ScheduleError("schedule ingest requires --seasons (e.g. 1999-2025)")
-    return list(range(season_from, season_to + 1))
-
-
 def _team_abbr_to_id(cur) -> dict[str, str]:
     cur.execute("select nflverse_abbr, id from teams")
     return {abbr: tid for abbr, tid in cur.fetchall()}
@@ -88,7 +90,7 @@ def ingest_schedule(
     revision_known_at: datetime | None = None,
     **_: object,
 ) -> None:
-    seasons = _season_list(season_from, season_to)
+    seasons = season_range(season_from, season_to)
     df = fetch(seasons)
     require_columns(df, _REQUIRED, dataset="schedule")
 
@@ -122,7 +124,14 @@ def ingest_schedule(
                 gid = game_id(row["game_id"])
                 stype = season_type(row["game_type"])
                 venue = row["stadium"]
-                is_dome = row["roof"] == "dome"
+                # nflverse roof: dome | closed | open | outdoors. A closed
+                # retractable roof is indoor conditions — weather must bypass
+                # it exactly like a fixed dome. Only open/outdoors are outdoor.
+                is_dome = row["roof"] in ("dome", "closed")
+                # Neutral-site games (London, Munich, São Paulo, Super Bowls)
+                # do not play at the home team's stadium; weather ingest
+                # degrades them explicitly instead of using home-city coords.
+                is_neutral = row["location"] == "Neutral"
                 status = "completed" if row["result"] is not None else "scheduled"
 
                 cur.execute(
@@ -136,17 +145,28 @@ def ingest_schedule(
                         {
                             "id": gid, "season": row["season"], "week": row["week"],
                             "season_type": stype, "home": home, "away": away,
-                            "venue": venue, "is_dome": is_dome, "status": status,
+                            "venue": venue, "is_dome": is_dome,
+                            "is_neutral_site": is_neutral, "status": status,
                             "kickoff": kickoff,
                         },
                     )
-                    release = schedule_release_knownat(int(row["season"]))
+                    # The initial revision reconstructs what the schedule said
+                    # when it became public, so it must carry the PRE-game
+                    # status — never 'completed', which a bulk historical load
+                    # would otherwise stamp as known before the game was
+                    # played. Postseason matchups did not exist at the season's
+                    # schedule release; they get a later per-game bound.
+                    release = (
+                        postseason_release_knownat(kickoff)
+                        if stype == "POST"
+                        else schedule_release_knownat(int(row["season"]))
+                    )
                     cur.execute(
                         _INSERT_REVISION,
                         {
                             "game_id": gid, "kickoff": kickoff, "venue": venue,
-                            "status": status, "valid_at": release, "known_at": release,
-                            "run_id": handle.run_id,
+                            "status": "scheduled", "valid_at": release,
+                            "known_at": release, "run_id": handle.run_id,
                         },
                     )
                     written += 1

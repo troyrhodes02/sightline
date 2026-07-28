@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 
 import polars as pl
 
-from ..errors import SchemaDriftError
+from ..errors import SchemaDriftError, UsageError
 
 # Fixed namespace so ids are stable across machines and runs.
 _NS = uuid.UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8")  # RFC 4122 URL namespace
@@ -52,7 +52,7 @@ def require_columns(df: pl.DataFrame, columns: list[str], *, dataset: str) -> No
 def season_range(season_from: int | None, season_to: int | None) -> list[int]:
     """Inclusive season list, or raise if a seasonal dataset was given no range."""
     if season_from is None or season_to is None:
-        raise SchemaDriftError("this dataset requires --seasons (e.g. 1999-2025)")
+        raise UsageError("this dataset requires --seasons (e.g. 1999-2025)")
     return list(range(season_from, season_to + 1))
 
 
@@ -88,14 +88,26 @@ def parse_date(value: str | None) -> date | None:
 
 
 def day_after_game_knownat(kickoff: datetime) -> datetime:
-    """Reconstructed availability of post-game facts: 00:00 the day AFTER kickoff.
+    """Reconstructed availability of post-game facts: 09:00 US/Eastern the day
+    AFTER the game's EASTERN calendar day, returned as naive UTC.
 
-    Play-by-play and final stat lines become available the day after the game.
-    This is strictly after kickoff (so known_at >= valid_at holds) and never the
-    game date itself. Reconstructed — callers set knownAtReconstructed=true.
+    Play-by-play and final stat lines become available overnight after the
+    game. The bound must be computed on the Eastern calendar day, not the UTC
+    one: ``kickoff`` is stored naive-UTC, and midnight-UTC-next-day is still
+    the game evening in ET — a Sunday-afternoon slate would read as "known"
+    before Sunday Night Football kicks off, and a late Saturday game while it
+    is still being played. 09:00 ET the next morning resolves later, not
+    earlier (the reconstruction rule), is strictly after any NFL game ends,
+    and never lands on the game's own Eastern date. Reconstructed — callers
+    set knownAtReconstructed=true.
+
+    Must stay in lockstep with ``PUBLISHED_BY_SQL`` in ``asof.py`` — the
+    leakage suite asserts the two agree at the sharp edges.
     """
-    d = kickoff.date() + timedelta(days=1)
-    return datetime(d.year, d.month, d.day)
+    et_kick = kickoff.replace(tzinfo=_UTC).astimezone(_ET)
+    next_day = et_kick.date() + timedelta(days=1)
+    published_et = datetime(next_day.year, next_day.month, next_day.day, 9, 0, tzinfo=_ET)
+    return published_et.astimezone(_UTC).replace(tzinfo=None)
 
 
 def to_decimal(value: object, places: int = 1) -> Decimal | None:
@@ -117,10 +129,28 @@ def to_int(value: object) -> int | None:
 
 
 def schedule_release_knownat(season: int) -> datetime:
-    """Reconstructed availability of a season's schedule.
+    """Reconstructed availability of a season's REGULAR/PRESEASON schedule.
 
     The full schedule is public months before Week 1; resolving to Aug 1 of the
     season is a conservative *later* bound (never earlier than the true release,
     never the game date). Reconstructed — callers set knownAtReconstructed=true.
+
+    Never apply this to postseason games — use ``postseason_release_knownat``,
+    because a playoff matchup did not exist on Aug 1.
     """
     return datetime(season, 8, 1, 12, 0)
+
+
+def postseason_release_knownat(kickoff: datetime) -> datetime:
+    """Reconstructed availability of a POSTSEASON game's schedule entry.
+
+    Playoff matchups do not exist until the previous round resolves; stamping
+    them with the season's schedule release would encode playoff qualification
+    and seeding backwards into the regular season. Matchups are public at
+    least ~6 days before kickoff (wild-card pairings after the final
+    regular-season game; the Super Bowl two weeks out), so kickoff − 5 days is
+    a conservative *later* bound that is always after the true announcement
+    and always before the game. Reconstructed — callers set
+    knownAtReconstructed=true.
+    """
+    return kickoff - timedelta(days=5)

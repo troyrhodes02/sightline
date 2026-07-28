@@ -7,16 +7,34 @@ ships the registry and the dispatch/failure plumbing with the registry empty.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Protocol
 
 from .db import ConnectionFactory
 from .provenance import IngestRunHandle
 
-# A dataset's ingest function. It receives the run handle (to update row counts
-# and downgrade status), a connection factory (for its own data transaction),
-# and the season range. It raises on failure — the CLI records that as failed.
-DatasetRun = Callable[[IngestRunHandle, ConnectionFactory, int | None, int | None], None]
+
+class DatasetRun(Protocol):
+    """A dataset's ingest entrypoint — the CLI's actual call contract.
+
+    Receives the run handle (to update row counts and downgrade status), a
+    connection factory (for its own data transaction), and the season range
+    positionally. The CLI ALSO passes ``source=`` and ``from_samples=`` as
+    keyword arguments (see cli.py), so every implementation must swallow
+    keywords it does not use — the shipped datasets do this with a trailing
+    ``**_: object``. Implementations raise on failure — the CLI records that
+    as a failed run.
+    """
+
+    def __call__(
+        self,
+        handle: IngestRunHandle,
+        connect: ConnectionFactory,
+        season_from: int | None,
+        season_to: int | None,
+        /,
+        **kwargs: object,
+    ) -> None: ...
 
 
 @dataclass(frozen=True)

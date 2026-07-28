@@ -123,7 +123,7 @@ enum DataSource {
 enum IngestStatus {
   success   // completed, coverage as expected
   partial   // completed, but a documented coverage gap applies
-  degraded  // completed on a fallback (e.g. climatology for weather)
+  degraded  // completed on a fallback (reserved; no fallback ships in this pitch)
   failed    // did not complete; explicit failure, never a silent gap
 }
 
@@ -142,7 +142,7 @@ enum WeatherEra {
 enum WeatherStatus {
   observed      // a real weather record exists for this game
   dome          // indoor venue; weather bypassed by design (not a gap)
-  unavailable   // no source covers this game's era (fell back / degraded)
+  unavailable   // no venue coordinates, neutral-site game, or no source covers the era
   request_failed // source was expected but the fetch failed; a gap to retry
 }
 
@@ -468,8 +468,13 @@ model GameWeather {
   status               WeatherStatus
   weatherSource        String        @map("weather_source") // specific Open-Meteo dataset id
 
-  validAt              DateTime      @map("valid_at")  // kickoff window the weather describes
-  knownAt              DateTime      @map("known_at")  // forecast issue time (archived) / reconstructed
+  // validAt = kickoff window the weather describes; knownAt = conservative
+  // pre-game availability bound per era (kickoff − 12h archived / − 24h
+  // reanalysis). knownAt < validAt is legitimate here — forecasts are known
+  // before the window they describe — so game_weather is the one fact table
+  // WITHOUT the known_at >= valid_at CHECK.
+  validAt              DateTime      @map("valid_at")
+  knownAt              DateTime      @map("known_at")
   knownAtReconstructed Boolean       @default(false) @map("known_at_reconstructed")
 
   source               DataSource    @default(open_meteo)
@@ -536,8 +541,9 @@ alter table player_game_stats
   add constraint pgs_known_after_valid check (known_at >= valid_at);
 alter table player_game_context
   add constraint pgc_known_after_valid check (known_at >= valid_at);
-alter table game_weather
-  add constraint weather_known_after_valid check (known_at >= valid_at);
+-- game_weather is deliberately EXEMPT: a forecast is known BEFORE the window
+-- it describes (validAt = kickoff, knownAt = pre-game availability), so
+-- known_at < valid_at is the legitimate shape there.
 alter table game_schedule_revisions
   add constraint gsr_known_after_valid check (known_at >= valid_at);
 
@@ -614,17 +620,20 @@ Each command:
 
 | Source / dataset | `validAt` | `knownAt` (reconstructed) | Reconstructed? |
 | ---------------- | --------- | ------------------------- | -------------- |
-| Play-by-play | play wall-clock time | **day after the game**, 00:00 local | yes |
-| Player stats (final) | game final | **day after the game**, 00:00 local | yes |
-| Snap counts | game | **day after the game** | yes |
+| Play-by-play | play wall-clock time | **09:00 US/Eastern the morning after the game's Eastern date** | yes |
+| Player stats (final) | game final | **09:00 US/Eastern the morning after the game's Eastern date** | yes |
+| Snap counts | game | **09:00 US/Eastern the morning after the game's Eastern date** | yes |
 | Participation (practice) | practice day | **the scheduled practice-report publication window** for that day, resolved *later* if uncertain | yes |
-| Injury designation | the game week | **scheduled injury-report publication window** (Wed/Thu/Fri final report), never the game date | yes |
-| Schedule / kickoff | when the schedule state was true | publication time of the schedule release/revision | yes (bulk) |
-| Weather (archived forecast, 2021+) | kickoff window | **forecast issue time** from the archived-forecast dataset | no (observed) |
-| Weather (reanalysis, pre-2021) | kickoff window | conservatively set; era flagged `reanalysis`; **leak accepted and reported** | yes |
+| Injury designation | the game week | nflverse's own `date_modified` publication timestamp (tz-aware UTC, enforced) | no (observed) |
+| Schedule / kickoff (REG/PRE) | when the schedule state was true | season schedule release (Aug 1) for bulk loads; the revision's own availability for live changes | yes (bulk) |
+| Schedule / kickoff (POST) | when the schedule state was true | **kickoff − 5 days** — a playoff matchup did not exist at the season release; stamping it Aug 1 would encode playoff qualification backwards into the season | yes (bulk) |
+| Weather (archived forecast, 2021+) | kickoff window | **kickoff − 12h**, a conservative bound for the stored **previous-day1 forecast value** (a run initialized ~24h before the hour, public within a few hours) | yes |
+| Weather (reanalysis, pre-2021) | kickoff window | kickoff − 24h, nominal; era flagged `reanalysis`; **leak accepted and reported** | yes |
 | Stat correction | original game | the correction's own availability (`correctionKnownAt`) | source-dependent |
 
-**Rule of the pitch:** when in doubt, resolve **later**, not earlier, and **never to the game date itself.** Never rely on a source's file ordering or layout as a proxy for availability.
+**Rule of the pitch:** when in doubt, resolve **later**, not earlier, and **never to the game date itself** (the game's *Eastern* date — a UTC day-after bound is still the game evening in ET and leaks Sunday-afternoon finals into Sunday Night Football). Never rely on a source's file ordering or layout as a proxy for availability.
+
+**Why weather stores the previous-day1 value:** Open-Meteo's plain historical-forecast endpoint serves the *best-match* (shortest-lead, ≈0–6h) value per hour — nearly the actual weather. Stamping that as day-ahead-available would be a leak inside the era split calibration treats as clean. The Previous Runs API's `*_previous_day1` variables are what a reader the day before could genuinely have known.
 
 ### The as-of query layer contract
 
@@ -671,7 +680,7 @@ Design guarantees the layer must uphold:
 | Source unreachable | `IngestRun.status = failed`, explicit raise, no partial data committed |
 | Schema drift (structurally incomplete despite HTTP 200) | Treated as `failed`; never committed as `success` |
 | Documented coverage gap (e.g. participation weeks missing upstream) | `IngestRun.status = partial`, `SourceCoverage` row written; absence preserved, never zero-filled |
-| Weather era unavailable (pre-2021) | `status = degraded` where climatology fallback used; `WeatherEra.reanalysis`; leak recorded |
+| Weather not obtainable for a game | `WeatherStatus.unavailable` (no venue coordinates, neutral-site game) or `request_failed` (fetch failed; retryable) — distinct states, never one null. A run with failures is `IngestRun.status = partial` with the count recorded |
 | Credentials / secrets | Never written to `errorMessage`, logs, or any row |
 
 ---
@@ -848,9 +857,10 @@ QUERY: Introspect schema for fact tables lacking either column
 EXPECT: Empty result
 
 TEST: known_at_never_precedes_valid_at
-GIVEN: Any fact row
-THEN: known_at >= valid_at (enforced by check constraint)
-QUERY: Scan each fact table for known_at < valid_at
+GIVEN: Any fact row outside game_weather
+THEN: known_at >= valid_at (enforced by check constraint; game_weather is
+      exempt — forecasts are known before the window they describe)
+QUERY: Scan each non-weather fact table for known_at < valid_at
 EXPECT: Empty result
 
 TEST: no_reconstructed_known_at_equals_game_date
@@ -869,7 +879,7 @@ SCENARIO: The foundation's whole reason to exist
 STEP 1: Ingest players, schedule, pbp, stats, context, weather for a past season
 VERIFY:
   - Every fact carries valid_at, known_at, known_at_reconstructed
-  - Reconstructed known_at is flagged; observed (archived-forecast weather) is not
+  - Reconstructed known_at is flagged; observed (injury date_modified) is not
   - IngestRun + SourceCoverage recorded per source/dataset/season
 
 STEP 2: Resolve identities across nflverse/ESPN/Kalshi samples
@@ -920,10 +930,10 @@ def create_test_game_weather(**overrides) -> dict:
         "precipitation_mm": Decimal("0.0"),
         "era": "archived_forecast",         # 2021-forward
         "status": "observed",
-        "weather_source": "openmeteo_archive_forecast_v1",
-        "valid_at": datetime(2026, 11, 22, 18, 0, tzinfo=timezone.utc),
-        "known_at": datetime(2026, 11, 21, 12, 0, tzinfo=timezone.utc),  # forecast issue time
-        "known_at_reconstructed": False,     # observed forecast, not reconstructed
+        "weather_source": "openmeteo_previous_day1_forecast_v1",
+        "valid_at": datetime(2026, 11, 22, 18, 0, tzinfo=timezone.utc),   # kickoff window
+        "known_at": datetime(2026, 11, 22, 6, 0, tzinfo=timezone.utc),    # kickoff − 12h bound
+        "known_at_reconstructed": True,      # conservative bound, not an observed issue time
         "source": "open_meteo",
     }
     return {**base, **overrides}

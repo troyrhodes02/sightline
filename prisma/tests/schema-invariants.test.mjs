@@ -11,23 +11,23 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, "..", "..");
 const schema = readFileSync(join(repoRoot, "prisma", "schema.prisma"), "utf8");
-const migration = readFileSync(
-  join(
-    repoRoot,
-    "prisma",
-    "migrations",
-    "20260727000000_init_corpus_schema",
-    "migration.sql",
-  ),
-  "utf8",
-);
+
+// Concatenate EVERY migration in order, so constraints added or dropped by
+// later migrations are visible to these assertions.
+const migrationsDir = join(repoRoot, "prisma", "migrations");
+const migration = readdirSync(migrationsDir, { withFileTypes: true })
+  .filter((e) => e.isDirectory())
+  .map((e) => e.name)
+  .sort()
+  .map((dir) => readFileSync(join(migrationsDir, dir, "migration.sql"), "utf8"))
+  .join("\n");
 
 // The FACT tables governed by the temporal invariant. Corrections
 // (player_game_stat_corrections) are a version log with correction_known_at, not
@@ -40,6 +40,21 @@ const FACT_TABLES = [
   "game_weather",
   "game_schedule_revisions",
 ];
+
+// Fact tables where known_at >= valid_at is deliberately NOT enforced.
+// game_weather stores forecasts, which are known BEFORE the window they
+// describe — known_at < valid_at is the legitimate shape.
+const KNOWN_BEFORE_VALID_OK = ["game_weather"];
+
+// Tables that reference an IngestRun but are deliberately NOT bitemporal fact
+// tables, with the reason. Anything else carrying ingest_run_id must be in
+// FACT_TABLES — that is what makes this guard self-extending.
+const INGESTED_NON_FACT_TABLES = new Map([
+  [
+    "player_game_stat_corrections",
+    "append-only version log; its availability column is correction_known_at",
+  ],
+]);
 
 /** Parse `model X { ... }` blocks into { name, dbName, body, fields }. */
 function parseModels(src) {
@@ -119,6 +134,7 @@ test("every fact table maps its temporal columns to snake_case", () => {
 
 test("known_at >= valid_at CHECK constraint exists for every fact table", () => {
   for (const table of FACT_TABLES) {
+    if (KNOWN_BEFORE_VALID_OK.includes(table)) continue;
     const re = new RegExp(
       `ALTER TABLE "${table}"[\\s\\S]*?CHECK \\("known_at" >= "valid_at"\\)`,
     );
@@ -126,6 +142,34 @@ test("known_at >= valid_at CHECK constraint exists for every fact table", () => 
       migration,
       re,
       `migration is missing known_at >= valid_at CHECK on ${table}`,
+    );
+  }
+});
+
+test("game_weather's known_at >= valid_at CHECK is explicitly dropped, not merely absent", () => {
+  // Forecasts are known before the window they describe. The init migration
+  // added the CHECK; the fix migration must drop it deliberately so the
+  // exemption is a recorded decision, not an accident.
+  assert.match(
+    migration,
+    /ALTER TABLE "game_weather" DROP CONSTRAINT "weather_known_after_valid"/,
+    "game_weather must explicitly drop weather_known_after_valid",
+  );
+});
+
+test("every table referencing IngestRun is a declared fact table or a documented exception", () => {
+  // Self-extending guard: a future ingested table added without the
+  // bitemporal trio must fail HERE, not slip past a hardcoded list.
+  for (const [table, model] of modelsByTable) {
+    const referencesIngestRun = /@map\("ingest_run_id"\)/.test(model.body);
+    if (!referencesIngestRun) continue;
+    const declared =
+      FACT_TABLES.includes(table) || INGESTED_NON_FACT_TABLES.has(table);
+    assert.ok(
+      declared,
+      `${table} carries ingest_run_id but is neither in FACT_TABLES (bitemporal ` +
+        `trio enforced) nor a documented non-fact exception — a new fact table ` +
+        `without validAt/knownAt is a schema bug`,
     );
   }
 });

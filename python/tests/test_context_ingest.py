@@ -3,12 +3,12 @@ observation stream. Requires a database."""
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 import polars as pl
 import pytest
 
-from sightline_ingest.datasets._common import game_id, player_id
+from sightline_ingest.datasets._common import day_after_game_knownat, game_id, player_id
 from sightline_ingest.datasets.context import ingest_context
 from sightline_ingest.datasets.players import ingest_players
 from sightline_ingest.datasets.schedule import ingest_schedule
@@ -44,7 +44,8 @@ def _schedule_df() -> pl.DataFrame:
     return pl.DataFrame({
         "game_id": [NFL_GAME], "season": [2023], "week": [1], "game_type": ["REG"],
         "gameday": ["2023-09-07"], "gametime": ["20:20"], "home_team": ["KC"],
-        "away_team": ["DET"], "roof": ["outdoors"], "stadium": ["Arrowhead"], "result": [3],
+        "away_team": ["DET"], "roof": ["outdoors"], "stadium": ["Arrowhead"],
+        "location": ["Home"], "result": [3],
     })
 
 
@@ -62,9 +63,11 @@ def _snaps_df(rows: int = 1) -> pl.DataFrame:
 
 
 def _inj_df(report: str, practice: str, modified: datetime) -> pl.DataFrame:
+    # date_modified is tz-aware UTC upstream; the ingest enforces that.
     return pl.DataFrame({
         "season": [2023], "week": [1], "team": ["KC"], "gsis_id": [GSIS],
-        "report_status": [report], "practice_status": [practice], "date_modified": [modified],
+        "report_status": [report], "practice_status": [practice],
+        "date_modified": [modified.replace(tzinfo=timezone.utc)],
     })
 
 
@@ -119,7 +122,9 @@ def test_snaps_and_injuries_store_with_correct_known_at(corpus) -> None:
     assert {"snap_count_offense", "snap_pct_offense", "snap_pct_st"} <= types
     for _ctype, _val, known_at, reconstructed in snaps:
         assert reconstructed is True
-        assert known_at > kickoff and known_at.date() != kickoff.date()
+        assert known_at > kickoff
+        # 09:00 ET the morning after the game's EASTERN date, exactly.
+        assert known_at == day_after_game_knownat(kickoff)
 
     text_by_type = {r[0]: (r[1], r[2], r[3]) for r in texts}
     assert text_by_type["injury_designation"][0] == "Questionable"

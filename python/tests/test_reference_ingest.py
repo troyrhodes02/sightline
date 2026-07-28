@@ -61,6 +61,7 @@ def _schedule_df(*, gametime: str = "20:20", result=None) -> pl.DataFrame:
             "away_team": ["DET"],
             "roof": ["outdoors"],
             "stadium": ["GEHA Field at Arrowhead Stadium"],
+            "location": ["Home"],
             "result": [result],
         }
     )

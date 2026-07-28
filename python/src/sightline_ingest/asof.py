@@ -17,19 +17,36 @@ feature code must never import.
 from __future__ import annotations
 
 import math
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import polars as pl
 
+from .datasets._common import to_decimal, to_int
+from .datasets.stats import STAT_COLUMNS
 from .db import ConnectionFactory
 from .stadiums import STADIUM_COORDS
 
-# Stat columns, in canonical order (mirrors datasets/stats.py).
-_STAT_COLS = [
-    "passing_yards", "passing_tds", "passing_attempts", "completions",
-    "interceptions", "rushing_yards", "rushing_tds", "carries",
-    "receiving_yards", "receiving_tds", "receptions", "targets",
-]
+# Stat columns in canonical order, with their kinds — single source of truth
+# is the ingest side (datasets/stats.py), so the two cannot drift.
+_STAT_COLS = [c for c, _, _ in STAT_COLUMNS]
+_STAT_KINDS = {c: kind for c, _, kind in STAT_COLUMNS}
+
+# SQL twin of datasets._common.day_after_game_knownat: post-game facts
+# (final stat lines, play-by-play, snap counts) publish at 09:00 US/Eastern
+# the day after the game's EASTERN calendar day. kickoff_at stores naive UTC,
+# so convert to the Eastern wall clock, take the next calendar day at 09:00,
+# and convert back. The leakage suite asserts this expression and the Python
+# function agree at the sharp edges (late Saturday games, SNF, DST).
+#
+# Why not filter on pgs.known_at directly: a stat correction bumps the current
+# row's known_at to the correction time (its version's availability), which
+# would wrongly hide a game whose ORIGINAL line was published before the
+# cutoff. Original publication is derived from kickoff, exactly like ingest
+# derives it.
+_PUBLISHED_BY_SQL = (
+    "((((g.kickoff_at AT TIME ZONE 'UTC') AT TIME ZONE 'America/New_York')::date"
+    " + interval '1 day 9 hours') AT TIME ZONE 'America/New_York' AT TIME ZONE 'UTC')"
+)
 
 
 def _rows_to_df(cur) -> pl.DataFrame:
@@ -124,10 +141,10 @@ class AsOfCorpus:
         """The player's prior-game stat lines, valued AS PUBLISHED AT THE CUTOFF.
 
         Included only if the game kicked off before the target game AND its stats
-        were first published (day after the game) by the cutoff — so a future
-        game can never contribute to a trailing aggregate. Any correction whose
-        availability postdates the cutoff is rolled back to the value that was
-        current at the cutoff, so a corrected actual cannot re-enter features.
+        were first published (09:00 ET the day after the game) by the cutoff — so
+        a future game can never contribute to a trailing aggregate. Any correction
+        whose availability postdates the cutoff is rolled back to the value that
+        was current at the cutoff, so a corrected actual cannot re-enter features.
         """
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
@@ -143,7 +160,7 @@ class AsOfCorpus:
                 join games tg on tg.id = %(before)s
                 where pgs.player_id = %(pid)s
                   and g.kickoff_at < tg.kickoff_at
-                  and (date_trunc('day', g.kickoff_at) + interval '1 day') <= %(cutoff)s
+                  and {_PUBLISHED_BY_SQL} <= %(cutoff)s
                 order by g.kickoff_at
                 """,
                 {"pid": player_id, "before": before_game_id, "cutoff": self._cutoff},
@@ -155,42 +172,70 @@ class AsOfCorpus:
                 rollback = row.pop("rollback_values")
                 if rollback is not None:
                     # A correction landed after the cutoff: use the value that was
-                    # current at the cutoff, not the corrected one.
+                    # current at the cutoff, not the corrected one. prior_values
+                    # round-trips through JSON (Decimals become floats), so coerce
+                    # back to the column kinds ingest writes — a frame must not
+                    # mix dtypes depending on whether a rollback applied.
                     for c in _STAT_COLS:
                         if c in rollback:
-                            row[c] = rollback[c]
+                            v = rollback[c]
+                            row[c] = to_decimal(v) if _STAT_KINDS[c] == "decimal" else to_int(v)
                 rows.append(row)
             return pl.DataFrame(rows, orient="row")
 
     # --- Derived on read --------------------------------------------------
 
     def rest_and_travel(self, *, player_id: str, game_id: str) -> dict:
-        """Rest days and travel km, derived from schedule facts known at the cutoff.
+        """Rest days and travel km INTO the target game, derived on read.
 
-        Never a stored column. Uses the player's immediately prior game (by
-        kickoff) whose schedule was known by the cutoff.
+        Never a stored column. The target game's kickoff comes from
+        ``schedule_as_known`` — the revision stream at the cutoff, never the
+        mutable ``games`` row — so a flex or relocation announced after the
+        cutoff cannot change the value retroactively. The previous game is the
+        player's latest game whose stat line had been published by the cutoff
+        (which also proves the game itself was in the past).
         """
+        sched = self.schedule_as_known(game_id=game_id)
+        if sched.height == 0:
+            # No schedule revision was known at the cutoff: the game did not
+            # exist yet from this vantage point. Nothing to derive.
+            return {"rest_days": None, "travel_km": None}
+        target_kick = sched["kickoff_at"][0]
+
         with self._connect() as conn, conn.cursor() as cur:
+            # Home team of the target game: participants are immutable.
             cur.execute(
-                """
+                "select ht.nflverse_abbr from games g "
+                "join teams ht on g.home_team_id = ht.id where g.id = %(gid)s",
+                {"gid": game_id},
+            )
+            target_row = cur.fetchone()
+
+            cur.execute(
+                f"""
                 select g.kickoff_at, ht.nflverse_abbr
                 from player_game_stats pgs
                 join games g on g.id = pgs.game_id
                 join teams ht on g.home_team_id = ht.id
                 where pgs.player_id = %(pid)s
-                  and (date_trunc('day', g.kickoff_at) + interval '1 day') <= %(cutoff)s
-                  and g.kickoff_at <= (select kickoff_at from games where id = %(gid)s)
-                order by g.kickoff_at desc limit 2
+                  and g.id <> %(gid)s
+                  and g.kickoff_at < %(target_kick)s
+                  and {_PUBLISHED_BY_SQL} <= %(cutoff)s
+                order by g.kickoff_at desc limit 1
                 """,
-                {"pid": player_id, "gid": game_id, "cutoff": self._cutoff},
+                {
+                    "pid": player_id, "gid": game_id,
+                    "target_kick": target_kick, "cutoff": self._cutoff,
+                },
             )
-            games = cur.fetchall()
+            prev = cur.fetchone()
 
-        if len(games) < 2:
+        if target_row is None or prev is None:
             return {"rest_days": None, "travel_km": None}
-        (this_kick, this_home), (prev_kick, prev_home) = games[0], games[1]
-        rest_days = (this_kick.date() - prev_kick.date()).days
+        target_home = target_row[0]
+        prev_kick, prev_home = prev
+        rest_days = (target_kick.date() - prev_kick.date()).days
         travel_km = None
-        if this_home in STADIUM_COORDS and prev_home in STADIUM_COORDS:
-            travel_km = _haversine_km(STADIUM_COORDS[prev_home], STADIUM_COORDS[this_home])
+        if target_home in STADIUM_COORDS and prev_home in STADIUM_COORDS:
+            travel_km = _haversine_km(STADIUM_COORDS[prev_home], STADIUM_COORDS[target_home])
         return {"rest_days": rest_days, "travel_km": travel_km}

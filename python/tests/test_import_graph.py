@@ -13,7 +13,16 @@ from pathlib import Path
 
 import sightline_ingest
 
-FORBIDDEN = ("PriceObservation", "RecommendationSnapshot")
+# Both the Prisma model names AND the snake_case table names: the Python
+# runtime reaches tables exclusively through raw SQL, so a guard that only
+# knew the CamelCase names would wave `select * from price_observations`
+# straight through. Checked case-insensitively.
+FORBIDDEN = (
+    "priceobservation",
+    "recommendationsnapshot",
+    "price_observation",
+    "recommendation_snapshot",
+)
 
 
 def _package_python_files() -> list[Path]:
@@ -24,7 +33,7 @@ def _package_python_files() -> list[Path]:
 def test_no_price_references_in_source() -> None:
     offenders: list[str] = []
     for path in _package_python_files():
-        text = path.read_text(encoding="utf-8")
+        text = path.read_text(encoding="utf-8").lower()
         for token in FORBIDDEN:
             if token in text:
                 offenders.append(f"{path.name}: {token}")

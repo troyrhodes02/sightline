@@ -1,15 +1,18 @@
-"""Weather ingest: era policy + the three distinct states. Requires a database."""
+"""Weather ingest: era policy + the distinct degraded states. Requires a database."""
 
 from __future__ import annotations
+
+from datetime import timedelta
 
 import polars as pl
 import pytest
 
-from sightline_ingest.datasets._common import game_id
+from sightline_ingest.datasets._common import game_id, parse_kickoff
 from sightline_ingest.datasets.schedule import ingest_schedule
 from sightline_ingest.datasets.teams import ingest_teams
 from sightline_ingest.datasets.weather import ingest_weather
 from sightline_ingest.provenance import IngestRunHandle
+from sightline_ingest.stadiums import STADIUM_COORDS
 from sightline_ingest.weather_source import OpenMeteoError, WeatherReading
 
 pytestmark = pytest.mark.db
@@ -27,20 +30,25 @@ def _teams_df() -> pl.DataFrame:
 
 
 def _schedule_df() -> pl.DataFrame:
-    # Four games: 2023 outdoor (archived), 2020 outdoor (reanalysis),
-    # 2023 dome (NO home), 2023 outdoor with a home team missing from coords.
+    # Six games: 2023 outdoor (archived), 2020 outdoor (reanalysis),
+    # 2023 dome (NO home), 2023 outdoor with a home team missing from coords,
+    # 2023 closed retractable roof (indoor conditions), 2023 London neutral site.
     return pl.DataFrame({
-        "game_id": ["2023_01_DET_KC", "2020_01_DET_KC", "2023_02_KC_NO", "2023_03_DET_KC"],
-        "season": [2023, 2020, 2023, 2023],
-        "week": [1, 1, 2, 3],
-        "game_type": ["REG", "REG", "REG", "REG"],
-        "gameday": ["2023-09-07", "2020-09-13", "2023-09-14", "2023-09-21"],
-        "gametime": ["20:20", "13:00", "20:15", "20:15"],
-        "home_team": ["KC", "KC", "NO", "DET"],
-        "away_team": ["DET", "DET", "KC", "KC"],
-        "roof": ["outdoors", "outdoors", "dome", "outdoors"],
-        "stadium": ["Arrowhead", "Arrowhead", "Superdome", "Ford Field"],
-        "result": [3, 7, 3, 3],
+        "game_id": ["2023_01_DET_KC", "2020_01_DET_KC", "2023_02_KC_NO",
+                    "2023_03_DET_KC", "2023_04_KC_NO", "2023_05_DET_KC"],
+        "season": [2023, 2020, 2023, 2023, 2023, 2023],
+        "week": [1, 1, 2, 3, 4, 5],
+        "game_type": ["REG"] * 6,
+        "gameday": ["2023-09-07", "2020-09-13", "2023-09-14",
+                    "2023-09-21", "2023-09-28", "2023-10-01"],
+        "gametime": ["20:20", "13:00", "20:15", "20:15", "20:15", "09:30"],
+        "home_team": ["KC", "KC", "NO", "DET", "NO", "KC"],
+        "away_team": ["DET", "DET", "KC", "KC", "KC", "DET"],
+        "roof": ["outdoors", "outdoors", "dome", "outdoors", "closed", "outdoors"],
+        "stadium": ["Arrowhead", "Arrowhead", "Superdome", "Ford Field",
+                    "Superdome", "Wembley Stadium"],
+        "location": ["Home", "Home", "Home", "Home", "Home", "Neutral"],
+        "result": [3, 7, 3, 3, 3, 3],
     })
 
 
@@ -87,11 +95,24 @@ def test_era_policy_and_observed_state(games) -> None:
     assert reanalysis["era"] == "reanalysis"
     # Two eras distinguishable for split calibration.
     assert archived["era"] != reanalysis["era"]
-    # Observed state carries measurements + a recorded source; knownAt before kickoff.
+    # Observed state carries measurements + a recorded source.
     assert archived["status"] == "observed"
     assert float(archived["temperature_c"]) == 7.0
     assert archived["weather_source"] == "src_archived_forecast"
-    assert archived["known_at"] == archived["valid_at"]  # constraint known_at >= valid_at
+
+    # validAt is the kickoff window the weather describes; knownAt is the
+    # conservative pre-game bound per era. A forecast is known BEFORE the
+    # window it describes (game_weather is exempt from known_at >= valid_at).
+    kickoff_2023 = parse_kickoff("2023-09-07", "20:20")
+    kickoff_2020 = parse_kickoff("2020-09-13", "13:00")
+    assert archived["valid_at"] == kickoff_2023
+    assert archived["known_at"] == kickoff_2023 - timedelta(hours=12)
+    assert archived["known_at"] < archived["valid_at"]
+    assert reanalysis["valid_at"] == kickoff_2020
+    assert reanalysis["known_at"] == kickoff_2020 - timedelta(hours=24)
+    # Both eras are reconstructed availability, flagged as such.
+    assert archived["known_at_reconstructed"] is True
+    assert reanalysis["known_at_reconstructed"] is True
 
 
 def test_dome_game_has_no_measurements(games) -> None:
@@ -103,8 +124,30 @@ def test_dome_game_has_no_measurements(games) -> None:
     assert dome["temperature_c"] is None
     assert dome["wind_kph"] is None
     assert dome["precipitation_mm"] is None
-    # The dome game (NO home) never triggers a fetch.
-    assert ("NO" not in [c for _, _, c in client.calls])  # era-only tuple; dome skipped
+    # The dome games (NO home) never trigger a fetch: NO's coordinates must
+    # not appear among the client's calls.
+    assert STADIUM_COORDS["NO"] not in [(lat, lon) for lat, lon, _era in client.calls]
+
+
+def test_closed_retractable_roof_is_indoor(games) -> None:
+    # nflverse roof='closed' means the retractable roof was shut: indoor
+    # conditions. Outdoor readings must not be recorded for it.
+    connect = games
+    ingest_weather(_h("weather"), connect, 2020, 2023, client=FakeClient())
+    closed = _weather_by_game(connect)[game_id("2023_04_KC_NO")]
+    assert closed["status"] == "dome"
+    assert closed["temperature_c"] is None
+
+
+def test_neutral_site_degrades_explicitly(games) -> None:
+    # A London game must not store Kansas City's weather as 'observed'.
+    connect = games
+    client = FakeClient()
+    ingest_weather(_h("weather"), connect, 2020, 2023, client=client)
+    neutral = _weather_by_game(connect)[game_id("2023_05_DET_KC")]
+    assert neutral["status"] == "unavailable"
+    assert neutral["weather_source"] == "neutral_site_venue_unmapped"
+    assert neutral["temperature_c"] is None
 
 
 def test_request_failed_is_distinct_and_retryable(games) -> None:

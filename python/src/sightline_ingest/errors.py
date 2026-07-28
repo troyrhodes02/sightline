@@ -27,6 +27,12 @@ class SchemaDriftError(IngestError):
     successful partial load."""
 
 
+class UsageError(IngestError):
+    """The operator invoked an ingest incorrectly (e.g. a seasonal dataset with
+    no ``--seasons``). Kept distinct from SchemaDriftError so a recorded failure
+    is not misread as upstream drift."""
+
+
 # postgres://user:password@host:port/db  and  postgresql+driver://...
 _DSN_CREDENTIALS = re.compile(
     r"(?P<scheme>postgres(?:ql)?(?:\+\w+)?://)[^\s/@]+@",

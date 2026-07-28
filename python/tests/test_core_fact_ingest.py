@@ -10,7 +10,7 @@ from datetime import datetime
 import polars as pl
 import pytest
 
-from sightline_ingest.datasets._common import game_id, player_id
+from sightline_ingest.datasets._common import day_after_game_knownat, game_id, player_id
 from sightline_ingest.datasets.pbp import ingest_pbp
 from sightline_ingest.datasets.players import ingest_players
 from sightline_ingest.datasets.schedule import ingest_schedule
@@ -56,7 +56,7 @@ def _schedule_df() -> pl.DataFrame:
             "game_id": [NFL_GAME], "season": [2023], "week": [1], "game_type": ["REG"],
             "gameday": ["2023-09-07"], "gametime": ["20:20"], "home_team": ["KC"],
             "away_team": ["DET"], "roof": ["outdoors"],
-            "stadium": ["Arrowhead"], "result": [3],
+            "stadium": ["Arrowhead"], "location": ["Home"], "result": [3],
         }
     )
 
@@ -116,7 +116,10 @@ def test_pbp_ingest_reconstructs_known_at_and_is_idempotent(corpus) -> None:
     assert valid_at == kickoff
     assert reconstructed is True
     assert known_at > kickoff                      # known after the play was true
-    assert known_at.date() != kickoff.date()       # never the game date
+    # 09:00 ET the morning after the game's EASTERN date (Thu 8:20pm ET game
+    # -> Friday 09:00 ET = 13:00 UTC), matching the documented rule exactly.
+    assert known_at == day_after_game_knownat(kickoff)
+    assert known_at == datetime(2023, 9, 8, 13, 0)
 
     # Idempotent re-ingest.
     h2 = _h("pbp")

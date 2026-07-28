@@ -10,8 +10,10 @@
 // (when a fact was true of the world) and knownAt (when it became available),
 // both non-nullable, plus knownAtReconstructed (true when knownAt was inferred
 // from a per-source rule rather than observed). A raw-SQL migration adds
-// `known_at >= valid_at` check constraints on every fact table as defence in
-// depth behind the as-of query layer (which lands in a later PR).
+// `known_at >= valid_at` check constraints on fact tables as defence in depth
+// behind the as-of query layer — except game_weather, where a forecast is by
+// nature known BEFORE the window it describes (known_at < valid_at is the
+// legitimate shape there; see the GameWeather model).
 
 generator client {
   provider = "prisma-client"
@@ -123,7 +125,10 @@ model Player {
 model PlayerExternalId {
   id           String                   @id @default(uuid())
   source       DataSource
-  externalId   String?                  @map("external_id") // e.g. GSIS id, ESPN id, Kalshi identifier
+  // Non-nullable: it participates in the dedup unique key below, and Postgres
+  // treats NULLs as distinct in unique indexes — a NULL id would silently
+  // disable upsert dedup. Name-only sources use the name itself as the id.
+  externalId   String                   @map("external_id") // e.g. GSIS id, ESPN id, Kalshi identifier
   externalName String                   @map("external_name") // as rendered by the source
   playerId     String?                  @map("player_id") // null while unresolved/ambiguous
   status       IdentityResolutionStatus @default(unresolved)
@@ -155,6 +160,10 @@ model Game {
   awayTeamId String     @map("away_team_id")
   venue      String?
   isDome     Boolean    @map("is_dome")
+  // Neutral-site game (London/Munich/São Paulo, Super Bowls): not played at
+  // the home team's stadium, so home-city weather does not apply and weather
+  // ingest degrades explicitly instead of recording the wrong city.
+  isNeutralSite Boolean  @default(false) @map("is_neutral_site")
   status     GameStatus @default(scheduled)
 
   // Current best-known kickoff. Schedule changes are also recorded bitemporally
@@ -332,8 +341,13 @@ model GameWeather {
   status        WeatherStatus
   weatherSource String        @map("weather_source") // specific Open-Meteo dataset id
 
-  validAt              DateTime @map("valid_at") // kickoff window the weather describes
-  knownAt              DateTime @map("known_at") // forecast issue time (archived) / reconstructed
+  // validAt is the kickoff window the weather describes; knownAt is when the
+  // forecast could have been read (reconstructed conservative bound per era —
+  // see datasets/weather.py). A forecast is known BEFORE the window it
+  // describes, so knownAt < validAt is the legitimate shape here and this is
+  // the one fact table WITHOUT the known_at >= valid_at CHECK.
+  validAt              DateTime @map("valid_at")
+  knownAt              DateTime @map("known_at")
   knownAtReconstructed Boolean  @default(false) @map("known_at_reconstructed")
 
   source      DataSource @default(open_meteo)

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 
 def _load_dotenv() -> None:
@@ -63,6 +64,20 @@ def known_secret_values() -> list[str]:
     secrets: list[str] = []
     for key in ("INGEST_DATABASE_URL", "DIRECT_URL", "DATABASE_URL", "DB_PASSWORD"):
         value = os.environ.get(key)
-        if value:
-            secrets.append(value)
+        if not value:
+            continue
+        secrets.append(value)
+        # Also scrub the password COMPONENT of a DSN on its own: an error
+        # message may quote the password outside the user:pass@host shape the
+        # structural regex needs. Both the raw (possibly percent-encoded) and
+        # decoded forms are secrets.
+        try:
+            password = urlsplit(value).password
+        except ValueError:
+            password = None
+        if password:
+            secrets.append(password)
+            decoded = unquote(password)
+            if decoded != password:
+                secrets.append(decoded)
     return secrets

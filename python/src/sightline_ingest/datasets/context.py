@@ -19,10 +19,12 @@ SourceCoverage row, never a zero-filled or back-filled value.
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import timezone
 
 import polars as pl
 
 from ..db import ConnectionFactory
+from ..errors import SchemaDriftError
 from ..provenance import IngestRunHandle
 from ..registry import Dataset, register
 from ._common import day_after_game_knownat, game_id, player_id, require_columns, season_range, to_decimal
@@ -122,8 +124,16 @@ def _injury_rows(df, by_swt, run_id) -> tuple[list[dict], set[str], int]:
         gid, _kickoff = game
         pid = player_id(gsis)
         present.add(gid)
-        # date_modified is the OBSERVED publication time (tz-aware UTC -> naive UTC).
-        known = modified.replace(tzinfo=None)
+        # date_modified is the OBSERVED publication time — the one context
+        # known_at that is not reconstructed, so a silent timezone shift here
+        # moves the leakage boundary directly. Enforce the tz-aware assumption
+        # instead of assuming it, and normalise through UTC before stripping.
+        if modified.tzinfo is None:
+            raise SchemaDriftError(
+                "context(injuries): date_modified arrived without a timezone; "
+                "refusing to guess the availability of an observed fact"
+            )
+        known = modified.astimezone(timezone.utc).replace(tzinfo=None)
         for context_type, value in (
             ("injury_designation", r["report_status"]),
             ("practice_status", r["practice_status"]),

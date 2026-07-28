@@ -118,6 +118,13 @@ def main(argv: list[str] | None = None) -> int:
         # credential-safe message and exit non-zero.
         print(f"ingest failed: {sanitize_error(exc)}", file=sys.stderr)
         return 1
+    except Exception as exc:  # noqa: BLE001 — last-resort credential-safe surface
+        # Unexpected failure (driver, network, library). record_ingest_run has
+        # already recorded it as failed with a sanitized message; the console
+        # path must be sanitized too — a raw psycopg OperationalError traceback
+        # can embed the DSN's host and username.
+        print(f"ingest failed unexpectedly: {sanitize_error(exc)}", file=sys.stderr)
+        return 1
 
     print(
         f"{dataset.name}: {handle.status} "

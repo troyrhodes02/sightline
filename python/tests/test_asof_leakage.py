@@ -7,13 +7,18 @@ result, not filtered afterward. Requires a database.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 import polars as pl
 import pytest
 
 from sightline_ingest.asof import AsOfCorpus
-from sightline_ingest.datasets._common import game_id, player_id
+from sightline_ingest.datasets._common import (
+    day_after_game_knownat,
+    game_id,
+    parse_kickoff,
+    player_id,
+)
 from sightline_ingest.datasets.context import ingest_context
 from sightline_ingest.datasets.players import ingest_players
 from sightline_ingest.datasets.schedule import ingest_schedule
@@ -28,6 +33,15 @@ GSIS = "00-0033873"
 GAMES = [f"2023_0{w}_DET_KC" for w in range(1, 6)]  # weeks 1-5
 # Weekly kickoffs (Sunday 17:00 ET -> 21:00 UTC).
 GAMEDAYS = ["2023-09-10", "2023-09-17", "2023-09-24", "2023-10-01", "2023-10-08"]
+
+# Sharp-edge fixtures for the day-after publication rule:
+# a Saturday 4:30pm EST doubleheader game (21:30 UTC — the UTC date flips to
+# Sunday at 7pm EST, while the game is still being played) and the week-16
+# game that follows it, plus a January playoff game for the postseason
+# schedule-release bound.
+SAT_GAME = "2023_15_DET_KC"      # Sat 2023-12-16 16:30 ET
+WK16_GAME = "2023_16_DET_KC"     # Sun 2023-12-24 13:00 ET
+POST_GAME = "2023_19_DET_KC"     # wild card, Sun 2024-01-14 17:00 ET
 
 
 def _h(dataset: str) -> IngestRunHandle:
@@ -48,13 +62,19 @@ def _players_df() -> pl.DataFrame:
     })
 
 
-def _schedule_df() -> pl.DataFrame:
-    n = len(GAMES)
+def _schedule_df(*, wk3_gameday: str = "2023-09-24") -> pl.DataFrame:
+    ids = [*GAMES, SAT_GAME, WK16_GAME, POST_GAME]
+    gamedays = [GAMEDAYS[0], GAMEDAYS[1], wk3_gameday, GAMEDAYS[3], GAMEDAYS[4],
+                "2023-12-16", "2023-12-24", "2024-01-14"]
+    n = len(ids)
     return pl.DataFrame({
-        "game_id": GAMES, "season": [2023] * n, "week": list(range(1, n + 1)),
-        "game_type": ["REG"] * n, "gameday": GAMEDAYS, "gametime": ["17:00"] * n,
+        "game_id": ids, "season": [2023] * n,
+        "week": [1, 2, 3, 4, 5, 15, 16, 19],
+        "game_type": ["REG"] * 7 + ["POST"],
+        "gameday": gamedays,
+        "gametime": ["17:00"] * 5 + ["16:30", "13:00", "17:00"],
         "home_team": ["KC"] * n, "away_team": ["DET"] * n, "roof": ["outdoors"] * n,
-        "stadium": ["Arrowhead"] * n, "result": [3] * n,
+        "stadium": ["Arrowhead"] * n, "location": ["Home"] * n, "result": [3] * n,
     })
 
 
@@ -75,9 +95,11 @@ def _stats_df(specs: list[tuple[str, str, float]]) -> pl.DataFrame:
 
 
 def _inj_df(status: str, modified: datetime) -> pl.DataFrame:
+    # date_modified is tz-aware UTC upstream; the ingest enforces that.
     return pl.DataFrame({
         "season": [2023], "week": [1], "team": ["KC"], "gsis_id": [GSIS],
-        "report_status": [status], "practice_status": [None], "date_modified": [modified],
+        "report_status": [status], "practice_status": [None],
+        "date_modified": [modified.replace(tzinfo=timezone.utc)],
     })
 
 
@@ -125,6 +147,11 @@ def test_late_injury_fact_is_unreachable_at_prior_cutoff(base) -> None:
     # After the Friday report is known, the 'Out' becomes reachable.
     later = AsOfCorpus(connect, datetime(2023, 9, 9, 9, 0))
     assert later.latest_injury_designation(player_id=pid, game_id=gid) == "Out"
+
+    # Boundary is inclusive: a cutoff EXACTLY equal to a fact's known_at sees
+    # it ("known at the cutoff" includes the cutoff instant itself).
+    at_boundary = AsOfCorpus(connect, fri)
+    assert at_boundary.latest_injury_designation(player_id=pid, game_id=gid) == "Out"
 
 
 # --- 2. Recompute is time-invariant ----------------------------------------
@@ -238,9 +265,9 @@ def test_asof_module_does_not_import_grading() -> None:
     )
 
 
-def test_weather_and_schedule_reads_respect_cutoff(base) -> None:
+def test_weather_reads_respect_cutoff(base) -> None:
     connect = base
-    # A schedule revision and weather both known only AFTER the cutoff are absent.
+    # A weather row known only AFTER the cutoff is absent.
     gid = game_id(GAMES[0])
     with connect() as conn:
         with conn.cursor() as cur:
@@ -256,3 +283,145 @@ def test_weather_and_schedule_reads_respect_cutoff(base) -> None:
     assert early.game_weather(game_id=gid).height == 0
     late = AsOfCorpus(connect, datetime(2023, 9, 10, 0, 0))
     assert late.game_weather(game_id=gid).height == 1
+
+
+# --- 6. Schedule-as-known: revisions, flexes, postseason ---------------------
+
+def test_schedule_as_known_ignores_post_cutoff_flex(base) -> None:
+    connect = base
+    gid = game_id(GAMES[2])
+    original_kick = parse_kickoff("2023-09-24", "17:00")
+
+    # Flex week 3 to Monday, announced Sep 23 — AFTER our Friday cutoff.
+    flex_known = datetime(2023, 9, 23, 12, 0)
+    ingest_schedule(_h("schedule"), connect, 2023, 2023,
+                    fetch=lambda s: _schedule_df(wk3_gameday="2023-09-25"),
+                    revision_known_at=flex_known)
+
+    friday = AsOfCorpus(connect, datetime(2023, 9, 22, 12, 0))
+    known = friday.schedule_as_known(game_id=gid)
+    assert known.height == 1
+    assert known["kickoff_at"][0] == original_kick  # the flex is unreachable
+
+    # The initial (bulk-load) revision must carry the PRE-game status: a
+    # historical load knows the result, but the revision stream must never
+    # claim 'completed' was known at the schedule release.
+    assert known["status"][0] == "scheduled"
+
+    after = AsOfCorpus(connect, datetime(2023, 9, 23, 13, 0))
+    assert after.schedule_as_known(game_id=gid)["kickoff_at"][0] == parse_kickoff(
+        "2023-09-25", "17:00"
+    )
+
+
+def test_postseason_schedule_is_not_known_at_season_release(base) -> None:
+    connect = base
+    gid = game_id(POST_GAME)  # wild card, kicks off 2024-01-14
+
+    # Mid-season: the playoff matchup does not exist yet. Stamping it at the
+    # Aug-1 release would encode playoff qualification backwards into the season.
+    november = AsOfCorpus(connect, datetime(2023, 11, 1, 0, 0))
+    assert november.schedule_as_known(game_id=gid).height == 0
+
+    # Five days before kickoff it is known (conservative later bound).
+    wild_card_week = AsOfCorpus(connect, datetime(2024, 1, 10, 0, 0))
+    assert wild_card_week.schedule_as_known(game_id=gid).height == 1
+
+
+# --- 7. The day-after publication rule at its sharp edges --------------------
+
+def test_saturday_game_stats_unreachable_until_next_morning_et(base) -> None:
+    connect = base
+    # Final stats for the Saturday 4:30pm EST game exist in the corpus.
+    ingest_stats(_h("stats"), connect, 2023, 2023,
+                 fetch=lambda s: _stats_df([(SAT_GAME, "KC", 275.0)]))
+    pid = player_id(GSIS)
+    sat_kick = parse_kickoff("2023-12-16", "16:30")  # 21:30 UTC
+    published = day_after_game_knownat(sat_kick)
+    # The rule in Python: 09:00 ET Sunday = 14:00 UTC. Pin it exactly so the
+    # SQL twin below is checked against a known value, not against itself.
+    assert published == datetime(2023, 12, 17, 14, 0)
+
+    def trailing_at(cutoff: datetime) -> set[str]:
+        frame = AsOfCorpus(connect, cutoff).trailing_player_stats(
+            player_id=pid, before_game_id=game_id(WK16_GAME)
+        )
+        return set(frame["game_id"].to_list()) if frame.height else set()
+
+    # 7pm EST Saturday is midnight UTC Sunday — the UTC date has flipped but
+    # the game is still in the fourth quarter. A UTC day-after rule would leak
+    # the final stat line right here.
+    during_game_et = datetime(2023, 12, 17, 0, 30)  # Sat 7:30pm EST
+    assert game_id(SAT_GAME) not in trailing_at(during_game_et)
+
+    # Still unreachable just before the next-morning publication bound…
+    assert game_id(SAT_GAME) not in trailing_at(datetime(2023, 12, 17, 13, 59))
+    # …and reachable AT the bound (inclusive) and after.
+    assert game_id(SAT_GAME) in trailing_at(published)
+    assert game_id(SAT_GAME) in trailing_at(datetime(2023, 12, 18, 0, 0))
+
+
+def test_sunday_afternoon_stats_unreachable_at_snf_kickoff(base) -> None:
+    connect = base
+    ingest_stats(_h("stats"), connect, 2023, 2023,
+                 fetch=lambda s: _stats_df([(GAMES[0], "KC", 300.0)]))
+    pid = player_id(GSIS)
+    # Sunday Night Football cutoff: 8:15pm ET Sep 10 = 00:15 UTC Sep 11. The
+    # 1pm/4:25pm slate's final lines are NOT published yet — nflverse posts
+    # them overnight. midnight-UTC-Monday would have leaked them here.
+    snf_cutoff = datetime(2023, 9, 11, 0, 15)
+    frame = AsOfCorpus(connect, snf_cutoff).trailing_player_stats(
+        player_id=pid, before_game_id=game_id(GAMES[4])
+    )
+    assert frame.height == 0
+    # Next morning at 09:00 ET (13:00 UTC) they publish.
+    frame = AsOfCorpus(connect, datetime(2023, 9, 11, 13, 0)).trailing_player_stats(
+        player_id=pid, before_game_id=game_id(GAMES[4])
+    )
+    assert set(frame["game_id"].to_list()) == {game_id(GAMES[0])}
+
+
+# --- 8. Rest & travel: derived for the TARGET game, flex-invariant -----------
+
+def test_rest_and_travel_pairs_target_with_previous_game(base) -> None:
+    connect = base
+    ingest_stats(_h("stats"), connect, 2023, 2023, fetch=lambda s: _stats_df(
+        [(GAMES[0], "KC", 200.0), (GAMES[1], "KC", 210.0)]
+    ))
+    pid = player_id(GSIS)
+    # Projecting week 3 (Sun Sep 24) from Friday Sep 22: the previous game is
+    # week 2 (Sun Sep 17) -> 7 rest days into the TARGET game, not the 7 days
+    # between weeks 1 and 2 that the previous-pair bug produced.
+    friday = AsOfCorpus(connect, datetime(2023, 9, 22, 12, 0))
+    result = friday.rest_and_travel(player_id=pid, game_id=game_id(GAMES[2]))
+    assert result["rest_days"] == 7
+    assert result["travel_km"] == 0.0  # KC home -> KC home
+
+
+def test_rest_and_travel_is_invariant_to_post_cutoff_flex(base) -> None:
+    connect = base
+    ingest_stats(_h("stats"), connect, 2023, 2023, fetch=lambda s: _stats_df(
+        [(GAMES[0], "KC", 200.0), (GAMES[1], "KC", 210.0)]
+    ))
+    pid = player_id(GSIS)
+    cutoff = datetime(2023, 9, 22, 12, 0)
+    before = AsOfCorpus(connect, cutoff).rest_and_travel(
+        player_id=pid, game_id=game_id(GAMES[2])
+    )
+
+    # Week 3 flexes Sunday -> Monday, announced AFTER the cutoff. Derived from
+    # schedule-as-known, the feature at the same cutoff must not move — the
+    # mutable games row has, but that row is not the read path.
+    ingest_schedule(_h("schedule"), connect, 2023, 2023,
+                    fetch=lambda s: _schedule_df(wk3_gameday="2023-09-25"),
+                    revision_known_at=datetime(2023, 9, 23, 12, 0))
+    after = AsOfCorpus(connect, cutoff).rest_and_travel(
+        player_id=pid, game_id=game_id(GAMES[2])
+    )
+    assert before == after == {"rest_days": 7, "travel_km": 0.0}
+
+    # Once the flex IS known, the same derivation reflects it: one extra day.
+    post_flex = AsOfCorpus(connect, datetime(2023, 9, 23, 13, 0)).rest_and_travel(
+        player_id=pid, game_id=game_id(GAMES[2])
+    )
+    assert post_flex["rest_days"] == 8
