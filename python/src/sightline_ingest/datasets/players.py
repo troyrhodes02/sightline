@@ -43,6 +43,7 @@ def ingest_players(
     season_to: int | None = None,
     *,
     fetch: Callable[[], pl.DataFrame] = fetch_players,
+    **_: object,
 ) -> None:
     df = fetch()
     require_columns(df, _REQUIRED, dataset="players")

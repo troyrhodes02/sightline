@@ -86,6 +86,7 @@ def ingest_schedule(
     *,
     fetch: Callable[[list[int]], pl.DataFrame] = fetch_schedules,
     revision_known_at: datetime | None = None,
+    **_: object,
 ) -> None:
     seasons = _season_list(season_from, season_to)
     df = fetch(seasons)
