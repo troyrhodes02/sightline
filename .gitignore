@@ -20,6 +20,14 @@ dist-ssr
 # Prisma generated client (regenerated from schema; not source of truth)
 /generated/
 
+# Python (uv). uv.lock IS committed for reproducibility.
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

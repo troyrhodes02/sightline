@@ -1,0 +1,40 @@
+[project]
+name = "sightline-ingest"
+version = "0.1.0"
+description = "Sightline Python runtime: historical NFL corpus ingest, provenance, and the as-of query layer."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    # The only sanctioned nflverse client. nfl_data_py is deprecated/archived —
+    # do not add it. (Declared now; datasets are ingested from SIG-7 onward.)
+    "nflreadpy>=0.1.0",
+    # Primary DataFrame library, following nflreadpy's native output.
+    "polars>=1.0.0",
+    # Postgres client for the direct (non-pooled) connection.
+    "psycopg[binary]>=3.2.0",
+    # Load the repo-root .env for local development (mirrors prisma.config.ts).
+    "python-dotenv>=1.0.0",
+]
+
+[project.scripts]
+# Ingest entry point. Datasets are registered by later PRs; this PR ships the
+# scaffold, provenance, and failure semantics only.
+sightline-ingest = "sightline_ingest.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sightline_ingest"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "db: integration test that requires TEST_DATABASE_URL (a real Postgres).",
+]
