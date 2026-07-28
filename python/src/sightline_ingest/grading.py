@@ -43,9 +43,10 @@ class GradingCorpus:
     def final_player_stats_for_game(self, *, game_id: str) -> pl.DataFrame:
         """Every player's corrected stat line for one game, in one read.
 
-        The harness grades a whole game at a time. Still grading-only: this
-        module is unreachable from feature code, and the import-graph test
-        keeps it that way.
+        The harness grades a whole game at a time. Still grading-only: the
+        feature-path modules are swept for any reference to this module
+        (test_verify: feature code cannot reach the grading corpus), so a
+        future import shows up as a failing guard, not a silent leak.
         """
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(

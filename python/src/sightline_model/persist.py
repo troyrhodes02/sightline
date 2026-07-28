@@ -343,7 +343,7 @@ def load_run(connect: ConnectionFactory, run_id: str) -> dict | None:
             "aggregate_digest, calibration_digest, corpus_digest, "
             "engine_config_digest, artifact_path, model_version, code_version, "
             "code_dirty, seed, rng_draws, evaluation_window, season_from, "
-            "season_to, stat_types::text[] as stat_types, cutoff_policy, "
+            "season_to, stat_types::text[] as stat_types, season_types, cutoff_policy, "
             "threshold_policy_version, grading_target, candidate_count, "
             "projected_count, unprojectable_count, excluded_count, "
             "comparison_count, threshold_obs_count, started_at, finished_at, "

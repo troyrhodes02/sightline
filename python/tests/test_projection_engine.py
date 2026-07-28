@@ -256,6 +256,36 @@ def test_continuous_stat_never_places_mass_below_zero() -> None:
         assert result.interval_low >= 0.0
 
 
+def test_negative_yardage_is_inflation_mass_not_vanished_weight() -> None:
+    # Regression (review fix): a negative actual — routine in rushing and
+    # receiving yardage — matched neither the zero branch (v == 0.0) nor the
+    # log-normal branch (v > 0.0), so its weight silently vanished from the
+    # mixture and survival probabilities were overstated. The rule is now:
+    # non-positive production is inflation mass, matching lognormal_moments.
+    from sightline_model.constants import HALF_LIFE_GAMES
+    from sightline_model.projection import _fit_continuous
+
+    window = [-3.0, -1.0, 2.0, -2.0, 5.0, -1.0, 1.0, -2.0]
+    dist, _ = _fit_continuous(history(window), CONT_PRIOR)
+
+    # Independent recomputation: exponentially-weighted share of <= 0 games,
+    # shrunk toward the prior with weight K0.
+    raw = [0.5 ** (age / HALF_LIFE_GAMES) for age in range(len(window) - 1, -1, -1)]
+    total = sum(raw)
+    share = sum(w / total for w, v in zip(raw, window) if v <= 0.0)
+    n = len(window)
+    expected_p_zero = (n * share + K0 * CONT_PRIOR.p_zero) / (n + K0)
+
+    assert dist.p_zero == pytest.approx(expected_p_zero, abs=1e-12)
+    # Five of eight games produced nothing positive; under the old bug the
+    # sample contribution was 0.0 and the fitted p_zero collapsed to ~0.04.
+    assert dist.p_zero > 0.4
+    # And the survival probability must be consistent with that mass: at most
+    # the weight of positive production, nowhere near the old overstated value.
+    assert dist.prob_at_least(0.5) <= 1.0 - dist.p_zero + 1e-12
+    assert dist.prob_at_least(0.5) < 0.6
+
+
 def test_all_zero_history_is_projectable_not_an_error() -> None:
     # A tight end with four eligible games and no receiving yards is a real
     # player. The projection should be small and heavy at zero, not a crash.

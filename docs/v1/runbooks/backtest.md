@@ -48,7 +48,9 @@ uv run --project python sightline-backtest run \
 | `--limit-games` | Bound the run while iterating. |
 | `--reap` | Mark abandoned `running` rows as `interrupted` first. Never as completed. |
 
-The run is the **only** command that writes.
+The run is the **only** command that writes. `run` validates `--seasons`
+against `source_coverage` before inserting a run row: a season outside ingested
+coverage exits 2 with the covered range named, and no run row is created.
 
 ### How the information cutoff is applied
 
@@ -83,8 +85,14 @@ python/artifacts/backtests/<run-id>/
 ├── predictions/part-*.parquet
 ├── thresholds/part-*.parquet
 ├── exclusions/part-*.parquet
+├── priors/part-*.parquet
 └── _COMPLETE
 ```
+
+`priors/` holds one row per `(season, stat_type, position)` prior the run used —
+the fitted parameters plus `fitted_from_seasons`, `sample_games`, and
+`sample_players` — so the walk-forward refit is auditable from the artefacts
+alone.
 
 `_COMPLETE` is the filesystem twin of `status = completed` and is written last.
 `verify` asserts the two agree — a crash between them is exactly the state that
@@ -100,7 +108,9 @@ died and are not results.
 ## Inspecting a run
 
 All read-only. `--strict` turns "this run is not a completed result" into a
-non-zero exit, so a script cannot quietly build on partial numbers.
+non-zero exit, so a script cannot quietly build on partial numbers. Every
+command below (and `list`) takes `--json` for machine-readable output; the
+examples show the human-readable form.
 
 ```bash
 sightline-backtest list

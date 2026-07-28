@@ -202,6 +202,78 @@ def test_nb_rejects_degenerate_parameters() -> None:
         NegativeBinomial(r=1.0, p=0.0, cap=4)
 
 
+def _nb_pmf_reference(r: float, p: float, k: int) -> float:
+    """Independent lgamma-based PMF: ``Γ(k+r) / (Γ(r) k!) · p^r (1-p)^k``.
+
+    Deliberately not the recurrence the implementation uses, so agreement is
+    evidence rather than tautology.
+    """
+    log_pmf = (
+        math.lgamma(k + r)
+        - math.lgamma(r)
+        - math.lgamma(k + 1)
+        + r * math.log(p)
+        + k * math.log(1.0 - p)
+    )
+    return math.exp(log_pmf)
+
+
+def test_nb_threshold_beyond_the_cap_is_exact_not_clamped() -> None:
+    # Regression (review fix): prob_at_least clamped at the stored PMF, so
+    # every threshold beyond the cap silently answered P(X >= cap + 1).
+    dist = fit_negative_binomial(mean=4.2, variance=7.0, cap=15)
+    for threshold in (16.5, 20.5):
+        k = math.ceil(threshold)
+        expected = 1.0 - sum(
+            _nb_pmf_reference(dist.r, dist.p, j) for j in range(k)
+        )
+        assert dist.prob_at_least(threshold) == pytest.approx(expected, abs=1e-12)
+    # The clamped bug returned the same value for both; they must differ.
+    assert dist.prob_at_least(20.5) < dist.prob_at_least(16.5)
+
+
+def test_nb_threshold_probability_is_monotone_across_the_cap_boundary() -> None:
+    # Real mass sits at the cap and above it here, so the decrease is strict.
+    dist = fit_negative_binomial(mean=12.0, variance=40.0, cap=15)
+    inside = dist.prob_at_least(dist.cap - 0.5)
+    just_past = dist.prob_at_least(dist.cap + 0.5)
+    far_past = dist.prob_at_least(dist.cap + 5.5)
+    assert inside > just_past > far_past
+    assert 0.0 <= far_past <= 1.0
+
+
+def test_nb_tail_quantiles_pass_the_cap_and_match_the_reference_cdf() -> None:
+    # Regression (review fix): quantile saturated at the cap once the stored
+    # PMF ran out of cumulative mass, understating interval_high and thereby
+    # inflating confidence. Mean 12 with cap 15 leaves ~25% of mass above the
+    # cap, so q90 and q95 both live in the tail.
+    dist = fit_negative_binomial(mean=12.0, variance=40.0, cap=15)
+    assert dist.tail_mass() > 0.2
+
+    for q in (0.90, 0.95):
+        value = dist.quantile(q)
+        assert value > dist.cap, f"q{int(q * 100)} saturated at the cap"
+        # Independent CDF inversion from the lgamma reference.
+        cumulative, k = 0.0, 0
+        while cumulative + _nb_pmf_reference(dist.r, dist.p, k) < q:
+            cumulative += _nb_pmf_reference(dist.r, dist.p, k)
+            k += 1
+        assert value == float(k)
+
+
+def test_nb_quantiles_within_the_cap_are_unaffected_by_the_tail_walk() -> None:
+    # The tail continuation must not perturb quantiles that already resolve
+    # inside the stored PMF: same reference inversion, low q.
+    dist = fit_negative_binomial(mean=4.2, variance=7.0, cap=15)
+    for q in (0.25, 0.50, 0.75):
+        cumulative, k = 0.0, 0
+        while cumulative + _nb_pmf_reference(dist.r, dist.p, k) < q:
+            cumulative += _nb_pmf_reference(dist.r, dist.p, k)
+            k += 1
+        assert dist.quantile(q) == float(k)
+        assert dist.quantile(q) <= dist.cap
+
+
 def test_tail_mass_is_never_negative_at_a_low_cap() -> None:
     # A cap of 4 on a distribution centred at 4.5 leaves real mass above it;
     # truncating instead of carrying a tail would inflate every threshold

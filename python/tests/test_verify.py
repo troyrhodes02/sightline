@@ -303,6 +303,22 @@ def test_feature_code_does_not_import_the_diagnostic_reader(corpus) -> None:
         assert "diagnostics" not in text, f"{name} imports the diagnostic reader"
 
 
+def test_feature_code_cannot_reach_the_grading_corpus(corpus) -> None:
+    # GradingCorpus reads the current corrected line with no cutoff — correct
+    # for grading, a leak anywhere else. The price sweep does not cover it, so
+    # without this guard nothing stops features.py from importing it, and the
+    # docstring in grading.py promises a structural wall.
+    from pathlib import Path
+
+    import sightline_model
+
+    root = Path(sightline_model.__file__).resolve().parent
+    for name in ("features.py", "projection.py", "baselines.py", "priors.py",
+                 "distributions.py", "stat_types.py"):
+        text = (root / name).read_text(encoding="utf-8").lower()
+        assert "grading" not in text, f"{name} references the grading corpus"
+
+
 # --- End to end ---------------------------------------------------------------
 
 

@@ -516,7 +516,8 @@ model CalibrationBin {
 
   // Segment. NULL means "all" on that axis. Postgres treats NULLs as distinct
   // in a unique index, so @@unique below does NOT prevent duplicate "all" rows
-  // — a partial unique index over COALESCEd sentinels does, in the migration.
+  // — four partial unique indexes (one per segment axis) plus a single-axis
+  // CHECK do, in the migration.
   statType StatType?   @map("stat_type")
   season   Int?
   era      WeatherEra?

@@ -257,7 +257,11 @@ def _fit_continuous(
     window, weights = history.window, history.weights()
     _, _, sigma = lognormal_moments(window)
 
-    p_zero = sum(w for w, v in zip(weights, window) if v == 0.0)
+    # Non-positive production is inflation mass, matching ``lognormal_moments``.
+    # Negative actuals are routine in rushing/receiving yardage; if they matched
+    # neither branch their weight would silently vanish from the mixture and
+    # every survival probability would be overstated.
+    p_zero = sum(w for w, v in zip(weights, window) if v <= 0.0)
     positives = [(w, v) for w, v in zip(weights, window) if v > 0.0]
     if positives:
         total = sum(w for w, _ in positives)

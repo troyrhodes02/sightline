@@ -7,6 +7,9 @@ that implement them. Each test names the ⟨was-UI⟩ requirement it discharges.
 
 from __future__ import annotations
 
+import json
+
+import polars as pl
 import pytest
 
 from sightline_model import artifacts as art
@@ -201,6 +204,55 @@ def test_exclusion_reason_codes_are_verbatim(corpus, run) -> None:
     assert "baseline_unavailable" in text or "insufficient_history" in text
 
 
+def test_exclusions_headline_does_not_count_baseline_unavailable() -> None:
+    # baseline_unavailable candidates WERE projected and graded — they are
+    # only absent from the baseline-comparison population. Counting them in
+    # the "not in the evaluation population" headline over-reports. Pure test
+    # against the arithmetic helper; no run needed.
+    frame = pl.DataFrame({
+        "reason": ["baseline_unavailable"] * 3 + ["insufficient_history"] * 2,
+    })
+    breakdown = cmd.exclusion_breakdown(frame, 10)
+
+    assert breakdown["removedFromEvaluation"] == 2
+    assert breakdown["baselineUnavailable"] == 3
+    assert breakdown["rows"] == 5
+    # Reason codes verbatim, never prettified.
+    assert {r["reason"] for r in breakdown["reasons"]} == {
+        "baseline_unavailable", "insufficient_history",
+    }
+
+    lines = cmd.exclusion_headline(breakdown)
+    assert "2 of 10" in lines[0]
+    assert "20.0%" in lines[0]
+    assert "3 further" in lines[1]
+    assert "model-only" in lines[1]
+
+
+def test_exclusions_headline_omits_the_baseline_sentence_when_none() -> None:
+    frame = pl.DataFrame({"reason": ["insufficient_history"] * 4})
+    breakdown = cmd.exclusion_breakdown(frame, 8)
+    lines = cmd.exclusion_headline(breakdown)
+
+    assert len(lines) == 1
+    assert "4 of 8" in lines[0]
+    assert "50.0%" in lines[0]
+
+
+def test_exclusions_text_discloses_baseline_unavailable_separately(
+    corpus, run
+) -> None:
+    # The fixture corpus produces week-1 baseline_unavailable rows (a season
+    # average is undefined before the player's first eligible game). When they
+    # exist, the headline must not absorb them.
+    frame = art.read_dataset(run.root, art.EXCLUSIONS)
+    text, _ = cmd.exclusions(corpus, run.run_id)
+    baseline_rows = frame.filter(pl.col("reason") == "baseline_unavailable").height
+    if baseline_rows:
+        assert "graded in the model-only population" in text
+        assert f"{baseline_rows:,} further" in text
+
+
 # --- thresholds ⟨was-UI: any threshold, no refit⟩ ----------------------------
 
 
@@ -223,6 +275,58 @@ def test_grid_thresholds_are_monotone(corpus, run) -> None:
     assert values == sorted(values, reverse=True)
 
 
+# --- cohorts ⟨single vocabulary, sourced from the engine⟩ ---------------------
+
+
+def test_cohort_vocabulary_is_the_engine_vocabulary() -> None:
+    # COHORTS must collect the COHORT_* constants, never retyped strings —
+    # a filter vocabulary that drifts from what the engine emits silently
+    # filters everything to zero rows.
+    from sightline_model import projection
+
+    assert set(cmd.COHORTS) == {
+        projection.COHORT_SPARSE,
+        projection.COHORT_LOW_CONFIDENCE,
+        projection.COHORT_RETURNING,
+        projection.COHORT_ROLE_CHANGE,
+        projection.COHORT_IMPOSSIBLE,
+    }
+
+
+def test_valid_cohort_with_zero_members_still_prints_zero_rows(
+    corpus, run
+) -> None:
+    # A valid cohort that matches nothing is a result, not an error.
+    text, _ = cmd.predictions(corpus, run.run_id, cohort="impossible_output")
+    assert "showing" in text or "No predictions match" in text
+
+
+# --- disclosure counters ⟨show: corrections applied, cutoff-after-kickoff⟩ ----
+
+
+def test_disclosure_counter_renders_not_recorded_when_absent() -> None:
+    # An older run that never recorded a counter must render NOT_RECORDED,
+    # never a zero — a zero reads as a measurement.
+    from sightline_model import report
+
+    line = report.disclosure_line("correctionAppliedCount", {})
+    assert line == "correctionAppliedCount  — (not recorded)"
+
+    line = report.disclosure_line(
+        "cutoffAfterKickoffCount", {"cutoffAfterKickoffCount": 4}
+    )
+    assert line.startswith("cutoffAfterKickoffCount  4")
+    assert "not recorded" not in line
+
+
+def test_show_surfaces_both_disclosure_counters(corpus, run) -> None:
+    # Present or not, `show` accounts for both counters by name: a value when
+    # the harness recorded one, "— (not recorded)" when it did not.
+    text, _ = cmd.show(corpus, run.run_id)
+    assert "correctionAppliedCount" in text
+    assert "cutoffAfterKickoffCount" in text
+
+
 # --- CLI surface ---------------------------------------------------------------
 
 
@@ -243,6 +347,90 @@ def test_every_inspection_command_runs_through_the_cli(
         code = main(["--database-url", test_dsn, *argv])
         capsys.readouterr()
         assert code == 0, argv
+
+
+def test_every_command_emits_machine_parseable_json(
+    corpus, test_dsn, run, capsys
+) -> None:
+    # SIG-19 acceptance criterion: --json output is stable and
+    # machine-parseable for EVERY command, verify included.
+    prediction = _first_prediction_id(run)
+    invocations = [
+        ["show", run.run_id],
+        ["calibration", run.run_id],
+        ["predictions", run.run_id, "--limit", "5"],
+        ["explain", run.run_id, "--prediction", prediction],
+        ["exclusions", run.run_id],
+        ["thresholds", run.run_id, "--prediction", prediction],
+        ["verify", run.run_id],
+    ]
+    for argv in invocations:
+        code = main(["--database-url", test_dsn, *argv, "--json"])
+        out = capsys.readouterr().out
+        assert code == 0, argv
+        payload = json.loads(out)  # a parse failure fails the test
+        assert isinstance(payload, dict), argv
+
+
+def test_json_payloads_carry_what_the_text_shows(
+    corpus, test_dsn, run, capsys
+) -> None:
+    prediction = _first_prediction_id(run)
+
+    main(["--database-url", test_dsn, "show", run.run_id, "--json"])
+    show_payload = json.loads(capsys.readouterr().out)
+    assert show_payload["id"] == run.run_id
+    assert show_payload["status"] == "completed"
+    assert "aggregates" in show_payload
+    assert "comparison_count" in show_payload
+
+    main(["--database-url", test_dsn, "calibration", run.run_id, "--json"])
+    calib_payload = json.loads(capsys.readouterr().out)
+    assert calib_payload["runId"] == run.run_id
+    assert isinstance(calib_payload["bins"], list)
+
+    main([
+        "--database-url", test_dsn, "predictions", run.run_id,
+        "--limit", "2", "--json",
+    ])
+    preds_payload = json.loads(capsys.readouterr().out)
+    assert preds_payload["shown"] <= 2
+    assert preds_payload["total"] >= preds_payload["filtered"]
+    assert len(preds_payload["predictions"]) == preds_payload["shown"]
+
+    main([
+        "--database-url", test_dsn, "explain", run.run_id,
+        "--prediction", prediction, "--json",
+    ])
+    explain_payload = json.loads(capsys.readouterr().out)
+    assert explain_payload["row"]["prediction_id"] == prediction
+    assert explain_payload["gridThresholds"]
+    assert "eligibleSources" in explain_payload
+    assert "excludedByCutoff" in explain_payload
+
+    main(["--database-url", test_dsn, "exclusions", run.run_id, "--json"])
+    excl_payload = json.loads(capsys.readouterr().out)
+    assert excl_payload["rows"] == (
+        excl_payload["removedFromEvaluation"]
+        + excl_payload["baselineUnavailable"]
+    )
+
+    main([
+        "--database-url", test_dsn, "thresholds", run.run_id,
+        "--prediction", prediction, "--at", "87.5", "--json",
+    ])
+    thresh_payload = json.loads(capsys.readouterr().out)
+    assert len(thresh_payload["thresholds"]) == 1
+    off_grid = thresh_payload["thresholds"][0]
+    assert off_grid["threshold"] == 87.5
+    assert off_grid["inGrid"] is False
+    assert 0.0 <= off_grid["probAtLeast"] <= 1.0
+
+    main(["--database-url", test_dsn, "verify", run.run_id, "--json"])
+    verify_payload = json.loads(capsys.readouterr().out)
+    assert verify_payload["passed"] is True
+    assert verify_payload["checks"]
+    assert all("name" in c and "passed" in c for c in verify_payload["checks"])
 
 
 def test_strict_fails_on_a_run_that_is_not_a_result(

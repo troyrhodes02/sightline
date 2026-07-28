@@ -42,6 +42,30 @@ def number(value, places: int = 2) -> str:
     return f"{value:,.{places}f}"
 
 
+# Disclosure counters stored in aggregates["notes"]. Keys are rendered
+# verbatim so a stored run and a grep of the console output agree; the label
+# only explains what the number is. An older run that never recorded a
+# counter renders NOT_RECORDED rather than a zero, because a zero would be
+# read as a measurement.
+_DISCLOSURE_LABELS = {
+    "correctionAppliedCount": (
+        "predictions whose actual came from a corrected stat line"
+    ),
+    "cutoffAfterKickoffCount": (
+        "excluded candidates whose derived cutoff was at/after kickoff"
+    ),
+}
+
+
+def disclosure_line(key: str, notes: dict) -> str:
+    label = _DISCLOSURE_LABELS.get(key, key)
+    if key not in notes:
+        return f"{key}  {NOT_RECORDED}"
+    value = notes[key]
+    rendered = f"{value:,}" if isinstance(value, int) else str(value)
+    return f"{key}  {rendered} — {label}"
+
+
 def status_band(run: dict) -> list[str]:
     """A full-width band above every aggregate when a run is not a result."""
     status = run["status"]

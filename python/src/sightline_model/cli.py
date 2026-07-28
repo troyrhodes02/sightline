@@ -79,8 +79,11 @@ def _build_parser() -> argparse.ArgumentParser:
 
     preds = sub.add_parser("predictions", help="filterable prediction listing")
     preds.add_argument("run_id")
-    preds.add_argument("--cohort", default=None)
-    preds.add_argument("--player", default=None)
+    preds.add_argument(
+        "--cohort", default=None,
+        help="filter to an engine-emitted cohort (validated; see error for list)",
+    )
+    preds.add_argument("--player", default=None, help="player id (exact match)")
     preds.add_argument("--sort", choices=("err", "proj", "wk", "n"), default="err")
     preds.add_argument("--limit", type=int, default=50)
 
@@ -105,6 +108,9 @@ def _build_parser() -> argparse.ArgumentParser:
             "--strict", action="store_true",
             help="exit non-zero when the run is not a completed result",
         )
+        parser_.add_argument(
+            "--json", action="store_true", help="emit machine-readable JSON"
+        )
 
     ver = sub.add_parser(
         "verify", help="recompute from artefacts and assert the run is sound"
@@ -114,6 +120,9 @@ def _build_parser() -> argparse.ArgumentParser:
     ver.add_argument(
         "--strict", action="store_true",
         help="also require an attributable, clean code version",
+    )
+    ver.add_argument(
+        "--json", action="store_true", help="emit machine-readable JSON"
     )
 
     listing = sub.add_parser("list", help="list stored backtest runs, newest first")
@@ -238,6 +247,89 @@ def _parse_seasons(value: str) -> tuple[int, int]:
     raise ValueError(f"invalid --seasons {value!r}; expected e.g. 2019-2023 or 2021")
 
 
+# The datasets a backtest cannot run without, validated before a BacktestRun
+# row is ever inserted. `stats` supplies both the feature history and the
+# grading target (player_game_stats); `schedule` supplies the candidate games,
+# kickoffs, and therefore every derived information cutoff. Context
+# enrichments (snap_counts, injuries), play-by-play, and weather are
+# deliberately NOT gated: a gap there is a recorded, disclosed degradation of
+# one run, not an invalid experiment.
+#
+# Coverage is established from the corpus fact tables themselves — a season
+# with ingested games and published stat lines is coverage in the only sense
+# that matters to a run — and the `source_coverage` ledger can only VETO
+# (a season the ledger marks `none` is blocked even if stray rows exist).
+# The ledger cannot grant coverage the fact tables do not show, and today
+# only the context ingest records ledger rows for its own datasets, so the
+# veto arm is dormant until ingest starts writing `stats`/`schedule` rows.
+REQUIRED_COVERAGE_DATASETS = ("stats", "schedule")
+
+_COVERAGE_FACT_SQL = {
+    "schedule": "select distinct season from games",
+    "stats": (
+        "select distinct g.season from games g "
+        "join player_game_stats pgs on pgs.game_id = g.id"
+    ),
+}
+
+
+def _covered_seasons(connect) -> dict[str, set[int]]:
+    """Seasons usable per required dataset: corpus facts minus ledger vetoes."""
+    covered: dict[str, set[int]] = {d: set() for d in REQUIRED_COVERAGE_DATASETS}
+    with connect() as conn, conn.cursor() as cur:
+        for dataset in REQUIRED_COVERAGE_DATASETS:
+            cur.execute(_COVERAGE_FACT_SQL[dataset])
+            covered[dataset] = {int(season) for (season,) in cur.fetchall()}
+        cur.execute(
+            "select dataset, season from source_coverage "
+            "where dataset = any(%s) and coverage = 'none'",
+            (list(REQUIRED_COVERAGE_DATASETS),),
+        )
+        for dataset, season in cur.fetchall():
+            covered[dataset].discard(int(season))
+    return covered
+
+
+def _season_span(seasons) -> str:
+    if not seasons:
+        return "no seasons"
+    low, high = min(seasons), max(seasons)
+    return str(low) if low == high else f"{low}-{high}"
+
+
+def _coverage_error(
+    covered: dict[str, set[int]], season_from: int, season_to: int
+) -> str | None:
+    """The usage-error message when the requested seasons exceed coverage.
+
+    Pure so the arithmetic and the wording are testable without a database.
+    Returns None when every requested season is covered by every required
+    dataset.
+    """
+    if not any(covered.values()):
+        return (
+            "the corpus records no ingested seasons for the datasets "
+            f"a backtest needs ({', '.join(REQUIRED_COVERAGE_DATASETS)}); "
+            "ingest the corpus before running a backtest"
+        )
+    requested = range(season_from, season_to + 1)
+    problems = []
+    for dataset in REQUIRED_COVERAGE_DATASETS:
+        seasons = covered.get(dataset, set())
+        missing = [s for s in requested if s not in seasons]
+        if missing:
+            problems.append(
+                f"{dataset} covers {_season_span(seasons)} "
+                f"(missing {', '.join(str(s) for s in missing)})"
+            )
+    if problems:
+        return (
+            f"--seasons {season_from}-{season_to} is outside recorded corpus "
+            "coverage: " + "; ".join(problems)
+        )
+    return None
+
+
 def _run_backtest(args: argparse.Namespace, connect) -> int:
     from pathlib import Path
 
@@ -251,6 +343,24 @@ def _run_backtest(args: argparse.Namespace, connect) -> int:
         )
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+
+    # Coverage gate: exit 2 BEFORE anything is written — no BacktestRun row,
+    # no reap, no artefact directory. A connection failure here is a pre-run
+    # validation failure (exit 2, nothing was attempted); failures after the
+    # run starts remain exit 1.
+    try:
+        covered = _covered_seasons(connect)
+    except Exception as exc:  # noqa: BLE001 - sanitized, pre-run
+        print(
+            "error: could not read source_coverage to validate --seasons "
+            f"before the run: {sanitize_error(exc)}",
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
+    gap = _coverage_error(covered, season_from, season_to)
+    if gap:
+        print(f"error: {gap}", file=sys.stderr)
         return EXIT_USAGE
 
     if args.reap:
@@ -295,7 +405,18 @@ def _run_backtest(args: argparse.Namespace, connect) -> int:
               f"aggregate {outcome.aggregate_digest[:16]}… "
               f"calibration {outcome.calibration_digest[:16]}…")
         return EXIT_OK
-    print(f"error: {outcome.error}", file=sys.stderr)
+    if outcome.status == "interrupted":
+        print(
+            "run interrupted — status recorded, artefacts incomplete",
+            file=sys.stderr,
+        )
+    if outcome.error is not None:
+        print(f"error: {outcome.error}", file=sys.stderr)
+    elif outcome.status != "interrupted":
+        print(
+            f"run finished with status {outcome.status!r} and no recorded error",
+            file=sys.stderr,
+        )
     return EXIT_FAILED
 
 
@@ -312,8 +433,49 @@ def _run_inspection(args: argparse.Namespace, connect) -> int:
     """
     from . import inspect as inspect_commands
 
+    # --cohort is validated against the vocabulary the engine actually emits,
+    # before any connection is opened: an unknown cohort is a usage error
+    # (exit 2), never an empty result that reads like a measurement.
+    if (
+        args.command == "predictions"
+        and args.cohort
+        and args.cohort not in inspect_commands.COHORTS
+    ):
+        print(
+            f"error: unknown cohort {args.cohort!r}; valid cohorts: "
+            + ", ".join(inspect_commands.COHORTS),
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
+
     try:
-        if args.command == "show":
+        if args.json:
+            if args.command == "show":
+                payload, complete = inspect_commands.show_data(connect, args.run_id)
+            elif args.command == "calibration":
+                payload, complete = inspect_commands.calibration_data(
+                    connect, args.run_id, stat=args.stat, era=args.era
+                )
+            elif args.command == "predictions":
+                payload, complete = inspect_commands.predictions_data(
+                    connect, args.run_id, cohort=args.cohort, player=args.player,
+                    sort=args.sort, limit=args.limit,
+                )
+            elif args.command == "explain":
+                payload, complete = inspect_commands.explain_data(
+                    connect, args.run_id, args.prediction
+                )
+            elif args.command == "exclusions":
+                payload, complete = inspect_commands.exclusions_data(
+                    connect, args.run_id, reason=args.reason,
+                    examples=args.examples,
+                )
+            else:
+                payload, complete = inspect_commands.thresholds_data(
+                    connect, args.run_id, args.prediction, at=args.at
+                )
+            print(json.dumps(payload, indent=2, sort_keys=True, default=str))
+        elif args.command == "show":
             text, complete = inspect_commands.show(
                 connect, args.run_id, breakout=args.breakout
             )
@@ -342,13 +504,40 @@ def _run_inspection(args: argparse.Namespace, connect) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_FAILED
 
-    print(text)
+    if not args.json:
+        print(text)
     if args.strict and not complete:
         print(
             "error: run is not a completed result (--strict)", file=sys.stderr
         )
         return EXIT_FAILED
     return EXIT_OK
+
+
+def _verify_payload(findings, run_id: str) -> dict:
+    """Serialize verify findings generically.
+
+    Iterates the checks/failures/notices collections rather than naming any
+    check, so a check added to verify.py appears here without an edit. The
+    failed-check match mirrors ``verify.render``: a failure string starts
+    with its check name.
+    """
+    checks = []
+    for name in findings.checks:
+        failure = next(
+            (f for f in findings.failures if f.startswith(name)), None
+        )
+        detail = None
+        if failure is not None and failure != name:
+            detail = failure[len(name):].lstrip(":").strip() or None
+        checks.append({"name": name, "passed": failure is None, "detail": detail})
+    return {
+        "runId": run_id,
+        "passed": findings.passed,
+        "checks": checks,
+        "failures": list(findings.failures),
+        "notices": list(findings.notices),
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -376,7 +565,13 @@ def main(argv: list[str] | None = None) -> int:
             findings = verify_module.verify_run(
                 connect, args.run_id, against=args.against, strict=args.strict
             )
-            print(verify_module.render(findings, args.run_id))
+            if args.json:
+                print(json.dumps(
+                    _verify_payload(findings, args.run_id),
+                    indent=2, sort_keys=True, default=str,
+                ))
+            else:
+                print(verify_module.render(findings, args.run_id))
             return EXIT_OK if findings.passed else EXIT_FAILED
     except Exception as exc:  # noqa: BLE001 — credential-safe last resort
         # A raw psycopg OperationalError embeds the DSN's host and username.

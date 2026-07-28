@@ -73,13 +73,20 @@ def _rows_to_df(cur) -> pl.DataFrame:
 # is the one that leaks.
 # ---------------------------------------------------------------------------
 
+# The at-cutoff state of a stat line: the earliest correction landing AFTER
+# the cutoff preserves, in prior_values, exactly what the row said at the
+# cutoff. One shared SQL text — trailing reads embed it as a scalar subquery,
+# the population/candidate reads as a lateral join — so a correction can never
+# be honoured on one read path and missed on another.
+_ROLLBACK_INNER_SQL = """select c.prior_values from player_game_stat_corrections c
+            where c.player_game_stat_id = pgs.id
+              and c.correction_known_at > %(cutoff)s
+            order by c.correction_known_at asc limit 1"""
+
 _TRAILING_SQL = f"""
     select {{extra_select}}pgs.game_id, g.kickoff_at, pgs.team_abbr_at_game,
            {", ".join(f"pgs.{c}" for c in _STAT_COLS)},
-           (select c.prior_values from player_game_stat_corrections c
-            where c.player_game_stat_id = pgs.id
-              and c.correction_known_at > %(cutoff)s
-            order by c.correction_known_at asc limit 1) as rollback_values
+           ({_ROLLBACK_INNER_SQL}) as rollback_values
     from player_game_stats pgs
     join games g on g.id = pgs.game_id
     join games tg on tg.id = %(before)s
@@ -322,19 +329,35 @@ class AsOfCorpus:
 
         ``column`` is chosen from the stat registry, never from user input; it
         is interpolated because a column name cannot be a bind parameter.
+
+        Corrections roll back here exactly as they do on the trailing reads:
+        a correction whose availability postdates the cutoff is undone, so a
+        prior fitted today equals the prior that would have been fitted at the
+        cutoff. Without this, a January correction to a years-old game would
+        silently refit every prior downstream of it. The null filter runs
+        AFTER the roll-back, in Python, because "had a value at the cutoff"
+        is a fact about the at-cutoff line, not about the current row.
+
+        ``position`` is ``players.position`` — current roster position, the
+        one deliberately current-state input in this layer (the schema keeps
+        no position history). It carries no team affiliation and encodes no
+        outcome, so it cannot leak performance; the accepted cost is that a
+        future position re-tag lands as a corpus-digest change rather than
+        being invisible. Disclosed here, like the pre-2021 weather era.
         """
         if column not in _STAT_COLS:
             raise ValueError(f"unknown stat column: {column!r}")
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 f"""
-                select g.season, pgs.player_id, pgs.{column} as value
+                select g.season, pgs.player_id, pgs.{column} as value,
+                       r.prior_values as rollback_values
                 from player_game_stats pgs
                 join games g on g.id = pgs.game_id
                 join players p on p.id = pgs.player_id
+                left join lateral ({_ROLLBACK_INNER_SQL}) r on true
                 where g.season < %(season)s
                   and p.position = %(position)s
-                  and pgs.{column} is not null
                   and {_PUBLISHED_BY_SQL} <= %(cutoff)s
                 order by g.season, pgs.player_id, pgs.game_id
                 """,
@@ -343,7 +366,23 @@ class AsOfCorpus:
                     "cutoff": self._cutoff,
                 },
             )
-            return _rows_to_df(cur)
+            cols = [d[0] for d in cur.description]
+            rows = []
+            for raw in cur.fetchall():
+                row = dict(zip(cols, raw))
+                rollback = row.pop("rollback_values")
+                if rollback is not None and column in rollback:
+                    v = rollback[column]
+                    row["value"] = (
+                        None if v is None
+                        else to_decimal(v) if _STAT_KINDS[column] == "decimal"
+                        else to_int(v)
+                    )
+                if row["value"] is not None:
+                    rows.append(row)
+            if not rows:
+                return pl.DataFrame({c: [] for c in cols if c != "rollback_values"})
+            return pl.DataFrame(rows, orient="row")
 
     def season_participants(
         self, *, seasons: tuple[int, ...], column: str
@@ -360,6 +399,12 @@ class AsOfCorpus:
         the first week of every season, and a coverage gap that produces no
         rows produces no exclusions either, which is the kind of absence
         nobody notices.
+
+        "Has a published stat line" is evaluated on the **at-cutoff** line:
+        a post-cutoff correction that added or removed the value is rolled
+        back before the null test, so the candidate universe today equals the
+        candidate universe at the cutoff. ``p.position`` is current roster
+        state, disclosed and accepted — see ``population_stats``.
         """
         if column not in _STAT_COLS:
             raise ValueError(f"unknown stat column: {column!r}")
@@ -370,8 +415,11 @@ class AsOfCorpus:
                 from player_game_stats pgs
                 join games g on g.id = pgs.game_id
                 join players p on p.id = pgs.player_id
+                left join lateral ({_ROLLBACK_INNER_SQL}) r on true
                 where g.season = any(%(seasons)s::int[])
-                  and pgs.{column} is not null
+                  and (case when r.prior_values is not null
+                       then (r.prior_values ->> '{column}') is not null
+                       else pgs.{column} is not null end)
                   and {_PUBLISHED_BY_SQL} <= %(cutoff)s
                 order by pgs.player_id
                 """,

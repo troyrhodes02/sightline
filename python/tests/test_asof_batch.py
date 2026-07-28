@@ -361,3 +361,76 @@ def test_correction_rollback_is_identical_on_both_paths(corpus) -> None:
             player_ids=[pid], before_game_id=game_id(TARGET)
         )["receiving_yards"].to_list()
     ]
+
+
+def test_population_stats_rolls_back_a_post_cutoff_correction(corpus) -> None:
+    # The prior-fitting read. A correction published AFTER the cutoff must be
+    # invisible to a prior fitted at that cutoff — otherwise a January
+    # correction to a years-old game silently refits every prior downstream,
+    # and a run today diverges from the identical run at the cutoff. Same
+    # roll-back rule as the trailing reads, same shared SQL.
+    gsis = PLAYERS[4][0]  # depth 4; week-1 original value is 52.0
+    pid = player_id(gsis)
+    ingest_stats(
+        _h("stats"), corpus, 2023, 2023,
+        fetch=lambda s: _stats_df(corrected_for=gsis, value=999.0),
+        correction_known_at=datetime(2023, 10, 20, 12, 0),
+    )
+
+    at_cutoff = AsOfCorpus(corpus, datetime(2023, 10, 15, 12, 0)).population_stats(
+        before_season=2024, position="WR", column="receiving_yards"
+    )
+    mine = at_cutoff.filter(pl.col("player_id") == pid)
+    values = [float(v) for v in mine["value"].to_list()]
+    assert 52.0 in values, "the at-cutoff (pre-correction) value must be visible"
+    assert 999.0 not in values, (
+        "a post-cutoff corrected value re-entered prior fitting"
+    )
+
+    # Proving the fixture is real: once the correction has published, the
+    # corrected value is exactly what the read returns.
+    later = AsOfCorpus(corpus, datetime(2023, 10, 25, 12, 0)).population_stats(
+        before_season=2024, position="WR", column="receiving_yards"
+    )
+    later_values = [
+        float(v) for v in later.filter(pl.col("player_id") == pid)["value"].to_list()
+    ]
+    assert 999.0 in later_values and 52.0 not in later_values
+
+    # And the walk-forward bound is enforced in the same read: with no season
+    # earlier than 2023 in the corpus, a 2023 prior has no evidence at all,
+    # regardless of what has published.
+    walk_forward = AsOfCorpus(corpus, datetime(2023, 10, 25, 12, 0)).population_stats(
+        before_season=2023, position="WR", column="receiving_yards"
+    )
+    assert walk_forward.height == 0
+
+
+def test_season_participants_evaluates_nullness_at_the_cutoff(corpus) -> None:
+    # The candidate universe. "Has a published line for this column" must be
+    # a fact about the at-cutoff line: a correction that later NULLs the value
+    # must not retroactively remove the player from the universe a past run
+    # would have seen (and vice versa).
+    gsis = PLAYERS[1][0]  # depth 1: the week-1 line is this player's only one
+    pid = player_id(gsis)
+    ingest_stats(
+        _h("stats"), corpus, 2023, 2023,
+        fetch=lambda s: _stats_df(corrected_for=gsis, value=None),
+        correction_known_at=datetime(2023, 10, 20, 12, 0),
+    )
+
+    at_cutoff = AsOfCorpus(corpus, datetime(2023, 10, 15, 12, 0)).season_participants(
+        seasons=(2022, 2023), column="receiving_yards"
+    )
+    assert pid in at_cutoff["player_id"].to_list(), (
+        "the value existed at the cutoff; the later correction must not "
+        "remove the player from the candidate universe retroactively"
+    )
+
+    later = AsOfCorpus(corpus, datetime(2023, 10, 25, 12, 0)).season_participants(
+        seasons=(2022, 2023), column="receiving_yards"
+    )
+    assert pid not in later["player_id"].to_list(), (
+        "after the correction publishes, the at-cutoff line is null and the "
+        "player has no line for this column — the fixture must be real"
+    )

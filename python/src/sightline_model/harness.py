@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from sightline_ingest._version import code_version
+from sightline_ingest._version import code_dirty, code_version
 from sightline_ingest.asof import AsOfCorpus
 from sightline_ingest.db import ConnectionFactory
 from sightline_ingest.errors import sanitize_error
@@ -94,6 +94,11 @@ class RunConfig:
             "seasonTypes": list(self.season_types),
             "evaluationWindow": self.evaluation_window,
             "seed": self.seed,
+            # A truncated run is a different experiment from a full one over
+            # the same seasons. Without this in the manifest, the difference
+            # would have no stored evidence and a digest mismatch against the
+            # full run would read as a determinism break.
+            "limitGames": self.limit_games,
         }
 
 
@@ -167,7 +172,7 @@ def run_backtest(
     started = now or datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
     base = config.artifact_base or art.default_artifact_base()
 
-    sha, dirty = code_version(), False
+    sha, dirty = code_version(), code_dirty()
     engine_cfg = engine_config()
     run_id = persist.insert_run(
         connect,
@@ -227,6 +232,7 @@ def run_backtest(
             art.read_dataset(root, art.PREDICTIONS),
             art.read_dataset(root, art.THRESHOLDS),
             totals,
+            art.read_dataset(root, art.EXCLUSIONS),
         )
         persist.complete_run(
             connect, run_id, totals=totals, aggregates=summary.aggregates,
@@ -261,8 +267,16 @@ def run_backtest(
             aggregate_digest=summary.aggregate_digest,
             calibration_digest=summary.calibration_digest,
         )
-    except BaseException as exc:  # noqa: BLE001 - recorded, then re-raised
-        writer.flush()
+    except BaseException as exc:  # noqa: BLE001 - recorded, not re-raised
+        # The flush is best-effort: the likeliest cause of a mid-run failure
+        # is the disk, in which case flushing raises again and would mask the
+        # original error AND skip the status write, leaving the run `running`
+        # with no error message — the reaper would later record "abandoned"
+        # instead of the actual cause.
+        try:
+            writer.flush()
+        except Exception:  # noqa: BLE001 - the original exc is the record
+            pass
         persist.finish_run(
             connect, run_id, status="failed", totals=totals,
             finished_at=_now(), error=sanitize_error(exc),
@@ -383,7 +397,7 @@ def _project_candidate(
     actuals, started,
 ) -> None:
     position = positions.get(player_id) or "UNK"
-    prior = _prior_for(corpus, prior_cache, game["season"], stat, position)
+    prior = _prior_for(corpus, writer, prior_cache, game["season"], stat, position)
     if prior is None:
         totals.excluded += 1
         writer.append(art.EXCLUSIONS, _exclusion(
@@ -403,7 +417,13 @@ def _project_candidate(
         ))
         return
 
-    actual = actuals.get(player_id, {}).get(stat.column)
+    actual_row = actuals.get(player_id, {})
+    actual = actual_row.get(stat.column)
+    # Grading against the corrected line is a sanctioned exception, and the
+    # disclosure travels with it: ingest bumps `version` on every correction,
+    # so version > 1 means this actual differs (or may differ) from the line
+    # first published. Surfaced per prediction and counted in the aggregates.
+    correction_applied = int(actual_row.get("version") or 1) > 1
     if actual is None:
         totals.excluded += 1
         writer.append(art.EXCLUSIONS, _exclusion(
@@ -420,7 +440,7 @@ def _project_candidate(
             game["id"], player_id, stat.name, STAGE_HARNESS,
             REASON_BASELINE_UNAVAILABLE,
             "season average undefined before the player's first eligible game",
-            prediction_id=_prediction_id(game["id"], player_id, stat.name),
+            prediction_id=_prediction_id(game["id"], player_id, stat.name, cutoff),
         ))
 
     totals.projected += 1
@@ -430,12 +450,13 @@ def _project_candidate(
             result, game=game, stat=stat, actual=float(actual),
             baselines=baselines, in_comparison=in_comparison, era=era,
             era_source=era_source, position=position, kickoff=kickoff,
+            correction_applied=correction_applied,
         ),
     )
     for threshold in stat.thresholds:
         totals.threshold_observations += 1
         writer.append(art.THRESHOLDS, {
-            "prediction_id": _prediction_id(game["id"], player_id, stat.name),
+            "prediction_id": _prediction_id(game["id"], player_id, stat.name, cutoff),
             "stat_type": stat.name,
             "season": game["season"],
             "weather_era": era,
@@ -445,7 +466,7 @@ def _project_candidate(
         })
 
 
-def _prior_for(corpus, cache, season, stat, position) -> Prior | None:
+def _prior_for(corpus, writer, cache, season, stat, position) -> Prior | None:
     key = (season, stat.name, position)
     if key in cache:
         return cache[key]
@@ -458,22 +479,51 @@ def _prior_for(corpus, cache, season, stat, position) -> Prior | None:
     except InsufficientPriorEvidence:
         prior = None
     cache[key] = prior
+    if prior is not None:
+        # One row per prior the run actually used, written on first fit, so
+        # a run's priors are reproducible without re-fitting and inspectable
+        # without re-running (spec: priors/ artefact).
+        writer.append(art.PRIORS, {
+            "season": prior.season,
+            "stat_type": prior.stat_type,
+            "position": prior.position,
+            "fitted_from_seasons": json.dumps(list(prior.fitted_from_seasons)),
+            "sample_games": prior.sample_games,
+            "sample_players": prior.sample_players,
+            "p_zero": prior.p_zero,
+            "mu": prior.mu,
+            "sigma": prior.sigma,
+            "mean": prior.mean,
+            "variance": prior.variance,
+        })
     return prior
 
 
-def _prediction_id(game_id: str, player_id: str, stat_type: str) -> str:
+def _prediction_id(
+    game_id: str, player_id: str, stat_type: str, information_cutoff: datetime
+) -> str:
     from .digests import digest_strings
 
-    return digest_strings([game_id, player_id, stat_type, MODEL_VERSION])[:32]
+    # The cutoff is part of the identity (spec: prediction_id digest recipe).
+    # A schedule flex changes the cutoff, the visible corpus, and potentially
+    # the projection — two materially different predictions must not share an
+    # id across runs.
+    return digest_strings(
+        [game_id, player_id, stat_type, MODEL_VERSION,
+         information_cutoff.isoformat()]
+    )[:32]
 
 
 def _prediction_row(result, *, game, stat, actual, baselines, in_comparison,
-                    era, era_source, position, kickoff) -> dict:
+                    era, era_source, position, kickoff,
+                    correction_applied) -> dict:
     error = actual - result.projected_value
     cohorts = list(result.cohorts)
     percentile = _percentile(result, actual)
     row = {
-        "prediction_id": _prediction_id(game["id"], result.player_id, stat.name),
+        "prediction_id": _prediction_id(
+            game["id"], result.player_id, stat.name, result.information_cutoff
+        ),
         "game_id": game["id"],
         "player_id": result.player_id,
         "season": game["season"],
@@ -516,6 +566,7 @@ def _prediction_row(result, *, game, stat, actual, baselines, in_comparison,
             if baselines.trailing_five is not None else None
         ),
         "in_comparison_population": in_comparison,
+        "correction_applied": correction_applied,
         "cohorts": json.dumps(sorted(cohorts)),
     }
     return row

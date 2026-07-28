@@ -145,6 +145,11 @@ def lognormal_moments(values: list[float]) -> tuple[float, float, float]:
 # Negative binomial
 # ---------------------------------------------------------------------------
 
+# Hard bound on the tail walk in ``quantile``. The PMF decays geometrically, so
+# for any valid q in (0, 1) the cumulative reaches q in far fewer terms; the
+# bound exists so a numerical surprise raises rather than spins forever.
+_QUANTILE_ITERATION_LIMIT = 1_000_000
+
 
 @dataclass(frozen=True)
 class NegativeBinomial:
@@ -193,17 +198,44 @@ class NegativeBinomial:
             return 1.0
         pmf = self.pmf()
         below = sum(pmf[: min(k, len(pmf))])
+        if k > len(pmf):
+            # The threshold lies beyond the stored PMF. Continue the same
+            # recurrence past the cap rather than clamping — clamping would
+            # silently answer P(X >= cap + 1) for every higher threshold. The
+            # stored parameters are the distribution; the cap only bounds what
+            # is materialised, never what is answerable.
+            mass = pmf[-1]
+            for j in range(len(pmf), k):
+                mass = mass * (self.r + j - 1) / j * (1.0 - self.p)
+                if mass == 0.0:
+                    break
+                below += mass
         return max(0.0, min(1.0, 1.0 - below))
 
     def quantile(self, q: float) -> float:
         if not 0.0 < q < 1.0:
             raise DistributionError(f"quantile out of range: {q!r}")
+        pmf = self.pmf()
         cumulative = 0.0
-        for k, mass in enumerate(self.pmf()):
+        for k, mass in enumerate(pmf):
             cumulative += mass
             if cumulative >= q:
                 return float(k)
-        return float(self.cap)
+        # q falls in the tail mass above the cap. Continue the same recurrence
+        # past the cap rather than saturating at it — saturating understates
+        # interval_high, which narrows the interval and inflates confidence.
+        mass = pmf[-1]
+        k = self.cap
+        while cumulative < q:
+            k += 1
+            if k > _QUANTILE_ITERATION_LIMIT:
+                raise DistributionError(
+                    f"quantile({q!r}) did not converge within "
+                    f"{_QUANTILE_ITERATION_LIMIT} terms (r={self.r!r}, p={self.p!r})"
+                )
+            mass = mass * (self.r + k - 1) / k * (1.0 - self.p)
+            cumulative += mass
+        return float(k)
 
     def mass_below_zero(self) -> float:
         return 0.0

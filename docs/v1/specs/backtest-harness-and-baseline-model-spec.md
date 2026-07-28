@@ -376,15 +376,34 @@ model CalibrationBin {
 ```sql
 -- CalibrationBin segment uniqueness. Postgres treats NULLs as distinct in a
 -- unique index, so the @@unique above does not prevent duplicate "all" rows.
--- COALESCE the nullable segment columns into sentinels.
-create unique index calibration_bins_segment_uniq
-  on calibration_bins (
-    backtest_run_id,
-    coalesce(stat_type::text, '*'),
-    coalesce(season, -1),
-    coalesce(era::text, '*'),
-    bin_index
+-- A single unique index over COALESCEd sentinels was rejected by Postgres and
+-- must not be restored: enum-to-text casts are STABLE, not IMMUTABLE, and
+-- index expressions require IMMUTABLE. Instead, a CHECK pins every row to a
+-- single segment axis — which also forbids cross-axis rows the sentinel form
+-- would have admitted — and four partial unique indexes, one per axis, need
+-- no cast at all. Together they cover every legal row exactly once.
+alter table calibration_bins
+  add constraint calibration_bins_single_axis check (
+    (case when stat_type is null then 0 else 1 end
+     + case when season is null then 0 else 1 end
+     + case when era is null then 0 else 1 end) <= 1
   );
+
+create unique index calibration_bins_all_segment_uniq
+  on calibration_bins (backtest_run_id, bin_index)
+  where stat_type is null and season is null and era is null;
+
+create unique index calibration_bins_stat_segment_uniq
+  on calibration_bins (backtest_run_id, stat_type, bin_index)
+  where stat_type is not null;
+
+create unique index calibration_bins_season_segment_uniq
+  on calibration_bins (backtest_run_id, season, bin_index)
+  where season is not null;
+
+create unique index calibration_bins_era_segment_uniq
+  on calibration_bins (backtest_run_id, era, bin_index)
+  where era is not null;
 
 -- A bin is a probability bucket. These are cheap and they catch a class of
 -- unit error (percent vs proportion) that is otherwise invisible in a chart.

@@ -117,9 +117,15 @@ def _breakout(frame: pl.DataFrame, comparison: pl.DataFrame, column: str) -> dic
 
 
 def compute_aggregates(
-    predictions: pl.DataFrame, thresholds: pl.DataFrame, totals
+    predictions: pl.DataFrame, thresholds: pl.DataFrame, totals,
+    exclusions: pl.DataFrame | None = None,
 ) -> dict:
-    """The versioned aggregates object stored on ``BacktestRun``."""
+    """The versioned aggregates object stored on ``BacktestRun``.
+
+    ``exclusions`` feeds the disclosure counters in ``notes``; ``None`` is
+    accepted only so a caller recomputing aggregates from partial artefacts
+    can still do so, and yields counters of 0 for the exclusion-derived ones.
+    """
     comparison = (
         predictions.filter(pl.col("in_comparison_population"))
         if predictions.height else predictions
@@ -146,12 +152,31 @@ def compute_aggregates(
             # weather actually was, so stronger performance in that era is
             # expected and is not evidence of skill.
             "reanalysisLeakAccepted": True,
-            "cutoffAfterKickoffCount": 0,
+            # Counted from the artefacts, never hardcoded: a stored zero that
+            # nothing measures would actively assert the check never fired.
+            "cutoffAfterKickoffCount": _reason_count(
+                exclusions, "cutoff_after_kickoff"
+            ),
+            # Predictions graded against a line that carries a correction —
+            # the sanctioned exception, disclosed so its size is visible.
+            "correctionAppliedCount": _correction_count(predictions),
         },
     }
     if not aggregates["overall"]["thresholds"]:
         del aggregates["overall"]["thresholds"]
     return aggregates
+
+
+def _reason_count(exclusions: pl.DataFrame | None, reason: str) -> int:
+    if exclusions is None or exclusions.height == 0 or "reason" not in exclusions.columns:
+        return 0
+    return exclusions.filter(pl.col("reason") == reason).height
+
+
+def _correction_count(predictions: pl.DataFrame) -> int:
+    if predictions.height == 0 or "correction_applied" not in predictions.columns:
+        return 0
+    return predictions.filter(pl.col("correction_applied")).height
 
 
 def compute_calibration_bins(thresholds: pl.DataFrame) -> list[dict]:
@@ -236,8 +261,11 @@ class Summary:
     calibration_digest: str
 
 
-def summarise(predictions: pl.DataFrame, thresholds: pl.DataFrame, totals) -> Summary:
-    aggregates = compute_aggregates(predictions, thresholds, totals)
+def summarise(
+    predictions: pl.DataFrame, thresholds: pl.DataFrame, totals,
+    exclusions: pl.DataFrame | None = None,
+) -> Summary:
+    aggregates = compute_aggregates(predictions, thresholds, totals, exclusions)
     bins = compute_calibration_bins(thresholds)
     return Summary(
         aggregates=aggregates,
