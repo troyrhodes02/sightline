@@ -15,7 +15,12 @@ from sightline_ingest.config import _load_dotenv
 from sightline_ingest.db import connection_factory
 
 # Tables truncated between DB tests. Order does not matter with CASCADE.
-_RESET_TABLES = "ingest_runs, source_coverage, teams"
+_RESET_TABLES = (
+    "ingest_runs, source_coverage, "
+    "player_game_stat_corrections, player_game_context, player_game_stats, "
+    "play_by_play, game_weather, game_schedule_revisions, games, "
+    "players, player_external_ids, teams"
+)
 
 
 @pytest.fixture(scope="session")

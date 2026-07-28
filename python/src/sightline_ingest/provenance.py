@@ -54,6 +54,9 @@ class IngestRunHandle:
     status: str = STATUS_SUCCESS
     error_message: str | None = None
     started_at: datetime = field(default_factory=_now)
+    # Generated up front so fact/revision rows written by the body can stamp
+    # ingest_run_id before the IngestRun row itself is committed at the end.
+    run_id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
     def mark_partial(self, note: str | None = None) -> None:
         self.status = STATUS_PARTIAL
@@ -69,7 +72,7 @@ class IngestRunHandle:
 def _write_ingest_run(
     connect: ConnectionFactory, handle: IngestRunHandle, finished_at: datetime
 ) -> str:
-    run_id = str(uuid.uuid4())
+    run_id = handle.run_id
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
