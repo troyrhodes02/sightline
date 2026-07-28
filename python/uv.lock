@@ -400,6 +400,7 @@ dependencies = [
     { name = "polars" },
     { name = "psycopg", extra = ["binary"] },
     { name = "python-dotenv" },
+    { name = "requests" },
 ]
 
 [package.dev-dependencies]
@@ -413,6 +414,7 @@ requires-dist = [
     { name = "polars", specifier = ">=1.0.0" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2.0" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
+    { name = "requests", specifier = ">=2.31.0" },
 ]
 
 [package.metadata.requires-dev]
