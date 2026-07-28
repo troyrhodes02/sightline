@@ -38,3 +38,15 @@ def fetch_player_stats(seasons: list[int]) -> pl.DataFrame:
     import nflreadpy as nfl
 
     return nfl.load_player_stats(seasons=seasons)
+
+
+def fetch_snap_counts(seasons: list[int]) -> pl.DataFrame:
+    import nflreadpy as nfl
+
+    return nfl.load_snap_counts(seasons=seasons)
+
+
+def fetch_injuries(seasons: list[int]) -> pl.DataFrame:
+    import nflreadpy as nfl
+
+    return nfl.load_injuries(seasons=seasons)

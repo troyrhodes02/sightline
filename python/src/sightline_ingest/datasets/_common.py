@@ -98,13 +98,14 @@ def day_after_game_knownat(kickoff: datetime) -> datetime:
     return datetime(d.year, d.month, d.day)
 
 
-def to_decimal(value: object) -> Decimal | None:
-    """Coerce a numeric to a 1-decimal Decimal (never a float — precision matters)."""
+def to_decimal(value: object, places: int = 1) -> Decimal | None:
+    """Coerce a numeric to a fixed-scale Decimal (never a float — precision matters)."""
     if value is None:
         return None
     if isinstance(value, float) and math.isnan(value):
         return None
-    return Decimal(str(value)).quantize(Decimal("0.1"))
+    quantum = Decimal(1).scaleb(-places)  # e.g. places=3 -> Decimal("0.001")
+    return Decimal(str(value)).quantize(quantum)
 
 
 def to_int(value: object) -> int | None:
