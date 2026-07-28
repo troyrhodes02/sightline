@@ -11,6 +11,7 @@ row-level isolation of one would be ceremony rather than security.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -116,3 +117,148 @@ def holdout_model_versions(connect: ConnectionFactory) -> list[str]:
             "where evaluation_window = 'holdout' order by model_version"
         )
         return [row[0] for row in cur.fetchall()]
+
+
+# --- Writes (SIG-17) --------------------------------------------------------
+#
+# Ordering is normative. A run is inserted as `running` and only moves to
+# `completed` after its artefacts are flushed, its manifest written, and its
+# marker placed — with the digests present, because a CHECK constraint refuses
+# a completed run without them. A run that finished without its reproducibility
+# evidence cannot support the claim this pitch makes.
+
+_INSERT_RUN = """
+insert into backtest_runs (
+    id, label, status, season_from, season_to, season_types, stat_types,
+    evaluation_window, cutoff_policy, threshold_policy_version, grading_target,
+    model_version, code_version, code_dirty, seed, rng_draws, engine_config,
+    engine_config_digest, corpus_digest, artifact_path, started_at, updated_at
+) values (
+    gen_random_uuid(), %(label)s, 'running', %(season_from)s, %(season_to)s,
+    %(season_types)s, %(stat_types)s::"StatType"[], %(window)s::"EvaluationWindow",
+    %(cutoff_policy)s, %(threshold_policy)s, %(grading_target)s,
+    %(model_version)s, %(code_version)s, %(code_dirty)s, %(seed)s, 0,
+    %(engine_config)s, %(engine_config_digest)s, %(corpus_digest)s,
+    %(artifact_path)s, %(started_at)s, %(started_at)s
+)
+returning id
+"""
+
+
+def insert_run(
+    connect: ConnectionFactory,
+    *,
+    config,
+    model_version: str,
+    code_version: str,
+    code_dirty: bool,
+    engine_config: dict,
+    engine_config_digest: str,
+    corpus_digest: str,
+    cutoff_policy: str,
+    threshold_policy_version: str,
+    grading_target: str,
+    artifact_path: str,
+    started_at: datetime,
+) -> str:
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            _INSERT_RUN,
+            {
+                "label": config.label,
+                "season_from": config.season_from,
+                "season_to": config.season_to,
+                "season_types": list(config.season_types),
+                "stat_types": list(config.stat_types),
+                "window": config.evaluation_window,
+                "cutoff_policy": cutoff_policy,
+                "threshold_policy": threshold_policy_version,
+                "grading_target": grading_target,
+                "model_version": model_version,
+                "code_version": code_version,
+                "code_dirty": code_dirty,
+                "seed": config.seed,
+                "engine_config": json.dumps(engine_config, sort_keys=True),
+                "engine_config_digest": engine_config_digest,
+                "corpus_digest": corpus_digest,
+                "artifact_path": artifact_path,
+                "started_at": started_at,
+            },
+        )
+        run_id = cur.fetchone()[0]
+        conn.commit()
+    return str(run_id)
+
+
+def set_artifact_path(connect: ConnectionFactory, run_id: str, path: str) -> None:
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "update backtest_runs set artifact_path = %s, updated_at = now() "
+            "where id = %s",
+            (path, run_id),
+        )
+        conn.commit()
+
+
+def finish_run(
+    connect: ConnectionFactory,
+    run_id: str,
+    *,
+    status: str,
+    totals,
+    finished_at: datetime,
+    error: str | None = None,
+) -> None:
+    """Move a run to a terminal state. Never to `completed` — see complete_run."""
+    if status == COMPLETED:
+        raise ValueError(
+            "finish_run cannot complete a run; completion requires digests and "
+            "goes through complete_run"
+        )
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            update backtest_runs set
+                status = %(status)s::"BacktestStatus",
+                candidate_count = %(candidates)s,
+                projected_count = %(projected)s,
+                unprojectable_count = %(unprojectable)s,
+                excluded_count = %(excluded)s,
+                comparison_count = %(comparison)s,
+                threshold_obs_count = %(thresholds)s,
+                error_message = %(error)s,
+                finished_at = %(finished_at)s,
+                updated_at = now()
+            where id = %(id)s
+            """,
+            {
+                "id": run_id, "status": status, "error": error,
+                "finished_at": finished_at,
+                "candidates": totals.candidates, "projected": totals.projected,
+                "unprojectable": totals.unprojectable, "excluded": totals.excluded,
+                "comparison": totals.comparison,
+                "thresholds": totals.threshold_observations,
+            },
+        )
+        conn.commit()
+
+
+def reap_stale_runs(connect: ConnectionFactory, *, older_than_hours: int = 24) -> int:
+    """Mark long-abandoned `running` rows as `interrupted`. Never as completed.
+
+    A process killed uncatchably leaves `running` forever, which is correct
+    until someone says otherwise — and what they may say is "that run died",
+    never "that run finished".
+    """
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "update backtest_runs set status = 'interrupted', "
+            "error_message = coalesce(error_message, 'reaped: abandoned run'), "
+            "finished_at = coalesce(finished_at, now()), updated_at = now() "
+            "where status = 'running' "
+            "  and started_at < now() - make_interval(hours => %s)",
+            (older_than_hours,),
+        )
+        reaped = cur.rowcount
+        conn.commit()
+    return reaped

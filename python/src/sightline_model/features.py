@@ -22,7 +22,7 @@ Two rules do the work that would otherwise leak:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 import polars as pl
@@ -48,6 +48,14 @@ class EligibleHistory:
     game_ids: list[str]
     kickoffs: list[datetime]
     seasons: list[int]
+    # Team at the time of each eligible game — never the roster today. The
+    # harness uses the most recent one to decide whether a player was, as of
+    # the cutoff, on one of the two teams in the game being predicted.
+    teams: list[str] = field(default_factory=list)
+
+    @property
+    def last_team(self) -> str | None:
+        return self.teams[-1] if self.teams else None
 
     @property
     def n_eff(self) -> int:
@@ -100,6 +108,7 @@ def _history_from_rows(
     game_ids: list[str] = []
     kickoffs: list[datetime] = []
     seasons: list[int] = []
+    teams: list[str] = []
     for row in rows:
         raw = row.get(spec.column)
         if raw is None:
@@ -109,9 +118,10 @@ def _history_from_rows(
         game_ids.append(row["game_id"])
         kickoffs.append(row["kickoff_at"])
         seasons.append(row["season"])
+        teams.append(row.get("team_abbr_at_game"))
     return EligibleHistory(
         player_id=player_id, values=values, game_ids=game_ids,
-        kickoffs=kickoffs, seasons=seasons,
+        kickoffs=kickoffs, seasons=seasons, teams=teams,
     )
 
 
