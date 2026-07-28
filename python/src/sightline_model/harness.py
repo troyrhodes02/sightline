@@ -50,6 +50,7 @@ from .constants import (
     engine_config,
 )
 from .digests import corpus_digest, digest_mapping, digest_rows
+from .metrics import AGGREGATES_VERSION, summarise
 from .features import assemble_batch
 from .priors import InsufficientPriorEvidence, Prior, fit_prior
 from .projection import ProjectionResult, Unprojectable
@@ -116,6 +117,8 @@ class RunOutcome:
     predictions_digest: str | None = None
     error: str | None = None
     counts: dict[str, int] = field(default_factory=dict)
+    aggregate_digest: str | None = None
+    calibration_digest: str | None = None
 
 
 # --- Cutoff -----------------------------------------------------------------
@@ -210,10 +213,28 @@ def run_backtest(
             )
             return RunOutcome(run_id, "interrupted", totals, root, counts=counts)
 
+        # Completion order is normative and each step depends on the last:
+        # flush the datasets, summarise them, write the run row (which the
+        # CHECK constraints will refuse without all three digests), then the
+        # manifest, then the marker. A reader that finds the marker is looking
+        # at a run whose row is already `completed`.
         counts = writer.flush()
         predictions_digest = digest_rows(
             writer.rows(art.PREDICTIONS),
             sort_keys=["game_id", "player_id", "stat_type"],
+        )
+        summary = summarise(
+            art.read_dataset(root, art.PREDICTIONS),
+            art.read_dataset(root, art.THRESHOLDS),
+            totals,
+        )
+        persist.complete_run(
+            connect, run_id, totals=totals, aggregates=summary.aggregates,
+            aggregates_version=AGGREGATES_VERSION, bins=summary.bins,
+            predictions_digest=predictions_digest,
+            aggregate_digest=summary.aggregate_digest,
+            calibration_digest=summary.calibration_digest,
+            finished_at=_now(),
         )
         writer.write_manifest(
             {
@@ -228,12 +249,17 @@ def run_backtest(
                 "counts": counts,
                 "totals": totals.__dict__,
                 "predictionsDigest": predictions_digest,
+                "aggregateDigest": summary.aggregate_digest,
+                "calibrationDigest": summary.calibration_digest,
             }
         )
         # The marker goes last. See artifacts.py.
         writer.mark_complete()
         return RunOutcome(
-            run_id, "ready", totals, root, predictions_digest, counts=counts
+            run_id, "completed", totals, root, predictions_digest,
+            counts=counts,
+            aggregate_digest=summary.aggregate_digest,
+            calibration_digest=summary.calibration_digest,
         )
     except BaseException as exc:  # noqa: BLE001 - recorded, then re-raised
         writer.flush()
