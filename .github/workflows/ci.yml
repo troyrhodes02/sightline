@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "pitch/**"]
+  pull_request:
+
+# Backtests run locally, never in CI (see CLAUDE.md). CI runs the invariant and
+# unit/integration suites only.
+jobs:
+  schema:
+    name: Prisma schema invariants
+    runs-on: ubuntu-latest
+    env:
+      # validate does not connect, but prisma.config.ts reads these via env().
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/sightline?schema=public
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/sightline?schema=public
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Validate schema
+        run: npm run prisma:validate
+      - name: Schema-introspection invariants
+        run: npm run test:schema
+
+  python:
+    name: Python ingest (unit + DB integration)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: sightline
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d sightline"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/sightline?schema=public
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/sightline?schema=public
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/sightline?schema=public
+      GIT_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Apply migrations to the CI database
+        run: npx prisma migrate deploy
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Sync Python deps
+        run: uv sync
+        working-directory: python
+      - name: Run tests (import-graph guard, provenance, failure semantics)
+        run: uv run pytest -q
+        working-directory: python
