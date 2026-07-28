@@ -106,6 +106,16 @@ def _build_parser() -> argparse.ArgumentParser:
             help="exit non-zero when the run is not a completed result",
         )
 
+    ver = sub.add_parser(
+        "verify", help="recompute from artefacts and assert the run is sound"
+    )
+    ver.add_argument("run_id")
+    ver.add_argument("--against", default=None, help="compare digests with a run")
+    ver.add_argument(
+        "--strict", action="store_true",
+        help="also require an attributable, clean code version",
+    )
+
     listing = sub.add_parser("list", help="list stored backtest runs, newest first")
     listing.add_argument("--model-version", default=None)
     listing.add_argument("--window", choices=EVALUATION_WINDOWS, default=None)
@@ -360,6 +370,14 @@ def main(argv: list[str] | None = None) -> int:
             return _run_backtest(args, connect)
         if args.command in _INSPECTION:
             return _run_inspection(args, connect)
+        if args.command == "verify":
+            from . import verify as verify_module
+
+            findings = verify_module.verify_run(
+                connect, args.run_id, against=args.against, strict=args.strict
+            )
+            print(verify_module.render(findings, args.run_id))
+            return EXIT_OK if findings.passed else EXIT_FAILED
     except Exception as exc:  # noqa: BLE001 — credential-safe last resort
         # A raw psycopg OperationalError embeds the DSN's host and username.
         # Everything that reaches a console goes through sanitize_error first.
