@@ -19,7 +19,11 @@ _RESET_TABLES = (
     "ingest_runs, source_coverage, "
     "player_game_stat_corrections, player_game_context, player_game_stats, "
     "play_by_play, game_weather, game_schedule_revisions, games, "
-    "players, player_external_ids, teams"
+    "players, player_external_ids, teams, "
+    # Backtest results (SIG-13). calibration_bins cascades from backtest_runs,
+    # but both are named so a truncate of one never silently depends on the
+    # other's FK behaviour.
+    "backtest_runs, calibration_bins"
 )
 
 
