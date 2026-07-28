@@ -86,6 +86,35 @@ enum GameStatus {
   cancelled
 }
 
+// The unit of prediction (Pitch 2). Six values across two distributional
+// families: continuous_nonneg (the three yardage types, zero-inflated
+// log-normal) and count (receptions and both TD types, negative binomial).
+// Adding a stat type to an existing family is a registry row on the Python
+// side plus a value here — never a structural change to the engine.
+enum StatType {
+  passing_yards
+  rushing_yards
+  receiving_yards
+  receptions
+  rushing_tds
+  receiving_tds
+}
+
+enum BacktestStatus {
+  running // started; artefacts incomplete; never readable as a result
+  completed // finished; manifest + _COMPLETE written; digests computed
+  failed // raised and recorded; artefacts retained for diagnosis
+  interrupted // SIGINT/SIGTERM; artefacts retained; never a result
+}
+
+// Recorded per run so selection pressure against a reporting period is
+// countable rather than invisible. Holdout is run once per model version.
+enum EvaluationWindow {
+  development
+  validation
+  holdout
+}
+
 // ---------------------------------------------------------------------------
 // Reference entities
 // ---------------------------------------------------------------------------
@@ -152,19 +181,19 @@ model PlayerExternalId {
 // ---------------------------------------------------------------------------
 
 model Game {
-  id         String     @id @default(uuid())
-  season     Int
-  week       Int
-  seasonType String     @map("season_type") // REG / POST / PRE
-  homeTeamId String     @map("home_team_id")
-  awayTeamId String     @map("away_team_id")
-  venue      String?
-  isDome     Boolean    @map("is_dome")
+  id            String     @id @default(uuid())
+  season        Int
+  week          Int
+  seasonType    String     @map("season_type") // REG / POST / PRE
+  homeTeamId    String     @map("home_team_id")
+  awayTeamId    String     @map("away_team_id")
+  venue         String?
+  isDome        Boolean    @map("is_dome")
   // Neutral-site game (London/Munich/São Paulo, Super Bowls): not played at
   // the home team's stadium, so home-city weather does not apply and weather
   // ingest degrades explicitly instead of recording the wrong city.
-  isNeutralSite Boolean  @default(false) @map("is_neutral_site")
-  status     GameStatus @default(scheduled)
+  isNeutralSite Boolean    @default(false) @map("is_neutral_site")
+  status        GameStatus @default(scheduled)
 
   // Current best-known kickoff. Schedule changes are also recorded bitemporally
   // in GameScheduleRevision so as-of reads can see the kickoff known at a cutoff.
@@ -396,4 +425,120 @@ model SourceCoverage {
   @@unique([source, dataset, season])
   @@index([source, dataset])
   @@map("source_coverage")
+}
+
+// ---------------------------------------------------------------------------
+// Backtest results (Pitch 2)
+//
+// The durable half of a backtest. Raw per-prediction output lives in local
+// Parquet and NEVER in Postgres — millions of rows in the application's
+// relational path is the thing the Architecture Doc rules out. Only aggregates
+// and the reliability curve land here, because the Accuracy and Calibration
+// Surface (Pitch 6) reads them.
+//
+// These are SHARED reference data with no per-user partition, so there is no
+// userId, no tenant column, and deliberately no RLS. A calibration curve is
+// identical for every user.
+//
+// Neither table is a bitemporal fact table: a backtest result is not a fact
+// about the world, it is a measurement of the model. They carry no
+// validAt/knownAt and no ingest_run_id, which is why the schema-invariant
+// guard does not (and must not) demand the temporal trio here.
+// ---------------------------------------------------------------------------
+
+model BacktestRun {
+  id     String         @id @default(uuid())
+  label  String? // optional operator label, e.g. "zil-shrinkage-k4"
+  status BacktestStatus @default(running)
+
+  // --- Configuration: everything needed to identify the experiment ---------
+  seasonFrom             Int              @map("season_from")
+  seasonTo               Int              @map("season_to")
+  seasonTypes            String[]         @map("season_types") // ["REG"] | ["REG","POST"]
+  statTypes              StatType[]       @map("stat_types")
+  evaluationWindow       EvaluationWindow @map("evaluation_window")
+  cutoffPolicy           String           @map("cutoff_policy") // "kickoff_minus_90m/v1"
+  thresholdPolicyVersion String           @map("threshold_policy_version") // "grid-v1"
+  gradingTarget          String           @map("grading_target") // "official_corrected" | "first_published"
+  modelVersion           String           @map("model_version")
+  codeVersion            String           @map("code_version") // git sha; "unknown" never guessed
+  codeDirty              Boolean          @default(false) @map("code_dirty")
+  seed                   Int
+  // Asserted 0 for the baseline engine: it is closed-form and draws no random
+  // numbers, so determinism does not depend on seeding. The column exists for
+  // the Simulation Engine (Pitch 7), which will need it.
+  rngDraws               Int              @default(0) @map("rng_draws")
+  engineConfig           Json             @map("engine_config") // full resolved constants
+  engineConfigDigest     String           @map("engine_config_digest")
+  // Pins the corpus state a run read, so "the same stored corpus state"
+  // is a checkable precondition rather than an assumption.
+  corpusDigest           String           @map("corpus_digest")
+
+  // --- Population accounting ----------------------------------------------
+  candidateCount     Int @default(0) @map("candidate_count")
+  projectedCount     Int @default(0) @map("projected_count")
+  unprojectableCount Int @default(0) @map("unprojectable_count")
+  excludedCount      Int @default(0) @map("excluded_count")
+  // Predictions where the model AND both baselines all produced a value.
+  // Every model-vs-baseline error figure is computed over exactly this set.
+  comparisonCount    Int @default(0) @map("comparison_count")
+  thresholdObsCount  Int @default(0) @map("threshold_obs_count")
+
+  // --- Results -------------------------------------------------------------
+  // Documented, versioned shape. The Architecture Doc names BacktestRun as the
+  // home of "aggregate results"; breakouts live here rather than in an entity
+  // the approved data model does not name.
+  aggregates        Json?   @map("aggregates")
+  aggregatesVersion Int     @default(1) @map("aggregates_version")
+  predictionsDigest String? @map("predictions_digest")
+  aggregateDigest   String? @map("aggregate_digest")
+  calibrationDigest String? @map("calibration_digest")
+
+  // --- Artefacts and provenance -------------------------------------------
+  artifactPath String    @map("artifact_path") // local path; never a URL, never served
+  errorMessage String?   @map("error_message") // sanitized; never contains a DSN
+  startedAt    DateTime  @map("started_at")
+  finishedAt   DateTime? @map("finished_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  calibrationBins CalibrationBin[]
+
+  @@index([status, startedAt(sort: Desc)])
+  @@index([modelVersion, startedAt(sort: Desc)])
+  @@index([evaluationWindow])
+  @@map("backtest_runs")
+}
+
+model CalibrationBin {
+  id            String @id @default(uuid())
+  backtestRunId String @map("backtest_run_id")
+
+  // Segment. NULL means "all" on that axis. Postgres treats NULLs as distinct
+  // in a unique index, so @@unique below does NOT prevent duplicate "all" rows
+  // — a partial unique index over COALESCEd sentinels does, in the migration.
+  statType StatType?   @map("stat_type")
+  season   Int?
+  era      WeatherEra?
+
+  binIndex Int     @map("bin_index") // 0..9
+  binLow   Decimal @map("bin_low") @db.Decimal(4, 3)
+  binHigh  Decimal @map("bin_high") @db.Decimal(4, 3)
+
+  predictedMean Decimal @map("predicted_mean") @db.Decimal(6, 5)
+  observedRate  Decimal @map("observed_rate") @db.Decimal(6, 5)
+
+  // Two sample sizes, never one. Threshold events drawn from the same
+  // distribution are correlated; projectionCount is the effective sample.
+  thresholdObservations Int     @map("threshold_observations")
+  projectionCount       Int     @map("projection_count")
+  belowFloor            Boolean @default(false) @map("below_floor")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  backtestRun BacktestRun @relation(fields: [backtestRunId], references: [id], onDelete: Cascade)
+
+  @@unique([backtestRunId, statType, season, era, binIndex])
+  @@index([backtestRunId])
+  @@map("calibration_bins")
 }

@@ -204,6 +204,73 @@ test("identity-resolution consistency and dome constraints are present", () => {
   );
 });
 
+test("backtest result tables are not bitemporal fact tables", () => {
+  // A backtest result is a measurement of the model, not a fact about the
+  // world. It must not acquire validAt/knownAt by imitation — those columns
+  // would be meaningless here and would dilute what the temporal trio means
+  // everywhere else.
+  for (const table of ["backtest_runs", "calibration_bins"]) {
+    const model = modelsByTable.get(table);
+    assert.ok(model, `${table} not found in schema`);
+    for (const field of ["validAt", "knownAt", "knownAtReconstructed"]) {
+      assert.ok(
+        !model.fields.has(field),
+        `${table} must not carry ${field} — it is not a fact table`,
+      );
+    }
+    assert.ok(
+      !/@map\("ingest_run_id"\)/.test(model.body),
+      `${table} must not carry ingest_run_id`,
+    );
+  }
+});
+
+test("calibration segment constraints and completion invariants exist", () => {
+  // The generated unique index cannot prevent duplicate "all" segment rows,
+  // because Postgres treats NULLs as distinct. The partial indexes plus the
+  // single-axis CHECK are what actually close it.
+  for (const name of [
+    "calibration_bins_single_axis",
+    "calibration_bins_bounds",
+    "backtest_runs_population_reconciles",
+    "backtest_runs_completed_has_digests",
+  ]) {
+    assert.match(
+      migration,
+      new RegExp(`CONSTRAINT "${name}" CHECK`),
+      `migration is missing the ${name} constraint`,
+    );
+  }
+  for (const index of [
+    "calibration_bins_all_segment_uniq",
+    "calibration_bins_stat_segment_uniq",
+    "calibration_bins_season_segment_uniq",
+    "calibration_bins_era_segment_uniq",
+  ]) {
+    assert.match(
+      migration,
+      new RegExp(`CREATE UNIQUE INDEX "${index}"`),
+      `migration is missing the ${index} partial unique index`,
+    );
+  }
+});
+
+test("no enum-cast expression index was reintroduced", () => {
+  // COALESCE(stat_type::text, '*') reads like the obvious fix and Postgres
+  // rejects it: enum output is STABLE, not IMMUTABLE. Guarding it keeps the
+  // next person from rediscovering that at migrate-deploy time.
+  // Comments are stripped first: the migration explains the rejected form in
+  // prose, and a guard that fired on its own explanation would be useless.
+  const executable = migration
+    .split("\n")
+    .filter((line) => !line.trim().startsWith("--"))
+    .join("\n");
+  assert.ok(
+    !/COALESCE\(\s*"?\w+"?::text/i.test(executable),
+    "an enum-to-text cast appears inside an index/constraint expression",
+  );
+});
+
 test("PlayerExternalId keeps player_id nullable so unresolved ids are retained", () => {
   const ext = modelsByTable.get("player_external_ids");
   assert.ok(ext, "player_external_ids model not found");
