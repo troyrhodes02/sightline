@@ -105,27 +105,35 @@ _CORPUS_TABLES = (
 def corpus_digest(connect) -> str:
     """A digest over the corpus a run read.
 
-    Deliberately coarse — row counts and the latest ``known_at`` per table.
-    Its job is to make "the same stored corpus state" a checkable precondition,
-    so that a repeat run over a CHANGED corpus is reported as a different
-    experiment rather than as a reproducibility failure. Those are different
-    findings and conflating them would train the operator to ignore the real one.
+    Deliberately coarse — row counts, the latest ``known_at``, and the latest
+    ``updated_at`` per table. Its job is to make "the same stored corpus state"
+    a checkable precondition, so that a repeat run over a CHANGED corpus is
+    reported as a different experiment rather than as a reproducibility
+    failure. Those are different findings and conflating them would train the
+    operator to ignore the real one.
+
+    What it detects is any change made **through the ingest path**: a new row
+    moves the count, a correction moves ``known_at`` and ``updated_at``. What it
+    does NOT detect is a value edited by hand in the database, which changes
+    neither. That is the safe direction — a hand-edit shows up as a genuine
+    digest mismatch rather than as false confidence — but it is worth knowing
+    that this digest is a precondition check, not a checksum of the corpus.
     """
     parts: list[str] = []
     with connect() as conn, conn.cursor() as cur:
         for table in _CORPUS_TABLES:
             cur.execute(f"select count(*) from {table}")
             count = cur.fetchone()[0]
-            known_at = None
+            stamps: list[str] = []
             cur.execute(
                 "select column_name from information_schema.columns "
                 "where table_name = %s and column_name in "
-                "('known_at', 'correction_known_at')",
+                "('known_at', 'correction_known_at', 'updated_at') "
+                "order by column_name",
                 (table,),
             )
-            column = cur.fetchone()
-            if column:
-                cur.execute(f"select max({column[0]}) from {table}")
-                known_at = cur.fetchone()[0]
-            parts.append(f"{table}:{count}:{known_at}")
+            for (column,) in cur.fetchall():
+                cur.execute(f"select max({column}) from {table}")
+                stamps.append(f"{column}={cur.fetchone()[0]}")
+            parts.append(f"{table}:{count}:{','.join(stamps)}")
     return digest_strings(parts)
