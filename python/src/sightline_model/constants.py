@@ -36,6 +36,49 @@ SIGMA_FLOOR = 0.35
 # mean two distribution families for one stat family.
 COUNT_MIN_DISPERSION = 1.05
 
+# --- Confidence -------------------------------------------------------------
+# Confidence is an ordinal label, NOT a calibrated probability, and no surface
+# may present it as one. It combines two signals the PRD names: how wide the
+# interval is relative to the projection, and how much relevant history the
+# player has in the current role.
+#
+# The rule is evaluated in order, first match wins:
+#   n_eff < MIN_HISTORY_FOR_MEDIUM   -> low
+#   relative width > W_LOW           -> low
+#   n_eff >= N_FOR_HIGH and w <= W_HIGH -> high
+#   otherwise                        -> medium
+MIN_HISTORY_FOR_MEDIUM = 3
+N_FOR_HIGH = 6
+
+# Per family, and not merely with different numbers: the two families need
+# different DENOMINATORS, because relative width is degenerate for low counts.
+#
+# Continuous: width / max(projected, floor). The floor stops a 2-yard
+# projection producing an enormous ratio from a 4-yard interval.
+#
+# Count: width / (offset + projected). Dividing a count interval by its own
+# mean inverts the scale — a tight end projected at 0.6 touchdowns spans
+# 0 to 2 (ratio 3.3) while one projected at 0.2 spans 0 to 1 (ratio 2.0), so
+# the better-evidenced, higher-usage player reads as LESS confident. The +1
+# offset measures the interval against "about one event", which is the scale
+# these stats actually live on.
+#
+# The bands are calibrated so that all three levels are reachable from
+# plausible history — a scale whose top step never occurs is a two-step scale
+# wearing a three-step label, and there is a test asserting all three occur.
+CONFIDENCE_BANDS = {
+    "continuous_nonneg": {"w_high": 1.45, "w_low": 2.00, "floor": 10.0, "offset": 0.0},
+    "count": {"w_high": 1.10, "w_low": 1.50, "floor": 0.0, "offset": 1.0},
+}
+
+# Zero eligible games is not a wide projection, it is no projection. The engine
+# declines rather than emitting a confident-looking population prior.
+MIN_ELIGIBLE_GAMES = 1
+
+# A player whose most recent eligible game is this many weeks back is flagged
+# `returning` — not excluded, but worth inspecting by hand.
+RETURNING_ABSENCE_WEEKS = 5
+
 # --- Threshold policy -------------------------------------------------------
 THRESHOLD_POLICY_VERSION = "grid-v1"
 
@@ -84,6 +127,11 @@ def engine_config() -> dict[str, object]:
         "halfLifeGames": HALF_LIFE_GAMES,
         "k0": K0,
         "sigmaFloor": SIGMA_FLOOR,
+        "minHistoryForMedium": MIN_HISTORY_FOR_MEDIUM,
+        "nForHigh": N_FOR_HIGH,
+        "confidenceBands": CONFIDENCE_BANDS,
+        "minEligibleGames": MIN_ELIGIBLE_GAMES,
+        "returningAbsenceWeeks": RETURNING_ABSENCE_WEEKS,
         "countMinDispersion": COUNT_MIN_DISPERSION,
         "thresholdPolicyVersion": THRESHOLD_POLICY_VERSION,
         "cutoffPolicy": CUTOFF_POLICY,
