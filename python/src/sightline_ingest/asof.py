@@ -309,6 +309,76 @@ class AsOfCorpus:
             )
             return _apply_rollbacks(cur)
 
+    def population_stats(
+        self, *, before_season: int, position: str, column: str
+    ) -> pl.DataFrame:
+        """Population evidence for fitting a prior, from earlier seasons only.
+
+        Two bounds, both required. ``season < before_season`` is what makes a
+        prior walk-forward: a prior that saw its own season would encode that
+        season's outcomes into every prediction inside it. The publication-time
+        bound is the same one every other read here carries, so a prior fitted
+        mid-run cannot see a game the model itself could not.
+
+        ``column`` is chosen from the stat registry, never from user input; it
+        is interpolated because a column name cannot be a bind parameter.
+        """
+        if column not in _STAT_COLS:
+            raise ValueError(f"unknown stat column: {column!r}")
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"""
+                select g.season, pgs.player_id, pgs.{column} as value
+                from player_game_stats pgs
+                join games g on g.id = pgs.game_id
+                join players p on p.id = pgs.player_id
+                where g.season < %(season)s
+                  and p.position = %(position)s
+                  and pgs.{column} is not null
+                  and {_PUBLISHED_BY_SQL} <= %(cutoff)s
+                order by g.season, pgs.player_id, pgs.game_id
+                """,
+                {
+                    "season": before_season, "position": position,
+                    "cutoff": self._cutoff,
+                },
+            )
+            return _rows_to_df(cur)
+
+    def season_participants(
+        self, *, seasons: tuple[int, ...], column: str
+    ) -> pl.DataFrame:
+        """Players with a published stat line for ``column`` in ``seasons``.
+
+        The harness's candidate universe, derived from **pre-cutoff
+        information only**. Enumerating candidates from the target game's own
+        participants would condition the population on an outcome.
+
+        The caller passes the current season AND the one before it. Restricting
+        to the current season alone would leave week 1 with no candidates at
+        all — nothing has published yet — so the harness would silently skip
+        the first week of every season, and a coverage gap that produces no
+        rows produces no exclusions either, which is the kind of absence
+        nobody notices.
+        """
+        if column not in _STAT_COLS:
+            raise ValueError(f"unknown stat column: {column!r}")
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"""
+                select distinct pgs.player_id, p.position
+                from player_game_stats pgs
+                join games g on g.id = pgs.game_id
+                join players p on p.id = pgs.player_id
+                where g.season = any(%(seasons)s::int[])
+                  and pgs.{column} is not null
+                  and {_PUBLISHED_BY_SQL} <= %(cutoff)s
+                order by pgs.player_id
+                """,
+                {"seasons": list(seasons), "cutoff": self._cutoff},
+            )
+            return _rows_to_df(cur)
+
     # --- Derived on read --------------------------------------------------
 
     def rest_and_travel(self, *, player_id: str, game_id: str) -> dict:
