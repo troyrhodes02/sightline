@@ -9,8 +9,10 @@ always maps to the same Sightline id, so a mid-season trade keeps one stable
 
 from __future__ import annotations
 
+import math
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 import polars as pl
@@ -47,6 +49,13 @@ def require_columns(df: pl.DataFrame, columns: list[str], *, dataset: str) -> No
         )
 
 
+def season_range(season_from: int | None, season_to: int | None) -> list[int]:
+    """Inclusive season list, or raise if a seasonal dataset was given no range."""
+    if season_from is None or season_to is None:
+        raise SchemaDriftError("this dataset requires --seasons (e.g. 1999-2025)")
+    return list(range(season_from, season_to + 1))
+
+
 def season_type(game_type: str) -> str:
     """Map an nflverse game_type to REG / POST / PRE."""
     if game_type == "REG":
@@ -76,6 +85,34 @@ def parse_date(value: str | None) -> date | None:
         return datetime.strptime(value, "%Y-%m-%d").date()
     except ValueError:
         return None
+
+
+def day_after_game_knownat(kickoff: datetime) -> datetime:
+    """Reconstructed availability of post-game facts: 00:00 the day AFTER kickoff.
+
+    Play-by-play and final stat lines become available the day after the game.
+    This is strictly after kickoff (so known_at >= valid_at holds) and never the
+    game date itself. Reconstructed — callers set knownAtReconstructed=true.
+    """
+    d = kickoff.date() + timedelta(days=1)
+    return datetime(d.year, d.month, d.day)
+
+
+def to_decimal(value: object) -> Decimal | None:
+    """Coerce a numeric to a 1-decimal Decimal (never a float — precision matters)."""
+    if value is None:
+        return None
+    if isinstance(value, float) and math.isnan(value):
+        return None
+    return Decimal(str(value)).quantize(Decimal("0.1"))
+
+
+def to_int(value: object) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, float) and math.isnan(value):
+        return None
+    return int(value)
 
 
 def schedule_release_knownat(season: int) -> datetime:
