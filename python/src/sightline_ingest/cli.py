@@ -59,6 +59,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help="season or inclusive range, e.g. 1999-2025 or 2021",
     )
     parser.add_argument(
+        "--source",
+        default=None,
+        help="restrict to a source (e.g. --source kalshi for the identities dataset)",
+    )
+    parser.add_argument(
+        "--from-samples",
+        default=None,
+        help="path to a static sample file (e.g. Kalshi naming samples for identities)",
+    )
+    parser.add_argument(
         "--database-url",
         default=None,
         help="override the ingest DSN (defaults to INGEST_DATABASE_URL / DIRECT_URL)",
@@ -95,7 +105,14 @@ def main(argv: list[str] | None = None) -> int:
             season_from=season_from,
             season_to=season_to,
         ) as handle:
-            dataset.run(handle, connect, season_from, season_to)
+            dataset.run(
+                handle,
+                connect,
+                season_from,
+                season_to,
+                source=args.source,
+                from_samples=args.from_samples,
+            )
     except IngestError as exc:
         # The failure is already recorded as an IngestRun. Surface a
         # credential-safe message and exit non-zero.

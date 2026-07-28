@@ -36,6 +36,7 @@ def ingest_teams(
     season_to: int | None = None,
     *,
     fetch: Callable[[], pl.DataFrame] = fetch_teams,
+    **_: object,
 ) -> None:
     df = fetch()
     require_columns(df, _REQUIRED, dataset="teams")
