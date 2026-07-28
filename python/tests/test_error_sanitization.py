@@ -40,6 +40,19 @@ def test_sanitize_removes_dsn_password_component_alone(monkeypatch) -> None:
     assert "<redacted>" in msg
 
 
+def test_sanitize_survives_password_that_is_a_scheme_substring(monkeypatch) -> None:
+    # CI's local database password is literally "postgres" — a substring of
+    # the scheme itself. If value replacement ran before the structural pass,
+    # it would rewrite postgresql:// into <redacted>ql:// and blind the
+    # structural regex, leaking an UNRELATED DSN's password.
+    monkeypatch.setenv("DIRECT_URL", "postgresql://postgres:postgres@localhost:5432/sightline")
+    msg = sanitize_error(
+        Exception("nflverse unreachable via postgresql://u:topsecretpw@h:5432/db")
+    )
+    assert "topsecretpw" not in msg
+    assert "<redacted>" in msg
+
+
 def test_known_secret_values_include_decoded_password(monkeypatch) -> None:
     from sightline_ingest.config import known_secret_values
 

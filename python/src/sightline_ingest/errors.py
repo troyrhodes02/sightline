@@ -49,15 +49,22 @@ def sanitize_error(exc: BaseException | str) -> str:
       2. Value-based — remove any known secret value from the environment
          (full DSNs, the DB password), so a credential that appears in an
          unexpected shape is still removed.
+
+    The structural pass MUST run first: a configured password can be a
+    substring of the scheme itself (a local database with password literally
+    "postgres"), and replacing it value-first would rewrite ``postgresql://``
+    into ``<redacted>ql://`` — destroying the token the structural regex keys
+    on and leaving an unrelated DSN's password intact. Value replacement runs
+    longest-first so a full DSN is removed before its own password substring.
     """
     text = str(exc)
 
-    # Layer 2 first: remove exact known secret values wherever they appear.
-    for secret in known_secret_values():
+    # Layer 1: rewrite any user:pass@ credential span in a DSN.
+    text = _DSN_CREDENTIALS.sub(lambda m: f"{m.group('scheme')}{_REDACTED}@", text)
+
+    # Layer 2: remove exact known secret values wherever else they appear.
+    for secret in sorted(known_secret_values(), key=len, reverse=True):
         if secret:
             text = text.replace(secret, _REDACTED)
-
-    # Layer 1: rewrite any remaining user:pass@ credential span in a DSN.
-    text = _DSN_CREDENTIALS.sub(lambda m: f"{m.group('scheme')}{_REDACTED}@", text)
 
     return text
