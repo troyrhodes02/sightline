@@ -1,0 +1,399 @@
+// Sightline — corpus & point-in-time foundation schema (Pitch 1).
+//
+// Prisma is the SINGLE source of schema truth (Architecture Doc -> Tech Stack).
+// The Python runtime reads and writes these tables by column name but NEVER
+// migrates them. Every field maps explicitly to snake_case via @map because the
+// Python side reads by column name; model names are PascalCase singular and
+// tables are snake_case plural via @@map.
+//
+// THE CORE INVARIANT (temporal integrity): every FACT table carries validAt
+// (when a fact was true of the world) and knownAt (when it became available),
+// both non-nullable, plus knownAtReconstructed (true when knownAt was inferred
+// from a per-source rule rather than observed). A raw-SQL migration adds
+// `known_at >= valid_at` check constraints on fact tables as defence in depth
+// behind the as-of query layer — except game_weather, where a forecast is by
+// nature known BEFORE the window it describes (known_at < valid_at is the
+// legitimate shape there; see the GameWeather model).
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  // Connection URLs live in prisma.config.ts (Prisma v7): DATABASE_URL is the
+  // transaction-pooler connection for application traffic; DIRECT_URL is the
+  // direct (non-pooled) connection Prisma Migrate and the Python runtime use.
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum DataSource {
+  nflverse
+  espn
+  kalshi
+  open_meteo
+  manual
+}
+
+enum IngestStatus {
+  success // completed, coverage as expected
+  partial // completed, but a documented coverage gap applies
+  degraded // completed on a fallback (e.g. climatology for weather)
+  failed // did not complete; explicit failure, never a silent gap
+}
+
+enum IdentityResolutionStatus {
+  resolved // mapped to exactly one Player
+  unresolved // no confident match; retained and surfaced
+  ambiguous // matches more than one Player; retained and surfaced
+  manual_override // resolved by an explicit human override, not name matching
+}
+
+enum WeatherEra {
+  archived_forecast // 2021-forward: what could have been known pre-kickoff
+  reanalysis // pre-2021: what the weather actually was (accepted leak, reported)
+}
+
+enum WeatherStatus {
+  observed // a real weather record exists for this game
+  dome // indoor venue; weather bypassed by design (not a gap)
+  unavailable // no source covers this game's era (fell back / degraded)
+  request_failed // source was expected but the fetch failed; a gap to retry
+}
+
+enum ContextType {
+  snap_count_offense
+  snap_pct_offense
+  snap_count_defense
+  snap_pct_defense
+  snap_pct_st
+  participation_status
+  practice_status
+  injury_designation
+  rest_days // derived-on-read in the as-of layer; never stored
+  travel_km // derived-on-read in the as-of layer; never stored
+}
+
+enum GameStatus {
+  scheduled
+  completed
+  postponed
+  relocated
+  cancelled
+}
+
+// ---------------------------------------------------------------------------
+// Reference entities
+// ---------------------------------------------------------------------------
+
+model Team {
+  id           String   @id @default(uuid())
+  nflverseAbbr String   @unique @map("nflverse_abbr") // e.g. "CIN"
+  fullName     String   @map("full_name")
+  conference   String?
+  division     String?
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  homeGames Game[] @relation("HomeTeam")
+  awayGames Game[] @relation("AwayTeam")
+
+  @@map("teams")
+}
+
+model Player {
+  id        String    @id @default(uuid())
+  fullName  String    @map("full_name")
+  position  String? // roster position; NOT a current-team field
+  birthDate DateTime? @map("birth_date")
+  // Deliberately NO current_team_id. Team affiliation is per-game context.
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  externalIds PlayerExternalId[]
+  gameStats   PlayerGameStat[]
+  contexts    PlayerGameContext[]
+
+  @@index([fullName])
+  @@map("players")
+}
+
+model PlayerExternalId {
+  id           String                   @id @default(uuid())
+  source       DataSource
+  // Non-nullable: it participates in the dedup unique key below, and Postgres
+  // treats NULLs as distinct in unique indexes — a NULL id would silently
+  // disable upsert dedup. Name-only sources use the name itself as the id.
+  externalId   String                   @map("external_id") // e.g. GSIS id, ESPN id, Kalshi identifier
+  externalName String                   @map("external_name") // as rendered by the source
+  playerId     String?                  @map("player_id") // null while unresolved/ambiguous
+  status       IdentityResolutionStatus @default(unresolved)
+  candidateIds Json?                    @map("candidate_ids") // for ambiguous: the competing Player ids
+  resolvedBy   String?                  @map("resolved_by") // operator identifier for manual overrides
+  resolvedAt   DateTime?                @map("resolved_at")
+  createdAt    DateTime                 @default(now()) @map("created_at")
+  updatedAt    DateTime                 @updatedAt @map("updated_at")
+
+  player Player? @relation(fields: [playerId], references: [id])
+
+  // One canonical mapping per (source, external identity). Re-ingest upserts, never duplicates.
+  @@unique([source, externalId, externalName])
+  @@index([playerId])
+  @@index([status])
+  @@map("player_external_ids")
+}
+
+// ---------------------------------------------------------------------------
+// Game and schedule
+// ---------------------------------------------------------------------------
+
+model Game {
+  id         String     @id @default(uuid())
+  season     Int
+  week       Int
+  seasonType String     @map("season_type") // REG / POST / PRE
+  homeTeamId String     @map("home_team_id")
+  awayTeamId String     @map("away_team_id")
+  venue      String?
+  isDome     Boolean    @map("is_dome")
+  // Neutral-site game (London/Munich/São Paulo, Super Bowls): not played at
+  // the home team's stadium, so home-city weather does not apply and weather
+  // ingest degrades explicitly instead of recording the wrong city.
+  isNeutralSite Boolean  @default(false) @map("is_neutral_site")
+  status     GameStatus @default(scheduled)
+
+  // Current best-known kickoff. Schedule changes are also recorded bitemporally
+  // in GameScheduleRevision so as-of reads can see the kickoff known at a cutoff.
+  kickoffAt DateTime @map("kickoff_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  homeTeam    Team                   @relation("HomeTeam", fields: [homeTeamId], references: [id])
+  awayTeam    Team                   @relation("AwayTeam", fields: [awayTeamId], references: [id])
+  plays       PlayByPlay[]
+  playerStats PlayerGameStat[]
+  contexts    PlayerGameContext[]
+  weather     GameWeather?
+  revisions   GameScheduleRevision[]
+
+  @@unique([season, week, seasonType, homeTeamId, awayTeamId])
+  @@index([season, week])
+  @@index([kickoffAt])
+  @@map("games")
+}
+
+model GameScheduleRevision {
+  id        String     @id @default(uuid())
+  gameId    String     @map("game_id")
+  kickoffAt DateTime   @map("kickoff_at") // kickoff as of this revision
+  venue     String?
+  status    GameStatus
+
+  validAt              DateTime @map("valid_at") // when this schedule state was true
+  knownAt              DateTime @map("known_at") // when this schedule state was published
+  knownAtReconstructed Boolean  @default(false) @map("known_at_reconstructed")
+
+  source      DataSource
+  ingestRunId String     @map("ingest_run_id")
+  createdAt   DateTime   @default(now()) @map("created_at")
+
+  game Game @relation(fields: [gameId], references: [id])
+
+  @@unique([gameId, knownAt, source])
+  @@index([gameId, knownAt(sort: Desc)])
+  @@map("game_schedule_revisions")
+}
+
+// ---------------------------------------------------------------------------
+// Fact tables
+// ---------------------------------------------------------------------------
+
+model PlayByPlay {
+  id                   String  @id @default(uuid())
+  gameId               String  @map("game_id")
+  playId               Int     @map("play_id") // nflverse play id within the game
+  quarter              Int?
+  gameSecondsRemaining Int?    @map("game_seconds_remaining")
+  posteamAbbr          String? @map("posteam_abbr") // team context at time of play
+  playData             Json    @map("play_data") // compact per-play payload from nflverse
+
+  validAt              DateTime @map("valid_at") // play time (game clock -> wall clock)
+  knownAt              DateTime @map("known_at") // day after the game (reconstructed)
+  knownAtReconstructed Boolean  @default(true) @map("known_at_reconstructed")
+
+  source      DataSource @default(nflverse)
+  ingestRunId String     @map("ingest_run_id")
+  createdAt   DateTime   @default(now()) @map("created_at")
+
+  game Game @relation(fields: [gameId], references: [id])
+
+  @@unique([gameId, playId])
+  @@index([gameId])
+  @@index([knownAt])
+  @@map("play_by_play")
+}
+
+model PlayerGameStat {
+  id             String @id @default(uuid())
+  playerId       String @map("player_id")
+  gameId         String @map("game_id")
+  teamAbbrAtGame String @map("team_abbr_at_game") // team the player was on THIS game
+
+  // Explicit typed actuals (the grading target). Decimal, never Float.
+  passingYards    Decimal? @map("passing_yards") @db.Decimal(6, 1)
+  passingTds      Int?     @map("passing_tds")
+  passingAttempts Int?     @map("passing_attempts")
+  completions     Int?
+  interceptions   Int?
+  rushingYards    Decimal? @map("rushing_yards") @db.Decimal(6, 1)
+  rushingTds      Int?     @map("rushing_tds")
+  carries         Int?
+  receivingYards  Decimal? @map("receiving_yards") @db.Decimal(6, 1)
+  receivingTds    Int?     @map("receiving_tds")
+  receptions      Int?
+  targets         Int?
+
+  version              Int      @default(1) // bumped on a correction
+  validAt              DateTime @map("valid_at") // the game (final of the game)
+  knownAt              DateTime @map("known_at") // day after the game, or correction knownAt
+  knownAtReconstructed Boolean  @default(true) @map("known_at_reconstructed")
+
+  source      DataSource @default(nflverse)
+  ingestRunId String     @map("ingest_run_id")
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+
+  player      Player                     @relation(fields: [playerId], references: [id])
+  game        Game                       @relation(fields: [gameId], references: [id])
+  corrections PlayerGameStatCorrection[]
+
+  @@unique([playerId, gameId]) // one current row per player-game; corrections version it
+  @@index([gameId])
+  @@index([knownAt])
+  @@map("player_game_stats")
+}
+
+model PlayerGameStatCorrection {
+  id                String   @id @default(uuid())
+  playerGameStatId  String   @map("player_game_stat_id")
+  version           Int // the version this correction produced
+  priorValues       Json     @map("prior_values") // full snapshot of the superseded stat line
+  correctedValues   Json     @map("corrected_values")
+  correctionKnownAt DateTime @map("correction_known_at") // when the correction became available
+
+  source      DataSource @default(nflverse)
+  ingestRunId String     @map("ingest_run_id")
+  createdAt   DateTime   @default(now()) @map("created_at")
+
+  playerGameStat PlayerGameStat @relation(fields: [playerGameStatId], references: [id])
+
+  @@unique([playerGameStatId, version])
+  @@index([correctionKnownAt])
+  @@map("player_game_stat_corrections")
+}
+
+model PlayerGameContext {
+  id             String      @id @default(uuid())
+  playerId       String      @map("player_id")
+  gameId         String      @map("game_id")
+  teamAbbrAtGame String      @map("team_abbr_at_game")
+  contextType    ContextType @map("context_type")
+
+  // One of these carries the value depending on contextType.
+  numericValue Decimal? @map("numeric_value") @db.Decimal(10, 3)
+  textValue    String?  @map("text_value") // e.g. "Questionable", "Out", "DNP"
+
+  validAt              DateTime @map("valid_at") // the game / practice day the fact is true of
+  knownAt              DateTime @map("known_at") // publication time (often reconstructed)
+  knownAtReconstructed Boolean  @default(true) @map("known_at_reconstructed")
+
+  source      DataSource
+  ingestRunId String     @map("ingest_run_id")
+  createdAt   DateTime   @default(now()) @map("created_at")
+
+  player Player @relation(fields: [playerId], references: [id])
+  game   Game   @relation(fields: [gameId], references: [id])
+
+  // Append-only observation stream: the SAME (player, game, contextType) may have
+  // several rows over a week (Questionable Wed -> Out Fri). The natural key includes
+  // knownAt + source so re-ingesting the same snapshot upserts rather than duplicates.
+  @@unique([playerId, gameId, contextType, knownAt, source])
+  @@index([gameId, contextType, knownAt(sort: Desc)])
+  @@index([playerId, gameId, contextType])
+  @@index([knownAt])
+  @@map("player_game_context")
+}
+
+model GameWeather {
+  id     String @id @default(uuid())
+  gameId String @unique @map("game_id")
+
+  temperatureC    Decimal? @map("temperature_c") @db.Decimal(4, 1)
+  windKph         Decimal? @map("wind_kph") @db.Decimal(5, 1)
+  precipitationMm Decimal? @map("precipitation_mm") @db.Decimal(5, 1)
+
+  era           WeatherEra
+  status        WeatherStatus
+  weatherSource String        @map("weather_source") // specific Open-Meteo dataset id
+
+  // validAt is the kickoff window the weather describes; knownAt is when the
+  // forecast could have been read (reconstructed conservative bound per era —
+  // see datasets/weather.py). A forecast is known BEFORE the window it
+  // describes, so knownAt < validAt is the legitimate shape here and this is
+  // the one fact table WITHOUT the known_at >= valid_at CHECK.
+  validAt              DateTime @map("valid_at")
+  knownAt              DateTime @map("known_at")
+  knownAtReconstructed Boolean  @default(false) @map("known_at_reconstructed")
+
+  source      DataSource @default(open_meteo)
+  ingestRunId String     @map("ingest_run_id")
+  createdAt   DateTime   @default(now()) @map("created_at")
+
+  game Game @relation(fields: [gameId], references: [id])
+
+  @@index([era])
+  @@map("game_weather")
+}
+
+// ---------------------------------------------------------------------------
+// Provenance and coverage
+// ---------------------------------------------------------------------------
+
+model IngestRun {
+  id           String       @id @default(uuid())
+  source       DataSource
+  dataset      String // e.g. "player_stats", "injuries", "snap_counts", "pbp", "weather"
+  seasonFrom   Int?         @map("season_from")
+  seasonTo     Int?         @map("season_to")
+  status       IngestStatus
+  rowsWritten  Int          @default(0) @map("rows_written")
+  rowsUpdated  Int          @default(0) @map("rows_updated")
+  codeVersion  String       @map("code_version") // git sha of the ingest code
+  errorMessage String?      @map("error_message") // never contains credentials
+  startedAt    DateTime     @map("started_at")
+  finishedAt   DateTime?    @map("finished_at")
+  createdAt    DateTime     @default(now()) @map("created_at")
+
+  @@index([source, dataset, startedAt(sort: Desc)])
+  @@index([status])
+  @@map("ingest_runs")
+}
+
+model SourceCoverage {
+  id        String     @id @default(uuid())
+  source    DataSource
+  dataset   String
+  season    Int
+  coverage  String // "full" | "partial" | "none" — the explicit-missingness ledger
+  note      String? // why partial/none (e.g. "participation gap, weeks 1-4 absent upstream")
+  updatedAt DateTime   @updatedAt @map("updated_at")
+
+  @@unique([source, dataset, season])
+  @@index([source, dataset])
+  @@map("source_coverage")
+}
