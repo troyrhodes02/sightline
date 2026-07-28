@@ -1,75 +1,35 @@
-# React + TypeScript + Vite
+# Sightline
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Sightline tells its admin which of today's Kalshi NFL player-prop contracts
+are mispriced, and how much to trust that judgment. Invite-only; one admin, a
+handful of viewers. See `docs/planning/` for the product brief, PRD,
+architecture, and pitch roadmap, and `.claude/CLAUDE.md` for the project's
+working invariants.
 
-Currently, two official plugins are available:
+Two runtimes share one Postgres database and communicate through it and
+nowhere else:
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- **`prisma/`** — the single source of schema truth (TypeScript application
+  lands in a later pitch). Migrations originate here, always.
+- **`python/`** — the ingest/modelling runtime (`uv`-managed). It reads and
+  writes the tables Prisma owns but never migrates them. See
+  `python/README.md`.
 
-## React Compiler
+## Development
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```sh
+npm ci                    # Prisma CLI + schema test deps
+npm run prisma:validate   # validate prisma/schema.prisma
+npm run test:schema       # offline schema-invariant tests (node --test)
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Python tests (see `docker-compose.yml` for a local Postgres; set
+`TEST_DATABASE_URL`, apply migrations with `npx prisma migrate deploy`):
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```sh
+cd python
+uv sync
+uv run pytest -q
 ```
+
+Environment variables are documented in `.env.example`.

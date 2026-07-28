@@ -1,0 +1,9 @@
+[
+  { "ticker": "KXNFLPLAYER-MAHOMES", "name": "Patrick Mahomes" },
+  { "ticker": "KXNFLPLAYER-CHASE-JAMARR", "name": "Ja'Marr Chase" },
+  { "ticker": "KXNFLPLAYER-CHASE-NOAPOS", "name": "JaMarr Chase" },
+  { "ticker": "KXNFLPLAYER-STBROWN", "name": "Amon-Ra St. Brown" },
+  { "ticker": "KXNFLPLAYER-OBJ", "name": "Odell Beckham Jr." },
+  { "ticker": "KXNFLPLAYER-CHASE-ABBR", "name": "J. Chase" },
+  { "ticker": "KXNFLPLAYER-UNKNOWN", "name": "Nonexistent Testplayer" }
+]
