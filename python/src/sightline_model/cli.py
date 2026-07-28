@@ -66,6 +66,46 @@ def _build_parser() -> argparse.ArgumentParser:
         help="mark abandoned `running` rows as interrupted first (never completed)",
     )
 
+    show = sub.add_parser("show", help="run manifest, populations, aggregates")
+    show.add_argument("run_id")
+    show.add_argument(
+        "--breakout", choices=("total", "stat", "season", "era"), default="total"
+    )
+
+    calib = sub.add_parser("calibration", help="calibration bins and their counts")
+    calib.add_argument("run_id")
+    calib.add_argument("--stat", default=None)
+    calib.add_argument("--era", default=None)
+
+    preds = sub.add_parser("predictions", help="filterable prediction listing")
+    preds.add_argument("run_id")
+    preds.add_argument("--cohort", default=None)
+    preds.add_argument("--player", default=None)
+    preds.add_argument("--sort", choices=("err", "proj", "wk", "n"), default="err")
+    preds.add_argument("--limit", type=int, default=50)
+
+    expl = sub.add_parser("explain", help="one prediction, in full")
+    expl.add_argument("run_id")
+    expl.add_argument("--prediction", required=True)
+
+    excl = sub.add_parser("exclusions", help="exclusions grouped by reason code")
+    excl.add_argument("run_id")
+    excl.add_argument("--reason", default=None)
+    excl.add_argument("--examples", type=int, default=12)
+
+    thresh = sub.add_parser(
+        "thresholds", help="P(X >= t) from stored parameters, no refit"
+    )
+    thresh.add_argument("run_id")
+    thresh.add_argument("--prediction", required=True)
+    thresh.add_argument("--at", type=float, default=None)
+
+    for parser_ in (show, calib, preds, expl, excl, thresh):
+        parser_.add_argument(
+            "--strict", action="store_true",
+            help="exit non-zero when the run is not a completed result",
+        )
+
     listing = sub.add_parser("list", help="list stored backtest runs, newest first")
     listing.add_argument("--model-version", default=None)
     listing.add_argument("--window", choices=EVALUATION_WINDOWS, default=None)
@@ -249,6 +289,58 @@ def _run_backtest(args: argparse.Namespace, connect) -> int:
     return EXIT_FAILED
 
 
+_INSPECTION = ("show", "calibration", "predictions", "explain", "exclusions",
+               "thresholds")
+
+
+def _run_inspection(args: argparse.Namespace, connect) -> int:
+    """Dispatch a read-only inspection command.
+
+    None of these write, mutate, or delete anything — including artefacts.
+    `--strict` turns "this run is not a completed result" into a non-zero exit,
+    so a script cannot quietly build on partial numbers.
+    """
+    from . import inspect as inspect_commands
+
+    try:
+        if args.command == "show":
+            text, complete = inspect_commands.show(
+                connect, args.run_id, breakout=args.breakout
+            )
+        elif args.command == "calibration":
+            text, complete = inspect_commands.calibration(
+                connect, args.run_id, stat=args.stat, era=args.era
+            )
+        elif args.command == "predictions":
+            text, complete = inspect_commands.predictions(
+                connect, args.run_id, cohort=args.cohort, player=args.player,
+                sort=args.sort, limit=args.limit,
+            )
+        elif args.command == "explain":
+            text, complete = inspect_commands.explain(
+                connect, args.run_id, args.prediction
+            )
+        elif args.command == "exclusions":
+            text, complete = inspect_commands.exclusions(
+                connect, args.run_id, reason=args.reason, examples=args.examples
+            )
+        else:
+            text, complete = inspect_commands.thresholds(
+                connect, args.run_id, args.prediction, at=args.at
+            )
+    except inspect_commands.RunNotFound as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_FAILED
+
+    print(text)
+    if args.strict and not complete:
+        print(
+            "error: run is not a completed result (--strict)", file=sys.stderr
+        )
+        return EXIT_FAILED
+    return EXIT_OK
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -266,6 +358,8 @@ def main(argv: list[str] | None = None) -> int:
             return _run_list(args, connect)
         if args.command == "run":
             return _run_backtest(args, connect)
+        if args.command in _INSPECTION:
+            return _run_inspection(args, connect)
     except Exception as exc:  # noqa: BLE001 — credential-safe last resort
         # A raw psycopg OperationalError embeds the DSN's host and username.
         # Everything that reaches a console goes through sanitize_error first.
