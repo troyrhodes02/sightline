@@ -112,7 +112,18 @@ class ArtifactWriter:
         for dataset, rows in sorted(self._buffers.items()):
             directory = self.root / dataset
             directory.mkdir(parents=True, exist_ok=True)
-            frame = pl.DataFrame(rows, strict=False) if rows else pl.DataFrame()
+            # infer_schema_length=None scans EVERY row before choosing dtypes.
+            # The default (100) reads the schema off the first rows only, and
+            # candidate order puts all three continuous stat types before the
+            # count types — so `pmf` (null for continuous, a JSON string for
+            # counts) infers as Null and then throws on the first count row.
+            # Any run combining the two families would fail at flush, which is
+            # to say the ordinary six-stat-type run. Scanning is one pass over
+            # a buffer already held in memory.
+            frame = (
+                pl.DataFrame(rows, strict=False, infer_schema_length=None)
+                if rows else pl.DataFrame()
+            )
             frame.write_parquet(directory / "part-00000.parquet")
             counts[dataset] = len(rows)
         return counts

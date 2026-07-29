@@ -371,3 +371,24 @@ def test_both_defined_requires_both() -> None:
     assert Baselines(1.0, 2.0).both_defined
     assert not Baselines(None, 2.0).both_defined
     assert not Baselines(1.0, None).both_defined
+
+
+def test_flush_handles_a_column_null_for_every_early_row(tmp_path) -> None:
+    # `pmf` is null for the three continuous stat types and a JSON string for
+    # the count types, and candidate order puts every continuous row first.
+    # With Polars' default 100-row schema inference the column infers as Null
+    # and the first count row throws — so the ordinary six-stat-type run
+    # failed at flush while every narrow-fixture test passed. Written with
+    # more than 100 leading nulls precisely because that is the threshold.
+    writer = art.ArtifactWriter(root=tmp_path / "run")
+    for i in range(150):
+        writer.append(art.PREDICTIONS, {"prediction_id": f"c{i}", "pmf": None})
+    writer.append(art.PREDICTIONS, {"prediction_id": "count", "pmf": "[0.5,0.5]"})
+
+    counts = writer.flush()
+
+    assert counts[art.PREDICTIONS] == 151
+    frame = art.read_dataset(tmp_path / "run", art.PREDICTIONS)
+    assert frame.height == 151
+    assert frame.filter(pl.col("prediction_id") == "count")["pmf"][0] == "[0.5,0.5]"
+    assert frame.filter(pl.col("prediction_id") == "c0")["pmf"][0] is None
