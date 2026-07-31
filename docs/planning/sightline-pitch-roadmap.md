@@ -1,18 +1,41 @@
 # Sightline — Pitch Roadmap
 
+## Status
+
+Pitches 1 and 2 are **merged and frozen**. Their numbering does not change.
+
+A **cleanup sprint** sits between them and pitch 3, arising from the first baseline backtest. It is deliberately not a pitch — it is fix tickets, one re-run, one decision, and one bounded investigation, and promoting that to pitch status would be ceremony. It is documented below because it gates everything.
+
 ## Sequencing Logic
 
 The ordering is driven by one asymmetry: **most of this product can be validated offline, and the single most important thing about it cannot.** Twenty-five seasons of historical data let the backtest establish whether the model beats naive baselines, and that work can happen at any time of year. But the riskiest assumption — whether Sightline can be better calibrated than the market it trades against — depends on Kalshi prop prices, which have only existed since the 2025 season. There is not enough price history to backtest it. That answer accumulates one live slate at a time, and every week the product is not instrumented is a week of market data, decision records, and source-reliability evidence that can never be recovered.
 
 So the roadmap front-loads **measurement infrastructure over modelling sophistication**. Pitches 1 and 2 establish the historical corpus with point-in-time discipline and the backtest harness, including a deliberately simple baseline projection model — which is not throwaway work, since the success criteria permanently require season-average and trailing-five baselines to compare against. Pitch 3 builds the shell, brand, and access model before any substantial surface exists, so nothing is constructed in stock Material UI and rebuilt later. Pitches 4 through 6 turn on the market side, the live pipeline, and the scoring loop, at which point Sightline is a complete working product that records everything it needs to eventually answer its own hardest question. The simulation engine arrives at pitch 7, swapping the model behind surfaces that already store, display, price, and grade projections — a contained change, rather than building an interface around an unvalidated model.
 
-Risk is therefore split rather than uniformly front-loaded. The *technical* risk — temporal leakage — is attacked first, in pitch 1, because point-in-time correctness cannot be retrofitted and its failure mode is silent and flattering. The *product* risk is deliberately deferred, not because it is unimportant but because it is unanswerable until live weeks accumulate. Trading is last by an explicit gate: it does not ship until the harness has produced a real accuracy record.
+Risk is therefore split rather than uniformly front-loaded. The *technical* risk — temporal leakage — is attacked first, in pitch 1, because point-in-time correctness cannot be retrofitted and its failure mode is silent and flattering. The *product* risk is deliberately deferred, not because it is unimportant but because it is unanswerable until live weeks accumulate. Live trading is last by an explicit gate: it does not ship until the harness has produced a real accuracy record and the paper system has run without incident.
+
+**One requirement overrides the tidy version of this ordering.** Autonomous paper trading must be live for the opening weeks of the season. That is a fixed external date, and it pulls bankroll, sizing, and autonomy — originally V2 — into MVP at pitches 7 and 8, ahead of the simulation engine. The reasoning is that the paper run tests staking machinery, circuit breakers, ledger separation, and operational safety, none of which depend on the model being sophisticated. It runs on the baseline, and the model is swapped underneath it later.
+
+This has an honest consequence worth stating: the paper run in the opening weeks is **not** a test of whether the projection model is good. The model at that point consumes trailing production and nothing else — no weather, no injury context, not even rest and travel, all of which exist in the data layer but are unread by the projection path. What the paper run tests is that the machinery does not hurt you, plus an early read on whether the system's probabilities beat the market's. Those are worth having. They are not evidence that the model works.
+
+**The cleanup sprint precedes everything.** The first baseline backtest surfaced a corpus defect — ingest cannot express "did not participate," so every pooled metric was diluted past interpretation — plus a non-idempotent ingest that would break the in-season scheduled pipeline, and a calibration curve that exists only as ad-hoc analysis rather than a stored artefact. That last one is the blocker: pitch 7's recalibration layer must be fitted against a durable, verifiable, contract-like-segmented curve, and it cannot be specified before one exists. The sprint is corpus correction, a re-baseline producing the first citable run, a point-estimate decision, and a bounded dispersion investigation. It is Python-side only, so it runs in parallel with pitches 3 through 6, which are TypeScript-side and share no code with it.
 
 ---
 
+## Cleanup Sprint (between pitch 2 and pitch 7)
+
+Not a pitch. Fix tickets against merged work, plus the run that produces the artefact pitch 7 depends on. Python-side only; runs in parallel with pitches 3 through 6.
+
+- **SIG-25 (absorbing SIG-24)** — corpus correctness. Derive null-versus-zero from a per-phase participation signal so the corpus can express non-participation, and make stats ingest idempotent within a batch. The second is independently on the critical path: the in-season scheduled pipeline re-runs overlapping windows by design, so non-idempotent ingest breaks pitch 5 regardless. Requires a destructive reload, and must report how many genuine zeros the participation rule erases — a player who was on the field and produced nothing is informative history, and erasing it biases trailing averages upward.
+- **SIG-26 (absorbing SIG-22)** — the contract-like population as a stored, verifiable calibration segment with CLI rendering. Kalshi lists contracts only for meaningful-volume players, so this is the product boundary and the population the recalibration layer is fitted on. The volume floors are provisional and must be re-anchored against Kalshi's real listing behaviour before the paper run.
+- **SIG-27** — the re-baseline: the first citable stored run, clean tree, passing strict verification, carrying the contract-like segment. **This is the artefact pitch 7 blocks on.**
+- **SIG-28** — point-estimate resolution. The slate displays the median; backtests report both estimators with mean-versus-mean as the headline comparator. Affects display and error metrics only — threshold probabilities and the calibration curve are computed from the full distribution and are untouched.
+- **SIG-21** — performance work on feature assembly, resequenced *ahead* of SIG-29 rather than deferred. Every dispersion experiment costs a full backtest re-run, so run speed determines how many hypotheses can be tested per day.
+- **SIG-29** — top-end dispersion investigation. Bounded, with an explicit exit: either the top bins come within tolerance, or the residual is quantified and handed to the recalibration layer. The second outcome is expected and acceptable. The probability ceiling used by sizing is set from that number and sits conservative until it reports.
+
 ## Pitches
 
-### Pitch 1: Corpus & Point-in-Time Foundation
+### Pitch 1: Corpus & Point-in-Time Foundation — MERGED
 
 - **Type:** Foundational
 - **Value delivered:** A complete, queryable historical NFL corpus that structurally cannot leak future information into a past prediction. Nothing user-facing ships, but every downstream claim about accuracy depends on this being right.
@@ -29,7 +52,7 @@ Risk is therefore split rather than uniformly front-loaded. The *technical* risk
   - A named source becoming unavailable produces an explicit failure, never a silent gap.
   - Player identity resolves across all sources, with manual override available for unmatched cases.
 
-### Pitch 2: Backtest Harness & Baseline Model
+### Pitch 2: Backtest Harness & Baseline Model — MERGED
 
 - **Type:** Foundational
 - **Value delivered:** The ability to answer "is this model any good" before a single live slate exists — and a permanent baseline that every future model is measured against.
@@ -118,7 +141,46 @@ Risk is therefore split rather than uniformly front-loaded. The *technical* risk
   - Override performance and timing cost are admin-only.
   - Every displayed rate carries its sample size; insufficient data renders as an honest empty state rather than a precise-looking figure.
 
-### Pitch 7: Simulation Engine
+### Pitch 7: Bankroll, Sizing & Paper Trading
+
+- **Type:** Feature
+- **Value delivered:** Sightline stops describing opportunities and starts staking them. A simulated bankroll, a recalibration layer that makes probabilities safe to size from, Kelly-family sizing under hard caps, and a dry run to inspect its judgment before anything runs unattended.
+- **Includes:** Probability Recalibration. Bankroll & Ledger with paper and live mode separation. Position Sizing. Dry Run.
+- **Defers:** Scheduled autonomous execution and circuit breakers (pitch 8), real orders (pitch 11).
+- **Depends on:** Pitches 4 and 6, plus a stored backtest run carrying a contract-like calibration segment. The recalibration layer cannot be specified before that artefact exists — there is nothing to fit against.
+- **Definition of done:**
+  - The correction is fitted from a stored, verifiable backtest run, with live updates shrunk toward the backtest prior so small samples cannot move it materially.
+  - Raw and corrected probabilities are both stored; sizing consumes only the corrected one.
+  - The Kelly fraction is human-set configuration and does not adapt to measured results. Exactly one component adapts, and it is the correction.
+  - Edge is computed against the executable price, net of per-contract fees.
+  - Stake is shrunk by projection confidence.
+  - A probability ceiling excludes contracts above a configured corrected probability from sizing entirely, defaulting to 0.75 until the top-end residual is quantified.
+  - Per-game and per-slate exposure caps bind regardless of what sizing proposes.
+  - Slate allocation is solved jointly rather than as independent per-contract calculations.
+  - Paper and live ledgers are separate and cannot be aggregated by any analytics view.
+  - Bankroll state is reconstructible at any past point; high-water mark is tracked.
+  - Every sizing computation is stored with all inputs and binding caps, so any stake is explainable.
+  - Dry run executes the identical code path as execution, diverging only at the ledger write, and produces inspectable intents.
+
+### Pitch 8: Autonomous Execution & Circuit Breakers
+
+- **Type:** Feature
+- **Value delivered:** The paper system runs itself. Scheduled execution against the paper ledger, with stopping conditions that do not depend on anyone watching — which is what makes it safe to leave running for weeks.
+- **Includes:** Autonomous Execution. Circuit Breakers & Withdrawal. The gated paper-to-live switch.
+- **Defers:** Live order placement, which is pitch 11. This pitch makes autonomy real against simulated money only.
+- **Depends on:** Pitches 5, 6, 7.
+- **Definition of done:**
+  - Execution runs on a schedule scoped per game window, measured from each game's own kickoff.
+  - The system never acts on a stale projection, and enforces a hard pre-kickoff cutoff — the primary safety interlock, and the reason a scheduler without timing guarantees is tolerable.
+  - Paper is the default mode; live requires explicit enablement through a gated switch that evaluates go-live conditions and refuses if unmet.
+  - Drawdown, calibration, and exposure halts each stop trading and require manual re-enable; none recover automatically.
+  - A kill switch halts everything immediately with no confirmation flow.
+  - Every trip records the condition, its value, and the time, surfaced prominently in the product.
+  - Breakers behave identically in paper mode, so paper genuinely exercises them.
+  - The withdrawal ratchet notifies when settled balance exceeds its working ceiling; the system never moves money.
+  - Every automated action records the full state it was computed from; a run placing nothing is a success, and a skipped run is visible rather than silent.
+
+### Pitch 9: Simulation Engine
 
 - **Type:** Feature
 - **Value delivered:** The real model. Joint distributions across players in a game, native handling of usage redistribution, and readable drivers that fall out of the model's structure rather than being narrated on top of it.
@@ -136,7 +198,7 @@ Risk is therefore split rather than uniformly front-loaded. The *technical* risk
   - Adding a stat type requires no structural change.
   - Simulation is seeded and reproducible.
 
-### Pitch 8: Adjustment Suggestions & Source Reliability
+### Pitch 10: Adjustment Suggestions & Source Reliability
 
 - **Type:** Feature
 - **Value delivered:** Late-breaking information reaches the product without an unproven source being trusted automatically — and the evidence to decide whether it can be trusted later.
@@ -153,7 +215,7 @@ Risk is therefore split rather than uniformly front-loaded. The *technical* risk
   - The ESPN feed becoming unavailable stops suggestions and surfaces staleness rather than failing anything.
   - Contradictory or reversed suggestions from the same source are handled explicitly.
 
-### Pitch 9: Kalshi Trading
+### Pitch 11: Kalshi Live Trading
 
 - **Type:** Feature
 - **Value delivered:** Positions are taken without leaving the application, and every position traces back to the projection and reasoning that produced it.
@@ -188,9 +250,17 @@ Pitch 6 requires 4 for recommendation snapshots and decisions to grade, and 1 fo
 
 Pitch 7 requires 1 and 2, and is designed to ship into surfaces built by 4 through 6. It has no dependency on 5, so pipeline and model work can proceed in either order if pitch 7 slips.
 
-Pitch 8 requires 7 for meaningful redistribution, 5 for the staleness model it plugs into, and 6 for the grading its analytics depend on.
+The cleanup sprint blocks pitch 7 and nothing else. SIG-27 in particular is the hard gate: pitch 7's recalibration layer cannot be specified, let alone built, before a stored contract-like calibration curve exists. The sprint shares no code with pitches 3 through 6 and runs alongside them.
 
-Pitch 9 requires 4, 6, and 7, plus the explicit gate of a stored backtest run.
+Pitch 7 requires 4, 6, and SIG-27. It does not require 9 — sizing operates on whatever distribution the current model produces.
+
+Pitch 8 requires 5, 6, and 7. The dependency on 5 is a safety one rather than a convenience: autonomous execution's primary interlock is declining to act on a stale projection, which requires staleness to be modelled.
+
+Pitch 9 requires 1 and 2, and ships into surfaces built by 4 through 8. It has no dependency on 5, 7, or 8, so model work and staking work proceed independently — which matters, because a slipping simulation engine must not delay paper trading.
+
+Pitch 10 requires 9 for meaningful redistribution, 5 for the staleness model it plugs into, and 6 for the grading its analytics depend on.
+
+Pitch 11 requires 4, 6, 7, and 8, plus the explicit gate of a stored backtest run and the go-live conditions being met.
 
 No cycles. The only soft ordering is pitch 3 before pitch 4, which is a rework-avoidance decision rather than a technical constraint.
 
@@ -199,6 +269,8 @@ No cycles. The only soft ordering is pitch 3 before pitch 4, which is a rework-a
 ## Open Questions
 
 **Whether pitch 4 should ship before pitch 3 if Week 1 comes under pressure.** The slate could technically be built on unstyled components and themed afterward. That inverts the rework-avoidance logic and is not recommended, but it is the release valve if the calendar tightens — and it is better than delaying the start of market-data accumulation.
+
+**Whether paper trading slips past the opening week.** The release valve if pitches 7 and 8 are not ready: start paper trading in week two or three instead. The cost is real — market prices, decision records, and source-reliability evidence do not backfill — but structural rather than fatal. What must not be compressed to hit a date is the dry run, which is the one step standing between a sizing defect and weeks of a paper ledger that teaches nothing.
 
 **Whether the baseline model in pitch 2 is good enough to trade on.** If its calibration turns out to be acceptable, pitches 4 through 6 constitute a shippable product and pitch 7 becomes an improvement rather than a completion. If it is poor, pitch 7 becomes urgent. This is unknown until pitch 2 produces results, and it materially affects how the back half of the roadmap is paced.
 

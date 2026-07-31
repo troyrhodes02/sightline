@@ -28,7 +28,7 @@ What separates this from a projection site is that Sightline is not trying to pr
 
 ## Core Job
 
-Sightline tells William which of today's Kalshi NFL player contracts are mispriced, and how much to trust that judgment.
+Sightline tells William which of today's Kalshi NFL player contracts are mispriced, how much to trust that judgment, and how much to stake on it — and it can act on that judgment autonomously, against simulated money first.
 
 ## Success Definition
 
@@ -41,6 +41,8 @@ At 90 days from first production slate, four signals:
 **Positive edge against Kalshi where a market exists.** Treated as directional evidence only. Ninety days is too short a window for this number to be conclusive, and it should never be reported without its uncertainty attached.
 
 **It gets used.** Sightline is open on Sunday mornings, and the override log has accumulated enough take/fade/skip records to begin answering whether William's own reads add value on top of the model. A personal tool that goes unopened has failed regardless of its error metrics.
+
+**The autonomous paper system ran without incident.** Sizing produced no absurd stakes, exposure stayed within caps, circuit breakers behaved as specified, and the paper and live ledgers never touched. This is deliberately an operational and safety measure rather than a profitability one: a few weeks of paper trading yields too few positions for realised P&L to distinguish a working system from a lucky one, whereas comparing Sightline's probabilities against the market's across every contract it priced — traded or not — is far better powered over the same period. Real money is committed on that comparison plus calibration and simulated bankroll paths, never on a win rate.
 
 ## Non-Goals
 

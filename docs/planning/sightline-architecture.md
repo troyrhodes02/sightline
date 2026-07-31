@@ -96,6 +96,14 @@ The full historical corpus is on the order of a million plays and tens of thousa
 
 **Staleness is disclosed rather than raced.** At ninety minutes to kickoff Sightline is structurally the slowest participant in the market — news reaches traders in seconds and a recompute pipeline cannot beat that. The design consequence is that projections carry their `computed_at` and `information_cutoff` into the interface, and once a game passes the point where inactives publish, its contracts are marked stale until ingested. A projection that admits it predates inactives is more useful than one that silently pretends to be current. This is also what makes GitHub Actions' lack of a timing SLA tolerable: a late run shows as an older timestamp rather than a wrong number.
 
+**Recalibration is fitted in Python and applied in TypeScript.** The correction — a versioned mapping from raw model probability to corrected probability — is fitted offline against a stored backtest run, updated with live results under shrinkage toward the backtest prior, and written to Postgres as parameters. The application reads those parameters and applies them at sizing time. The seam stays at the database, consistent with the rest of the architecture, and the heavy fitting stays where the historical data and the modelling ecosystem already are.
+
+**Autonomous execution runs in the TypeScript runtime, not the Python one.** This is a deliberate exception to "Python owns scheduled jobs." Execution needs current prices, order placement, and request signing, all of which live in the application's Kalshi integration; running it from Python would mean a second Kalshi client, a second copy of the signing logic, and a second place for a credential to live. The job is seconds rather than hours, so a scheduled invocation of an application route is the right shape. Python's scheduled jobs remain the heavy ones — ingest, recompute, grading. The scheduling platform's job limits should be checked against the required cadence before pitch 8 commits to it.
+
+**Exactly one component adapts to measured accuracy.** The recalibration layer adapts; the Kelly fraction does not. Two coupled feedback loops have no stable fixed point — letting measured results scale the fraction would size largest immediately after a lucky run, which is a recognised path to ruin rather than a refinement. This is an architectural invariant, not a tuning preference.
+
+**Paper and live ledgers are separate stores with no reconciliation path.** Paper fills are hypothetical and live fills are real; no query, view, or analytic may aggregate across them. Mode is explicit on every position and ledger entry.
+
 **Prices never feed projections.** Kalshi price movement is the comparison target and must never become a model input, even indirectly. Inferring a player's status from a violent price move would make the model partially derivative of the market it is trying to beat and would quietly destroy the calibration measurement that is the product's primary success metric.
 
 **Source of truth.** Postgres holds everything the application displays. Local Parquet holds raw backtest output. nflverse, Kalshi, ESPN, and Open-Meteo are upstream sources, never queried live by the web application except for Kalshi prices.
@@ -206,7 +214,11 @@ The correct sources are the archived-forecast datasets, which Open-Meteo explici
 
 ## Environments & Deployment
 
-**Local** runs Python development, model fitting, and all backtests. Backtesting is a multi-hour job — roughly twenty-five seasons of games at ten thousand simulation runs each — and belongs on a machine with no execution ceiling and no per-minute cost. The Next.js app runs locally against a development Supabase project.
+**Local** runs Python development, model fitting, and all backtests. Backtesting is a multi-hour job and belongs on a machine with no execution ceiling and no per-minute cost. The Next.js app runs locally against a development Supabase project.
+
+**The historical corpus exists in two places, and neither is authoritative.** nflverse is. A **local Postgres holds the backtesting corpus**: a multi-hour job reading the full corpus does heavy I/O, and doing it over loopback rather than over the network to a hosted database is materially faster, costs nothing in hosted compute or egress, and is safe to destroy — which matters when model work may want repeated reloads. A **Supabase copy holds the serving corpus**, because the in-season scheduled pipeline runs in hosted CI and cannot reach a laptop. Both are derived data, fully re-ingestable, kept current by running the same idempotent ingest against each. Idempotent ingest is what makes maintaining two copies safe rather than a divergence risk.
+
+**Connection configuration must be persisted, not set interactively.** Variables exported into a shell and never written down are unrecoverable, and the same values are needed later as CI secrets for the scheduled pipeline. Local variables live in a gitignored `.env` with names documented in the runbook; the hosted set mirrors them in CI secrets.
 
 **Production** is Vercel for the web application, Supabase for Postgres and Auth, and GitHub Actions for scheduled Python jobs. Prisma migrations run from local or CI against the production database; Python never migrates.
 
@@ -263,6 +275,8 @@ The specific vectors, in rough order of likelihood:
 - **Player and roster state.** Current rosters joined to historical games leak future team changes.
 
 Mitigation is structural rather than procedural: the as-of query layer, `known_at` on every fact, reconstruction flags, and a leakage test suite that asserts a projection for a past game is identical whether computed then or now. Point-in-time correctness is the one thing in this architecture that cannot be retrofitted, which is why it is a foundational rather than a later concern.
+
+**The second-ranked risk is miscalibration reaching the sizing formula.** Kelly stake scales with `price / (1 − price)`, so identical probability error is roughly ten times as damaging at a 90¢ contract as at 50¢. Measured top-end over-confidence on the baseline implies full Kelly proposing around half the bankroll on contracts carrying no true edge at all. Three independent defences exist because no single one is sufficient: the recalibration layer corrects the probability before sizing sees it; the probability ceiling refuses to size above a configured threshold regardless of correction; and per-game and per-slate exposure caps bind regardless of what the formula proposes. The caps additionally cover a risk the formula cannot see — Kelly assumes independent bets, while contracts within one game are strongly correlated, and until joint distributions exist from the simulation engine there is no principled way to size correlated positions together.
 
 **Secondary risks**, named but ranked below:
 
