@@ -25,6 +25,23 @@ Environment (repo-root `.env`, same as ingest):
 - `INGEST_DATABASE_URL` — optional explicit override.
 - `TEST_DATABASE_URL` — the local container, used by the test suite.
 
+### Corpus scope (deliberate, not data loss)
+
+The working corpus is **2010–2021** (~211k `PlayerGameStat` rows), a deliberate
+narrowing from the earlier 2002–2023 (~387k). It is derived data, fully
+re-ingestable, and covers the SIG-27 development window (2019–2021) with several
+seasons of prior history for walk-forward priors. The 2002 floor still holds
+(pre-2002 rows carry no `team_abbr_at_game`); the 2010 start simply avoids
+paying for older seasons the current window does not use — extend `--seasons` to
+re-ingest more whenever a wider window is wanted.
+
+`game_weather` and `player_game_context` (snaps, participation, injuries) are
+**empty by deliberate scoping**, not oversight. The baseline model reads
+neither, so ingesting them buys nothing today. Their ingest is built and working
+(the `weather` and `context` datasets) and will be loaded when the **Simulation
+Engine** (the second Projection Engine implementation) needs game environment
+and usage inputs — that is the pitch that requires them, not the baseline.
+
 ---
 
 ## Executing a run
@@ -39,7 +56,7 @@ uv run --project python sightline-backtest run \
 
 | Flag | Meaning |
 | ---- | ------- |
-| `--seasons` | Inclusive range, or a single season. Must be covered by the corpus. |
+| `--seasons` | Inclusive range, or a single season. Must be covered by the corpus. **The corpus floor is 2002**: pre-2002 nflverse rows carry no `team_abbr_at_game`, and ingest skips-and-counts them rather than inventing a team (SIG-25). |
 | `--stat-types` | Any of `passing_yards`, `rushing_yards`, `receiving_yards`, `receptions`, `rushing_tds`, `receiving_tds`. A typo is rejected before any work starts. |
 | `--season-types` | `REG`, or `REG,POST`. |
 | `--window` | `development`, `validation`, or `holdout`. See the protocol below. |
@@ -105,6 +122,49 @@ died and are not results.
 
 ---
 
+## Reloading a stored run (portability)
+
+A `BacktestRun` and its `CalibrationBin` rows live in Postgres, so a run made on
+one machine is invisible to another. Pitch 6 (accuracy surface) renders these,
+and Pitch 7 (recalibration) is fitted against them, so the citable run is
+exported to the repo as JSON and reloads into any fresh database — no corpus
+rebuild, no 40-minute re-run.
+
+The citable Track A re-baseline (SIG-27) is committed at
+`docs/v1/tests/sig27-export/sig27-rebaseline.json`: the `BacktestRun` row (full
+config, digests, code version, and the complete `aggregates` including the
+`contractLike` block and per-stat pairs) plus every `CalibrationBin` for the run
+across all segments — pooled, per stat, per season, per era, contract-like, and
+contract-like × stat-type.
+
+Reload into a database that already has the schema (`prisma migrate deploy`):
+
+```bash
+psql "$DIRECT_URL" <<'SQL'
+\set js `cat docs/v1/tests/sig27-export/sig27-rebaseline.json`
+insert into backtest_runs
+  select * from jsonb_populate_record(null::backtest_runs, (:'js'::jsonb)->'backtestRun')
+  on conflict (id) do nothing;
+insert into calibration_bins
+  select * from jsonb_populate_recordset(null::calibration_bins, (:'js'::jsonb)->'calibrationBins')
+  on conflict do nothing;
+SQL
+```
+
+`jsonb_populate_record` maps JSON keys to columns by name and casts enums and
+decimals from the schema, so the reload is schema-aware and order-independent.
+After it, `sightline-backtest show <run-id>` and `calibration <run-id>
+--population contract_like` work against the reloaded run.
+
+The **Parquet predictions are not in the export** (they are gitignored and
+large — ~12 MB for a three-season run) and are only needed for `explain` /
+per-prediction inspection and digest re-verification, not for rendering the
+curve. If a future session needs `verify` to recompute from raw artefacts, the
+run's `artifacts/backtests/<run-id>/` directory must be copied alongside; the
+aggregates and bins in the export are sufficient for everything else.
+
+---
+
 ## Inspecting a run
 
 All read-only. `--strict` turns "this run is not a completed result" into a
@@ -115,13 +175,25 @@ examples show the human-readable form.
 ```bash
 sightline-backtest list
 sightline-backtest show        <run-id> [--breakout total|stat|season|era]
-sightline-backtest calibration <run-id> [--stat rushing_yards] [--era reanalysis]
+sightline-backtest calibration <run-id> [--stat rushing_yards] [--era reanalysis] [--season 2021] [--population contract_like]
 sightline-backtest predictions <run-id> [--cohort low_confidence] [--limit 50]
 sightline-backtest explain     <run-id> --prediction <prediction-id>
 sightline-backtest exclusions  <run-id> [--reason insufficient_history]
 sightline-backtest thresholds  <run-id> --prediction <id> [--at 87.5]
 sightline-backtest verify      <run-id> [--against <run-id>] [--strict]
 ```
+
+**Calibration segments are single-axis** — `all`, per `--stat`, per `--season`,
+per `--era`, and the `--population contract_like` sub-population (SIG-26).
+Contract-like membership is a per-stat volume floor on the projected value —
+passing 100 · rushing 20 · receiving 20 · receptions 2 · TDs 0.2 yds/events —
+applied to `projected_value`, which is pre-cutoff and never conditions on the
+outcome. **These floors are PROVISIONAL** and must be re-anchored against
+Kalshi's real listing behaviour before the paper run, because the floor defines
+the population the recalibration layer is fitted on. 0.5×/1×/2× sensitivity is
+re-derivable from the projected value stored on each prediction. Cross-axis
+slices (contract-like within a stat) are derived from the artefacts on demand,
+never stored.
 
 `explain` is the one to reach for when a number looks wrong. It prints the
 distribution and its parameters, the full threshold table, the temporal block,

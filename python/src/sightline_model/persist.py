@@ -266,12 +266,12 @@ def reap_stale_runs(connect: ConnectionFactory, *, older_than_hours: int = 24) -
 
 _INSERT_BIN = """
 insert into calibration_bins (
-    id, backtest_run_id, stat_type, season, era, bin_index, bin_low, bin_high,
-    predicted_mean, observed_rate, threshold_observations, projection_count,
-    below_floor
+    id, backtest_run_id, stat_type, season, era, population, bin_index,
+    bin_low, bin_high, predicted_mean, observed_rate, threshold_observations,
+    projection_count, below_floor
 ) values (
     gen_random_uuid(), %(run_id)s, %(stat_type)s::"StatType", %(season)s,
-    %(era)s::"WeatherEra", %(bin_index)s, %(bin_low)s, %(bin_high)s,
+    %(era)s::"WeatherEra", %(population)s, %(bin_index)s, %(bin_low)s, %(bin_high)s,
     %(predicted_mean)s, %(observed_rate)s, %(threshold_observations)s,
     %(projection_count)s, %(below_floor)s
 )
@@ -361,11 +361,11 @@ def load_calibration_bins(connect: ConnectionFactory, run_id: str) -> list[dict]
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
             "select stat_type::text as stat_type, season, era::text as era, "
-            "bin_index, bin_low, bin_high, predicted_mean, observed_rate, "
-            "threshold_observations, projection_count, below_floor "
+            "population, bin_index, bin_low, bin_high, predicted_mean, "
+            "observed_rate, threshold_observations, projection_count, below_floor "
             "from calibration_bins where backtest_run_id = %s "
             "order by stat_type nulls first, season nulls first, "
-            "era nulls first, bin_index",
+            "era nulls first, population nulls first, bin_index",
             (run_id,),
         )
         cols = [d[0] for d in cur.description]

@@ -30,10 +30,13 @@ from dataclasses import dataclass
 
 import polars as pl
 
-from .constants import CALIBRATION_BINS, REPORTING_FLOOR
+from .constants import CALIBRATION_BINS, CONTRACT_LIKE, REPORTING_FLOOR
 from .digests import digest_mapping, digest_rows
 
-AGGREGATES_VERSION = 1
+# v2 adds the `pointEstimates` block (mean and median MAE/RMSE) per SIG-28.
+# The `comparison` block is unchanged, so the headline mean-vs-baseline figures
+# and the stored calibration curve are byte-identical to v1.
+AGGREGATES_VERSION = 2
 
 SERIES = (
     ("model", "abs_error", "sq_error"),
@@ -74,10 +77,19 @@ def _population_block(comparison: pl.DataFrame, model_only: pl.DataFrame) -> dic
         "modelOnly": {
             "model": _series_metrics(model_only, "abs_error", "sq_error")
         },
+        # Both point estimates over the comparison population (SIG-28). `mean`
+        # is the same figure as comparison.model and stays the headline; the
+        # median is reported so its accuracy is visible, NOT as a head-to-head
+        # against the mean-based baselines, which would not be apples-to-apples.
+        "pointEstimates": {
+            "mean": _series_metrics(comparison, "abs_error", "sq_error"),
+            "median": _series_metrics(comparison, "abs_error_median", "sq_error_median"),
+        },
     }
     # Drop empty series rather than emitting a hollow object: a metric that was
     # not computed must be absent, never zero.
     block["comparison"] = {k: v for k, v in block["comparison"].items() if v}
+    block["pointEstimates"] = {k: v for k, v in block["pointEstimates"].items() if v}
     return block
 
 
@@ -100,6 +112,29 @@ def _threshold_block(thresholds: pl.DataFrame) -> dict:
         # correlated, so the projection count is what a reader should weigh.
         "projections": thresholds["prediction_id"].n_unique(),
     }
+
+
+def _contract_like_block(predictions: pl.DataFrame, thresholds: pl.DataFrame) -> dict:
+    """Error and calibration for the contract-like population (SIG-26).
+
+    The decision-relevant figure the recalibration layer is fitted against, made
+    durable and ``verify``-able instead of recomputed ad hoc from Parquet.
+    """
+    block: dict = {}
+    if predictions.height and "contract_like" in predictions.columns:
+        cl = predictions.filter(pl.col("contract_like"))
+        if cl.height:
+            comparison = (
+                cl.filter(pl.col("in_comparison_population"))
+                if "in_comparison_population" in cl.columns else cl
+            )
+            block.update(_population_block(comparison, cl))
+    if thresholds.height and "contract_like" in thresholds.columns:
+        cl_thresholds = thresholds.filter(pl.col("contract_like"))
+        threshold_block = _threshold_block(cl_thresholds)
+        if threshold_block:
+            block["thresholds"] = threshold_block
+    return block
 
 
 def _breakout(frame: pl.DataFrame, comparison: pl.DataFrame, column: str) -> dict:
@@ -148,6 +183,8 @@ def compute_aggregates(
         "bySeason": _breakout(predictions, comparison, "season"),
         "byEra": _breakout(predictions, comparison, "weather_era"),
         "notes": {
+            # contractLike is added below only when non-empty, so a run with no
+            # contract-like predictions does not assert a hollow segment.
             # Never silently averaged away. Pre-2021 weather describes what the
             # weather actually was, so stronger performance in that era is
             # expected and is not evidence of skill.
@@ -164,6 +201,9 @@ def compute_aggregates(
     }
     if not aggregates["overall"]["thresholds"]:
         del aggregates["overall"]["thresholds"]
+    contract_like = _contract_like_block(predictions, thresholds)
+    if contract_like:
+        aggregates["contractLike"] = contract_like
     return aggregates
 
 
@@ -191,23 +231,43 @@ def compute_calibration_bins(thresholds: pl.DataFrame) -> list[dict]:
         return []
 
     rows: list[dict] = []
-    segments: list[tuple[str | None, int | None, str | None, pl.DataFrame]] = [
-        (None, None, None, thresholds)
-    ]
+    # (stat_type, season, era, population, frame) — single-axis: at most one of
+    # the four segment keys is non-null on any stored bin.
+    segments: list[
+        tuple[str | None, int | None, str | None, str | None, pl.DataFrame]
+    ] = [(None, None, None, None, thresholds)]
     for stat in sorted({str(v) for v in thresholds["stat_type"].to_list()}):
         segments.append(
-            (stat, None, None, thresholds.filter(pl.col("stat_type") == stat))
+            (stat, None, None, None, thresholds.filter(pl.col("stat_type") == stat))
         )
     for season in sorted({int(v) for v in thresholds["season"].to_list()}):
         segments.append(
-            (None, season, None, thresholds.filter(pl.col("season") == season))
+            (None, season, None, None, thresholds.filter(pl.col("season") == season))
         )
     for era in sorted({str(v) for v in thresholds["weather_era"].to_list()}):
         segments.append(
-            (None, None, era, thresholds.filter(pl.col("weather_era") == era))
+            (None, None, era, None, thresholds.filter(pl.col("weather_era") == era))
         )
+    # The contract-like population (SIG-26): the segment the recalibration layer
+    # is fitted against. Pooled across stat/season/era, exactly as the other
+    # single-axis segments are; cross-axis slices (contract-like within a stat)
+    # are derived from the Parquet on demand, never stored.
+    if "contract_like" in thresholds.columns:
+        contract_like = thresholds.filter(pl.col("contract_like"))
+        if contract_like.height:
+            segments.append((None, None, None, CONTRACT_LIKE, contract_like))
+            # contract-like × stat type — the only stored two-axis segment.
+            # Miscalibration is stat-dependent (touchdowns over-project far more
+            # than yardage), and the recalibration layer corrects per stat, so
+            # the per-stat contract-like curve must be durable, not refitted ad
+            # hoc. The migration extends the single-axis CHECK to allow this pair.
+            for stat in sorted({str(v) for v in contract_like["stat_type"].to_list()}):
+                segments.append(
+                    (stat, None, None, CONTRACT_LIKE,
+                     contract_like.filter(pl.col("stat_type") == stat))
+                )
 
-    for stat, season, era, frame in segments:
+    for stat, season, era, population, frame in segments:
         for index in range(CALIBRATION_BINS):
             low = index / CALIBRATION_BINS
             high = (index + 1) / CALIBRATION_BINS
@@ -227,6 +287,7 @@ def compute_calibration_bins(thresholds: pl.DataFrame) -> list[dict]:
                 "stat_type": stat,
                 "season": season,
                 "era": era,
+                "population": population,
                 "bin_index": index,
                 "bin_low": round(low, 3),
                 "bin_high": round(high, 3),
@@ -247,7 +308,7 @@ def aggregate_digest(aggregates: dict) -> str:
 
 def calibration_digest(bins: list[dict]) -> str:
     return digest_rows(
-        bins, sort_keys=["stat_type", "season", "era", "bin_index"]
+        bins, sort_keys=["stat_type", "season", "era", "population", "bin_index"]
     )
 
 

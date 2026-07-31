@@ -280,7 +280,7 @@ def test_a_completed_run_carries_its_reproducibility_evidence(
     assert stored["calibration_digest"]
     assert stored["finished_at"] is not None
     assert stored["rng_draws"] == 0
-    assert stored["aggregates"]["aggregatesVersion"] == 1
+    assert stored["aggregates"]["aggregatesVersion"] == 2
 
 
 def test_calibration_bins_land_with_the_run(corpus, artifact_base) -> None:

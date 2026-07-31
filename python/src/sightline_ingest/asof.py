@@ -30,6 +30,18 @@ from .stadiums import STADIUM_COORDS
 # is the ingest side (datasets/stats.py), so the two cannot drift.
 _STAT_COLS = [c for c, _, _ in STAT_COLUMNS]
 _STAT_KINDS = {c: kind for c, _, kind in STAT_COLUMNS}
+# Explicit dtypes for the stat columns so a trailing frame never infers a stat
+# column's type from its data. Since the null-vs-zero corpus (SIG-25) returns
+# NULL for every phase a player did not take part in, a stat column that is null
+# for the first rows would otherwise infer as Null and then fail to append a
+# real value — and inferring across ALL rows to avoid that is pathologically
+# slow on a large batch. Fixed dtypes are both correct and fast. Decimals become
+# Float64: the feature layer casts to float regardless, so this changes no
+# downstream value or digest.
+_STAT_DTYPES = {
+    c: (pl.Float64 if kind == "decimal" else pl.Int64)
+    for c, kind in _STAT_KINDS.items()
+}
 
 # SQL twin of datasets._common.day_after_game_knownat: post-game facts
 # (final stat lines, play-by-play, snap counts) publish at 09:00 US/Eastern
@@ -58,7 +70,15 @@ def _rows_to_df(cur) -> pl.DataFrame:
         # history" into an AttributeError three call frames away instead of an
         # empty frame the caller can reason about.
         return pl.DataFrame({c: [] for c in cols})
-    return pl.DataFrame([dict(zip(cols, r)) for r in rows], orient="row")
+    # infer_schema_length=None scans EVERY row before choosing dtypes. The
+    # default (100) reads the schema off the first rows only — and since the
+    # null-vs-zero corpus (SIG-25) returns NULL for every phase a player did not
+    # take part in, a stat column that is null for the first hundred rows infers
+    # as Null, then fails to append the first real Decimal that follows. Only a
+    # large batch crosses that window, so it surfaced at full-slate scale.
+    return pl.DataFrame(
+        [dict(zip(cols, r)) for r in rows], orient="row", infer_schema_length=None
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -154,7 +174,13 @@ def _apply_rollbacks(cur) -> pl.DataFrame:
         rows.append(row)
     if not rows:
         return pl.DataFrame({c: [] for c in cols if c != "rollback_values"})
-    return pl.DataFrame(rows, orient="row")
+    # Fixed dtypes for the stat columns (see _STAT_DTYPES): correct in the face
+    # of null-heavy phases, and fast — no full-frame schema scan on a large
+    # trailing batch. Non-stat columns (ids, kickoff) infer normally.
+    return pl.DataFrame(
+        rows, orient="row",
+        schema_overrides={c: _STAT_DTYPES[c] for c in _STAT_COLS if c in cols},
+    )
 
 
 def _rest_and_travel_from(
@@ -382,7 +408,11 @@ class AsOfCorpus:
                     rows.append(row)
             if not rows:
                 return pl.DataFrame({c: [] for c in cols if c != "rollback_values"})
-            return pl.DataFrame(rows, orient="row")
+            # `value` is filtered non-null above and is a single stat kind, so a
+            # fixed dtype keeps this fast and null-safe without a full scan.
+            return pl.DataFrame(
+                rows, orient="row", schema_overrides={"value": _STAT_DTYPES[column]}
+            )
 
     def season_participants(
         self, *, seasons: tuple[int, ...], column: str

@@ -13,6 +13,7 @@ identical line is an idempotent no-op.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -52,6 +53,51 @@ STAT_COLUMNS: list[tuple[str, str, str]] = [
 _DB_COLS = [c[0] for c in STAT_COLUMNS]
 _REQUIRED = ["player_id", "game_id", "team", *[c[1] for c in STAT_COLUMNS]]
 
+# Phase participation (SIG-25). nflverse weekly data reports a numeric 0 for a
+# phase a player did not take part in, which the corpus cannot distinguish from
+# a genuine zero — a quarterback's 0 receiving_yards is absence, not a
+# zero-yard receiving performance. We recover the distinction from the phase's
+# own OPPORTUNITY column and, for the phases where a role routinely plays without
+# an opportunity, from the player's ROLE combined with cross-phase presence.
+#
+# The plain opportunity rule (attempts/carries/targets > 0) systematically
+# erased a real, informative population: a running back who played and drew no
+# targets has a GENUINE 0-target receiving game, and dropping it inflates his
+# trailing average by ~22% (measured) — straight into the contract-like segment
+# that sizing is fitted against. So the rule adds a role-plausibility clause:
+#
+#   passing    : attempts > 0
+#                (a non-quarterback's 0 pass attempts is genuine absence)
+#   rushing    : carries > 0  OR  (position in RB/FB and targets > 0)
+#                (a receiving back who played but did not carry — a genuine 0)
+#   receiving  : targets > 0  OR  (position in RB/FB/WR/TE and carries > 0)
+#                (a skill player demonstrably on the field who drew no target)
+#
+# Cross-phase presence is deliberately gated on ROLE. Without the role gate a
+# quarterback with a carry would flip back into the receiving universe — exactly
+# the SIG-25 defect returning. A back with a target does NOT flip a wide
+# receiver into the rushing universe, because WR/TE are excluded from the rushing
+# clause. Still conservative in the leaking direction: a skill player on the
+# field with neither a carry nor a target is left as absence (undercount), never
+# invented as a zero. ``position`` is ``players.position`` — the same current-
+# roster state the model already accepts as a non-leaking input.
+_COL_PHASE: dict[str, str] = {
+    "passing_yards": "passing",
+    "passing_tds": "passing",
+    "passing_attempts": "passing",
+    "completions": "passing",
+    "interceptions": "passing",
+    "rushing_yards": "rushing",
+    "rushing_tds": "rushing",
+    "carries": "rushing",
+    "receiving_yards": "receiving",
+    "receiving_tds": "receiving",
+    "receptions": "receiving",
+    "targets": "receiving",
+}
+_RUSHING_ROLES = frozenset({"RB", "FB"})
+_RECEIVING_ROLES = frozenset({"RB", "FB", "WR", "TE"})
+
 _INSERT = f"""
 insert into player_game_stats (
     id, player_id, game_id, team_abbr_at_game,
@@ -83,9 +129,44 @@ insert into player_game_stat_corrections (
 """
 
 
-def _stat_values(row: dict) -> dict[str, object]:
+def _positive(value: object) -> bool:
+    """A positive opportunity count. None / NaN / non-positive is not."""
+    if value is None:
+        return False
+    if isinstance(value, float) and math.isnan(value):
+        return False
+    try:
+        return float(value) > 0
+    except (TypeError, ValueError):
+        return False
+
+
+def _phase_participation(row: dict, position: str | None) -> dict[str, bool]:
+    """Per-phase participation, opportunity-or-role. See ``_COL_PHASE``."""
+    attempts = _positive(row.get("attempts"))
+    carries = _positive(row.get("carries"))
+    targets = _positive(row.get("targets"))
+    pos = position or ""
+    return {
+        "passing": attempts,
+        "rushing": carries or (pos in _RUSHING_ROLES and targets),
+        "receiving": targets or (pos in _RECEIVING_ROLES and carries),
+    }
+
+
+def _stat_values(row: dict, position: str | None) -> dict[str, object]:
+    """Typed stat columns, with phase non-participation resolved to NULL.
+
+    A phase the player did not take part in is absence: every column of that
+    phase is NULL, not 0. A participant who produced nothing — including a back
+    who played and drew no target — keeps a genuine 0. See ``_COL_PHASE``.
+    """
+    participated = _phase_participation(row, position)
     out: dict[str, object] = {}
     for db_col, src_col, kind in STAT_COLUMNS:
+        if not participated[_COL_PHASE[db_col]]:
+            out[db_col] = None  # absence, never zero
+            continue
         out[db_col] = to_decimal(row[src_col]) if kind == "decimal" else to_int(row[src_col])
     return out
 
@@ -108,6 +189,17 @@ def ingest_stats(
     df = fetch(seasons)
     require_columns(df, _REQUIRED, dataset="stats")
 
+    # Idempotence guard (SIG-25, was SIG-24): a duplicate (player_id, game_id)
+    # within one fetch frame trips the unique constraint on the second INSERT.
+    # Collapse to last-wins — the final row for a pair is the one a correction
+    # would have us keep — so a re-run over an overlapping window (which the
+    # in-season pipeline does by design) is a clean no-op rather than a red run.
+    deduped = 0
+    if df.height:
+        before = df.height
+        df = df.unique(subset=["player_id", "game_id"], keep="last", maintain_order=True)
+        deduped = before - df.height
+
     corr_known = correction_known_at or datetime.now(timezone.utc).replace(
         tzinfo=None, microsecond=0
     )
@@ -117,8 +209,10 @@ def ingest_stats(
         with conn.cursor() as cur:
             cur.execute("select id, kickoff_at from games")
             kickoffs = {gid: k for gid, k in cur.fetchall()}
-            cur.execute("select id from players")
-            known_players = {pid for (pid,) in cur.fetchall()}
+            # position drives the role-plausibility clause of phase
+            # participation (SIG-25); membership doubles as the known-players set.
+            cur.execute("select id, position from players")
+            positions = {pid: pos for pid, pos in cur.fetchall()}
 
             for row in df.iter_rows(named=True):
                 gsis = row["player_id"]
@@ -128,11 +222,18 @@ def ingest_stats(
                 pid = player_id(gsis)
                 gid = game_id(row["game_id"])
                 kickoff = kickoffs.get(gid)
-                if kickoff is None or pid not in known_players:
+                if kickoff is None or pid not in positions:
                     skipped += 1  # player/game not in corpus; surfaced, not invented
                     continue
+                team = row["team"]
+                if not team:
+                    # Pre-2002 rows carry no team_abbr_at_game. Skip and count
+                    # rather than trip the NOT NULL constraint mid-load; the
+                    # 2002 corpus floor is documented in the runbook.
+                    skipped += 1
+                    continue
 
-                values = _stat_values(row)
+                values = _stat_values(row, positions.get(pid))
                 cur.execute(
                     f"select id, version, {', '.join(_DB_COLS)} "
                     "from player_game_stats where player_id = %s and game_id = %s",
@@ -144,7 +245,7 @@ def ingest_stats(
                     cur.execute(
                         _INSERT,
                         {
-                            "player_id": pid, "game_id": gid, "team": row["team"],
+                            "player_id": pid, "game_id": gid, "team": team,
                             "valid_at": kickoff, "known_at": day_after_game_knownat(kickoff),
                             "run_id": handle.run_id, **values,
                         },
@@ -178,8 +279,11 @@ def ingest_stats(
 
     handle.rows_written = written
     handle.rows_updated = corrected
-    if skipped:
-        handle.mark_partial(f"{skipped} stat rows skipped (player/game not in corpus)")
+    if skipped or deduped:
+        handle.mark_partial(
+            f"{skipped} stat rows skipped (player/game not in corpus, or missing team); "
+            f"{deduped} duplicate (player, game) rows collapsed"
+        )
 
 
 register(Dataset(name="stats", source="nflverse", run=ingest_stats))

@@ -22,6 +22,8 @@ pytestmark = pytest.mark.db
 
 NFL_GAME = "2023_01_DET_KC"
 GSIS = "00-0033873"  # Patrick Mahomes
+GSIS_WR = "00-0000001"  # a receiver, for the null-vs-zero derivation tests
+GSIS_RB = "00-0000002"  # a running back, for the role-plausibility clause
 
 
 def _h(dataset: str) -> IngestRunHandle:
@@ -209,3 +211,163 @@ def test_stat_correction_versions_and_preserves_prior_value(corpus) -> None:
     with connect() as conn, conn.cursor() as cur:
         cur.execute("select count(*) from player_game_stat_corrections")
         assert cur.fetchone()[0] == 1
+
+
+# --- SIG-25: null-vs-zero, dedup, and pre-2002 skip ------------------------
+
+
+def _players_with_wr_df() -> pl.DataFrame:
+    return pl.DataFrame(
+        {
+            "gsis_id": [GSIS, GSIS_WR, GSIS_RB],
+            "display_name": ["Patrick Mahomes", "A Receiver", "A Back"],
+            "position": ["QB", "WR", "RB"],
+            "birth_date": ["1995-09-17", "2000-01-01", "1998-01-01"],
+        }
+    )
+
+
+def _rb_and_qb_carries_no_target_df() -> pl.DataFrame:
+    """A back and a quarterback each with carries and ZERO targets.
+
+    The back played (carried) and was not targeted — a genuine 0-target
+    receiving game the role clause must KEEP. The quarterback's 0 targets is
+    absence, and the role gate must keep it NULL rather than flipping him into
+    the receiving universe.
+    """
+    return pl.DataFrame(
+        {
+            "player_id": [GSIS_RB, GSIS],
+            "game_id": [NFL_GAME, NFL_GAME],
+            "team": ["KC", "KC"],
+            "passing_yards": [0.0, 305.0], "passing_tds": [0, 2], "attempts": [0, 39],
+            "completions": [0, 26], "passing_interceptions": [0, 0],
+            "rushing_yards": [72.0, 18.0], "rushing_tds": [1, 0], "carries": [15, 3],
+            "receiving_yards": [0.0, 0.0], "receiving_tds": [0, 0],
+            "receptions": [0, 0], "targets": [0, 0],
+        }
+    )
+
+
+def _zero_filled_stats_df() -> pl.DataFrame:
+    """nflverse-style: non-participation reported as 0, not null.
+
+    The QB has 0 targets/carries in receiving; the WR was targeted six times but
+    caught nothing (a genuine zero) and threw no passes / took no carries.
+    """
+    return pl.DataFrame(
+        {
+            "player_id": [GSIS, GSIS_WR],
+            "game_id": [NFL_GAME, NFL_GAME],
+            "team": ["KC", "KC"],
+            "passing_yards": [305.0, 0.0], "passing_tds": [2, 0], "attempts": [39, 0],
+            "completions": [26, 0], "passing_interceptions": [0, 0],
+            "rushing_yards": [45.0, 0.0], "rushing_tds": [0, 0], "carries": [4, 0],
+            "receiving_yards": [0.0, 0.0], "receiving_tds": [0, 0],
+            "receptions": [0, 0], "targets": [0, 6],
+        }
+    )
+
+
+def test_non_participation_is_null_and_a_targeted_zero_is_zero(corpus) -> None:
+    connect = corpus
+    ingest_players(_h("players"), connect, fetch=_players_with_wr_df)
+    ingest_stats(_h("stats"), connect, 2023, 2023, fetch=lambda s: _zero_filled_stats_df())
+
+    with connect() as conn, conn.cursor() as cur:
+        # QB: no targets -> receiving columns are absence (NULL), never a zero.
+        cur.execute(
+            "select receiving_yards, receptions, targets, passing_yards, carries "
+            "from player_game_stats where player_id = %s and game_id = %s",
+            (player_id(GSIS), game_id(NFL_GAME)),
+        )
+        rec_yds, receptions, targets, pass_yds, carries = cur.fetchone()
+        assert rec_yds is None
+        assert receptions is None
+        assert targets is None
+        assert float(pass_yds) == 305.0  # participated in passing
+        assert carries == 4              # participated in rushing
+
+        # WR: six targets, zero receiving yards -> a genuine zero, preserved;
+        # no attempts / carries -> passing and rushing are absence.
+        cur.execute(
+            "select receiving_yards, targets, passing_yards, rushing_yards "
+            "from player_game_stats where player_id = %s and game_id = %s",
+            (player_id(GSIS_WR), game_id(NFL_GAME)),
+        )
+        wr_rec_yds, wr_targets, wr_pass, wr_rush = cur.fetchone()
+        assert float(wr_rec_yds) == 0.0
+        assert wr_targets == 6
+        assert wr_pass is None
+        assert wr_rush is None
+
+
+def test_role_clause_keeps_a_backs_zero_target_game_but_not_a_qbs(corpus) -> None:
+    connect = corpus
+    ingest_players(_h("players"), connect, fetch=_players_with_wr_df)
+    ingest_stats(
+        _h("stats"), connect, 2023, 2023,
+        fetch=lambda s: _rb_and_qb_carries_no_target_df(),
+    )
+
+    with connect() as conn, conn.cursor() as cur:
+        # RB: carried, drew no target -> a GENUINE 0-target receiving game (kept),
+        # not absence. This is the population the plain targets>0 rule erased.
+        cur.execute(
+            "select receiving_yards, receptions, targets from player_game_stats "
+            "where player_id = %s and game_id = %s",
+            (player_id(GSIS_RB), game_id(NFL_GAME)),
+        )
+        rb_rec_yds, rb_rec, rb_targets = cur.fetchone()
+        assert float(rb_rec_yds) == 0.0
+        assert rb_rec == 0
+        assert rb_targets == 0
+
+        # QB: also carried with no target, but the role gate must NOT flip a
+        # quarterback into the receiving universe — that is the SIG-25 defect.
+        cur.execute(
+            "select receiving_yards, targets from player_game_stats "
+            "where player_id = %s and game_id = %s",
+            (player_id(GSIS), game_id(NFL_GAME)),
+        )
+        qb_rec_yds, qb_targets = cur.fetchone()
+        assert qb_rec_yds is None
+        assert qb_targets is None
+
+
+def test_duplicate_player_game_in_one_batch_is_collapsed_last_wins(corpus) -> None:
+    connect = corpus
+    # Same (player, game) twice in one fetch frame — previously a unique-key
+    # violation; now collapsed last-wins with no error.
+    df = pl.concat([_stats_df(305.0), _stats_df(311.0)])
+    h = _h("stats")
+    ingest_stats(h, connect, 2023, 2023, fetch=lambda s: df)
+    assert h.rows_written == 1
+
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "select count(*), passing_yards from player_game_stats "
+            "where player_id = %s and game_id = %s group by passing_yards",
+            (player_id(GSIS), game_id(NFL_GAME)),
+        )
+        count, pass_yds = cur.fetchone()
+    assert count == 1
+    assert float(pass_yds) == 311.0  # the last occurrence won
+
+
+def test_row_with_missing_team_is_skipped_not_a_constraint_violation(corpus) -> None:
+    connect = corpus
+    # Pre-2002 rows carry no team_abbr_at_game. Skip and count, never trip the
+    # NOT NULL constraint mid-load.
+    df = _stats_df(305.0).with_columns(pl.lit(None, dtype=pl.Utf8).alias("team"))
+    h = _h("stats")
+    ingest_stats(h, connect, 2023, 2023, fetch=lambda s: df)
+    assert h.rows_written == 0
+
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "select count(*) from player_game_stats "
+            "where player_id = %s and game_id = %s",
+            (player_id(GSIS), game_id(NFL_GAME)),
+        )
+        assert cur.fetchone()[0] == 0

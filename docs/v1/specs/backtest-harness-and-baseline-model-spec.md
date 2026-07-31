@@ -447,7 +447,7 @@ alter table backtest_runs
 | --------------- | ------- | ------------- | ----- |
 | Threshold probability | no (derived on demand) | distribution parameters | Closed form. A new threshold never requires a re-run — the PRD criterion. |
 | Quantile grid | yes, in Parquet | distribution parameters | Display and the mass-below-zero detector only. Never the source of a probability. |
-| Projected value | yes | distribution mean | The mean, not the median — documented and asserted. |
+| Projected value | yes | distribution **mean and median** | Both stored per prediction. Backtests report MAE/RMSE for both; **mean-vs-mean-baseline stays the headline comparator** (baselines are means, so median-vs-mean is not apples-to-apples). The slate displays the **median**, so the point estimate and threshold probability stay internally consistent — a mean of 68 beside "42% to clear 60" reads as a contradiction. *Amended by SIG-28, superseding the original "the mean, not the median". `prob_at_least` and the stored calibration curve are unchanged — they read the full distribution, not the point estimate.* |
 | Interval | yes | p10 / p90 of the distribution | Same object as the threshold probabilities, per DoD. |
 | Confidence | yes | `n_eff` and relative interval width | Deterministic rule; see the constants table. |
 | `n_eff` | yes, in Parquet | eligible prior games at the cutoff | Retained so a confidence value is explicable without re-running. |
@@ -694,7 +694,8 @@ python/artifacts/backtests/<run-id>/
 | `pmf` | list\<float64\> | count family only; index = k, plus `tail_mass` |
 | `tail_mass` | float64 (6) | count family only |
 | `q05,q10,q25,q50,q75,q90,q95` | float64 (3) | display grid |
-| `projected_value` | float64 (3) | distribution mean |
+| `projected_value` | float64 (3) | distribution mean (headline point estimate) |
+| `projected_median` | float64 (3) | distribution median (`q50`); the displayed point estimate (SIG-28) |
 | `interval_low`, `interval_high` | float64 (3) | p10 / p90 |
 | `mass_below_zero` | float64 (6) | detector; structurally 0 |
 | `confidence` | string | `high`/`medium`/`low` |

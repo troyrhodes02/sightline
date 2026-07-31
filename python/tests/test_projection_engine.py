@@ -87,6 +87,15 @@ def test_projection_is_a_distribution_not_a_point_estimate() -> None:
     assert result.interval_low < result.projected_value < result.interval_high
 
 
+def test_carries_both_point_estimates_and_median_is_the_stored_q50() -> None:
+    # SIG-28: both the mean (headline) and the median (displayed) are carried.
+    result = project([48.0, 62.0, 71.0, 55.0, 80.0, 66.0])
+    assert result.projected_median == result.quantiles["q50"]
+    # A right-skewed zero-inflated log-normal sits with its mean above its
+    # median — the reason the mean over-projects and the median is displayed.
+    assert result.projected_median <= result.projected_value
+
+
 def test_every_projection_carries_its_provenance() -> None:
     result = project([48.0, 62.0, 71.0])
     assert result.model_version == MODEL_VERSION
