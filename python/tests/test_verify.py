@@ -329,7 +329,7 @@ def test_corpus_to_stored_calibration_end_to_end(
     assert outcome.status == "completed"
 
     stored = persist.load_run(corpus, outcome.run_id)
-    assert stored["aggregates"]["aggregatesVersion"] == 1
+    assert stored["aggregates"]["aggregatesVersion"] == 2
     assert persist.load_calibration_bins(corpus, outcome.run_id)
 
     for argv in (

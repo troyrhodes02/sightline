@@ -13,7 +13,11 @@ import math
 import polars as pl
 import pytest
 
-from sightline_model.constants import REPORTING_FLOOR
+from sightline_model.constants import (
+    CONTRACT_LIKE_FLOORS,
+    REPORTING_FLOOR,
+    is_contract_like,
+)
 from sightline_model.harness import RunTotals
 from sightline_model.metrics import (
     AGGREGATES_VERSION,
@@ -135,6 +139,21 @@ def test_aggregates_carry_their_version() -> None:
         _predictions([_row(1.0, 2.0, 3.0)]), pl.DataFrame(), _totals(projected=1)
     )
     assert aggregates["aggregatesVersion"] == AGGREGATES_VERSION
+
+
+def test_point_estimates_report_both_mean_and_median() -> None:
+    # SIG-28: the comparison block (mean) is unchanged; a supplementary
+    # pointEstimates block reports the median alongside the mean, NOT as a
+    # head-to-head against the mean-based baselines.
+    frame = _predictions([
+        _row(10.0, 20.0, 15.0, abs_error_median=6.0, sq_error_median=36.0),
+        _row(20.0, 30.0, 25.0, abs_error_median=8.0, sq_error_median=64.0),
+    ])
+    overall = compute_aggregates(frame, pl.DataFrame(), _totals(projected=2))["overall"]
+    assert overall["pointEstimates"]["mean"]["mae"] == pytest.approx(15.0)
+    assert overall["pointEstimates"]["mean"]["mae"] == overall["comparison"]["model"]["mae"]
+    assert overall["pointEstimates"]["median"]["mae"] == pytest.approx(7.0)
+    assert overall["pointEstimates"]["median"]["n"] == 2
 
 
 # --- Thresholds and calibration ----------------------------------------------
@@ -276,3 +295,97 @@ def test_log_loss_is_finite_at_the_extremes() -> None:
     )["overall"]["thresholds"]
     assert math.isfinite(block["logLoss"])
     assert block["brier"] == pytest.approx(1.0)
+
+
+def test_calibration_is_unchanged_by_the_median_point_estimate() -> None:
+    # SIG-28 touches only the point estimate. The calibration curve is derived
+    # from the threshold rows alone, so it must be byte-identical whether or not
+    # predictions carry the new median columns — the guarantee the amendment
+    # rests on.
+    thresholds = _thresholds([
+        _threshold_row("p1", 0.8, True), _threshold_row("p1", 0.2, False),
+        _threshold_row("p2", 0.6, False), _threshold_row("p2", 0.95, True),
+    ])
+    without = summarise(
+        _predictions([_row(10.0, 20.0, 15.0)]), thresholds, _totals(projected=1)
+    )
+    with_median = summarise(
+        _predictions([_row(10.0, 20.0, 15.0, abs_error_median=6.0, sq_error_median=36.0)]),
+        thresholds, _totals(projected=1),
+    )
+    assert with_median.calibration_digest == without.calibration_digest
+    assert with_median.bins == without.bins
+
+
+# --- SIG-26: contract-like population segment ---------------------------------
+
+
+def test_contract_like_membership_is_a_pure_function_of_projected_value() -> None:
+    # The leakage guard: membership depends only on the projected value (which
+    # derives from pre-cutoff information) and the stat's floor — never on the
+    # outcome. This is why the segment can be trusted to fit sizing against.
+    assert is_contract_like("receiving_yards", 25.0) is True
+    assert is_contract_like("receiving_yards", 19.9) is False
+    assert is_contract_like(
+        "receiving_yards", CONTRACT_LIKE_FLOORS["receiving_yards"]
+    ) is True
+    # A stat with no floor is never contract-like.
+    assert is_contract_like("no_such_stat", 10_000.0) is False
+
+
+def test_contract_like_floor_sensitivity_is_reproducible() -> None:
+    # 0.5x / 1x / 2x move the boundary deterministically — the sensitivity the
+    # report requires, recomputable from the projected value on the row.
+    floor = CONTRACT_LIKE_FLOORS["receiving_yards"]  # 20
+    assert is_contract_like("receiving_yards", 12.0, multiple=0.5) is True   # floor 10
+    assert is_contract_like("receiving_yards", 12.0, multiple=1.0) is False  # floor 20
+    assert is_contract_like("receiving_yards", floor * 2 - 0.1, multiple=2.0) is False
+
+
+def test_contract_like_is_a_stored_calibration_segment() -> None:
+    rows = (
+        [_threshold_row(f"p{i}", 0.85, i % 4 != 0, contract_like=True) for i in range(12)]
+        + [_threshold_row(f"q{i}", 0.05, False, contract_like=False) for i in range(12)]
+    )
+    bins = compute_calibration_bins(_thresholds(rows))
+    # The POOLED contract-like segment (no stat axis) pools ONLY the 12
+    # contract-like thresholds, never the rest. (A per-stat contract-like
+    # segment also exists — covered by its own test.)
+    pooled = [
+        b for b in bins
+        if b["population"] == "contract_like" and b["stat_type"] is None
+    ]
+    assert pooled
+    assert sum(b["threshold_observations"] for b in pooled) == 12
+
+
+def test_contract_like_is_stored_per_stat_type_too() -> None:
+    # The one sanctioned two-axis segment: contract-like × stat type, because
+    # miscalibration differs by stat and the recalibration layer corrects per
+    # stat. Pooled and per-stat contract-like segments coexist.
+    rows = (
+        [_threshold_row(f"r{i}", 0.85, True, contract_like=True,
+                        stat_type="receiving_yards") for i in range(11)]
+        + [_threshold_row(f"t{i}", 0.85, False, contract_like=True,
+                          stat_type="rushing_tds") for i in range(11)]
+    )
+    bins = compute_calibration_bins(_thresholds(rows))
+    pooled = [b for b in bins if b["population"] == "contract_like"
+              and b["stat_type"] is None]
+    per_stat = {
+        b["stat_type"] for b in bins
+        if b["population"] == "contract_like" and b["stat_type"] is not None
+    }
+    assert pooled  # the pooled contract-like segment still exists
+    assert per_stat == {"receiving_yards", "rushing_tds"}
+
+
+def test_contract_like_aggregate_block_carries_brier_over_only_its_rows() -> None:
+    thresholds = _thresholds([
+        _threshold_row("p1", 0.8, True, contract_like=True),
+        _threshold_row("p1", 0.2, False, contract_like=True),
+        _threshold_row("p2", 0.5, False, contract_like=False),
+    ])
+    agg = compute_aggregates(pl.DataFrame(), thresholds, _totals(projected=2))
+    assert "brier" in agg["contractLike"]["thresholds"]
+    assert agg["contractLike"]["thresholds"]["observations"] == 2  # not the 3rd row

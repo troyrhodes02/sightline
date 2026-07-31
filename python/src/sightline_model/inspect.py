@@ -130,29 +130,52 @@ def show_data(connect, run_id: str) -> tuple[dict, bool]:
 
 
 def _segment_bins(
-    connect, run_id: str, *, stat: str | None, era: str | None
+    connect,
+    run_id: str,
+    *,
+    stat: str | None,
+    era: str | None,
+    season: int | None = None,
+    population: str | None = None,
 ) -> list[dict]:
-    """The stored bins for one single-axis segment. Shared by text and JSON."""
+    """The stored bins for one single-axis segment. Shared by text and JSON.
+
+    Segments are single-axis, so at most one of stat/era/season/population is
+    set; the rest select NULL, which is how the "all" segment (everything None)
+    is addressed too.
+    """
     return [
         b for b in persist.load_calibration_bins(connect, run_id)
-        if b["stat_type"] == stat and b["era"] == era and b["season"] is None
+        if b["stat_type"] == stat and b["era"] == era
+        and b["season"] == season and b.get("population") == population
     ]
 
 
+def _segment_label(stat, era, season, population) -> str:
+    return ", ".join(
+        part for part in (
+            stat and f"stat={stat}",
+            era and f"era={era}",
+            season and f"season={season}",
+            population and f"population={population}",
+        ) if part
+    ) or "all"
+
+
 def calibration(
-    connect, run_id: str, *, stat: str | None = None, era: str | None = None
+    connect, run_id: str, *, stat: str | None = None, era: str | None = None,
+    season: int | None = None, population: str | None = None,
 ) -> tuple[str, bool]:
     run = load(connect, run_id)
-    bins = _segment_bins(connect, run_id, stat=stat, era=era)
+    bins = _segment_bins(
+        connect, run_id, stat=stat, era=era, season=season, population=population
+    )
     lines = report.status_band(run)
     lines.append(
         f"threshold policy: {run['threshold_policy_version']} · "
         f"reporting floor {REPORTING_FLOOR:,} threshold observations"
     )
-    segment = ", ".join(
-        part for part in (stat and f"stat={stat}", era and f"era={era}") if part
-    )
-    lines.append(f"segment: {segment or 'all'}")
+    lines.append(f"segment: {_segment_label(stat, era, season, population)}")
     lines.append("")
     if not bins:
         lines.append(
@@ -168,16 +191,19 @@ def calibration(
 
 
 def calibration_data(
-    connect, run_id: str, *, stat: str | None = None, era: str | None = None
+    connect, run_id: str, *, stat: str | None = None, era: str | None = None,
+    season: int | None = None, population: str | None = None,
 ) -> tuple[dict, bool]:
     run = load(connect, run_id)
-    bins = _segment_bins(connect, run_id, stat=stat, era=era)
+    bins = _segment_bins(
+        connect, run_id, stat=stat, era=era, season=season, population=population
+    )
     payload = {
         "runId": run["id"],
         "status": run["status"],
         "thresholdPolicy": run["threshold_policy_version"],
         "reportingFloor": REPORTING_FLOOR,
-        "segment": {"stat": stat, "era": era},
+        "segment": {"stat": stat, "era": era, "season": season, "population": population},
         "bins": bins,
     }
     return payload, run["status"] == "completed"

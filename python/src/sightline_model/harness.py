@@ -48,6 +48,7 @@ from .constants import (
     MODEL_VERSION,
     THRESHOLD_POLICY_VERSION,
     engine_config,
+    is_contract_like,
 )
 from .digests import corpus_digest, digest_mapping, digest_rows
 from .metrics import AGGREGATES_VERSION, summarise
@@ -443,6 +444,12 @@ def _project_candidate(
             prediction_id=_prediction_id(game["id"], player_id, stat.name, cutoff),
         ))
 
+    # Contract-like membership (SIG-26): a pure function of the projected value,
+    # which derives from pre-cutoff information only — so it never leaks. Stamped
+    # on both the prediction and its thresholds so the segment is stored and
+    # 0.5x/2x sensitivity is re-derivable from the projected value on the row.
+    contract_like = is_contract_like(stat.name, result.projected_value)
+
     totals.projected += 1
     writer.append(
         art.PREDICTIONS,
@@ -450,7 +457,7 @@ def _project_candidate(
             result, game=game, stat=stat, actual=float(actual),
             baselines=baselines, in_comparison=in_comparison, era=era,
             era_source=era_source, position=position, kickoff=kickoff,
-            correction_applied=correction_applied,
+            correction_applied=correction_applied, contract_like=contract_like,
         ),
     )
     for threshold in stat.thresholds:
@@ -463,6 +470,7 @@ def _project_candidate(
             "threshold": float(threshold),
             "probability": result.prob_at_least(threshold),
             "outcome": bool(float(actual) >= threshold),
+            "contract_like": contract_like,
         })
 
 
@@ -516,8 +524,9 @@ def _prediction_id(
 
 def _prediction_row(result, *, game, stat, actual, baselines, in_comparison,
                     era, era_source, position, kickoff,
-                    correction_applied) -> dict:
+                    correction_applied, contract_like) -> dict:
     error = actual - result.projected_value
+    error_median = actual - result.projected_median
     cohorts = list(result.cohorts)
     percentile = _percentile(result, actual)
     row = {
@@ -539,6 +548,7 @@ def _prediction_row(result, *, game, stat, actual, baselines, in_comparison,
         "zero_mass": result.zero_mass,
         **result.quantiles,
         "projected_value": result.projected_value,
+        "projected_median": result.projected_median,
         "interval_low": result.interval_low,
         "interval_high": result.interval_high,
         "mass_below_zero": result.mass_below_zero,
@@ -555,6 +565,9 @@ def _prediction_row(result, *, game, stat, actual, baselines, in_comparison,
         "actual_percentile": percentile,
         "abs_error": abs(error),
         "sq_error": error * error,
+        # Median point-estimate errors (SIG-28), reported alongside the mean.
+        "abs_error_median": abs(error_median),
+        "sq_error_median": error_median * error_median,
         "baseline_season_avg": baselines.season_average,
         "baseline_trailing5": baselines.trailing_five,
         "baseline_season_avg_abs_error": (
@@ -567,6 +580,7 @@ def _prediction_row(result, *, game, stat, actual, baselines, in_comparison,
         ),
         "in_comparison_population": in_comparison,
         "correction_applied": correction_applied,
+        "contract_like": contract_like,
         "cohorts": json.dumps(sorted(cohorts)),
     }
     return row

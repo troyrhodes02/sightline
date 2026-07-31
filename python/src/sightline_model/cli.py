@@ -76,6 +76,13 @@ def _build_parser() -> argparse.ArgumentParser:
     calib.add_argument("run_id")
     calib.add_argument("--stat", default=None)
     calib.add_argument("--era", default=None)
+    calib.add_argument("--season", type=int, default=None)
+    calib.add_argument(
+        "--population",
+        choices=("contract_like",),
+        default=None,
+        help="a stored population segment (e.g. contract_like)",
+    )
 
     preds = sub.add_parser("predictions", help="filterable prediction listing")
     preds.add_argument("run_id")
@@ -454,7 +461,8 @@ def _run_inspection(args: argparse.Namespace, connect) -> int:
                 payload, complete = inspect_commands.show_data(connect, args.run_id)
             elif args.command == "calibration":
                 payload, complete = inspect_commands.calibration_data(
-                    connect, args.run_id, stat=args.stat, era=args.era
+                    connect, args.run_id, stat=args.stat, era=args.era,
+                    season=args.season, population=args.population,
                 )
             elif args.command == "predictions":
                 payload, complete = inspect_commands.predictions_data(
@@ -481,7 +489,8 @@ def _run_inspection(args: argparse.Namespace, connect) -> int:
             )
         elif args.command == "calibration":
             text, complete = inspect_commands.calibration(
-                connect, args.run_id, stat=args.stat, era=args.era
+                connect, args.run_id, stat=args.stat, era=args.era,
+                season=args.season, population=args.population,
             )
         elif args.command == "predictions":
             text, complete = inspect_commands.predictions(

@@ -521,6 +521,11 @@ model CalibrationBin {
   statType StatType?   @map("stat_type")
   season   Int?
   era      WeatherEra?
+  // SIG-26: the contract-like population segment. NULL for the stat/season/era
+  // and "all" segments; 'contract_like' for the volume-floor sub-population the
+  // recalibration layer is fitted against. Single-axis is enforced by the CHECK
+  // and partial unique indexes in the migration (raw SQL Prisma does not model).
+  population String? @map("population")
 
   binIndex Int     @map("bin_index") // 0..9
   binLow   Decimal @map("bin_low") @db.Decimal(4, 3)

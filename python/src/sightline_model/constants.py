@@ -97,6 +97,44 @@ CUTOFF_SCHEDULE_LOOKBACK_DAYS = 7
 # for grading a POSITION is a different question and is not decided here.
 GRADING_TARGET = "official_corrected"
 
+# --- Contract-like population (SIG-26) --------------------------------------
+# Kalshi lists contracts only for players with meaningful expected volume. The
+# calibration curve that the recalibration layer (autonomous paper trading) is
+# fitted against must be segmented to that population, so it is stored as a
+# first-class calibration segment rather than recomputed ad hoc.
+#
+# The floor is applied to `projected_value`, which is derived entirely from
+# pre-cutoff information and never conditions on the outcome — so segment
+# membership is a pure function of pre-cutoff state (asserted by a leakage
+# test), mirroring the real product boundary.
+#
+# PROVISIONAL. These are a documented default, reported with 0.5x/1x/2x
+# sensitivity. They MUST be re-anchored against Kalshi's real listing behaviour
+# before the paper run, because the floor defines the population the
+# recalibration layer is fitted on.
+CONTRACT_LIKE = "contract_like"
+CONTRACT_LIKE_FLOORS: dict[str, float] = {
+    "passing_yards": 100.0,
+    "rushing_yards": 20.0,
+    "receiving_yards": 20.0,
+    "receptions": 2.0,
+    "rushing_tds": 0.2,
+    "receiving_tds": 0.2,
+}
+
+
+def is_contract_like(stat_type: str, projected_value: float, *, multiple: float = 1.0) -> bool:
+    """Whether a projection clears the volume floor for its stat type.
+
+    ``multiple`` scales every floor for the 0.5x/1x/2x sensitivity report; the
+    stored segment uses 1x. A stat with no floor is never contract-like.
+    """
+    floor = CONTRACT_LIKE_FLOORS.get(stat_type)
+    if floor is None:
+        return False
+    return projected_value >= floor * multiple
+
+
 # --- Calibration ------------------------------------------------------------
 CALIBRATION_BINS = 10
 # Threshold observations below which a bin cannot support a claim. Bins below
@@ -141,4 +179,6 @@ def engine_config() -> dict[str, object]:
         "calibrationBins": CALIBRATION_BINS,
         "reportingFloor": REPORTING_FLOOR,
         "archivedForecastFromSeason": ARCHIVED_FORECAST_FROM_SEASON,
+        # Provisional; re-anchor against Kalshi listings before the paper run.
+        "contractLikeFloors": CONTRACT_LIKE_FLOORS,
     }
