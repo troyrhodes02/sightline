@@ -122,6 +122,49 @@ died and are not results.
 
 ---
 
+## Reloading a stored run (portability)
+
+A `BacktestRun` and its `CalibrationBin` rows live in Postgres, so a run made on
+one machine is invisible to another. Pitch 6 (accuracy surface) renders these,
+and Pitch 7 (recalibration) is fitted against them, so the citable run is
+exported to the repo as JSON and reloads into any fresh database — no corpus
+rebuild, no 40-minute re-run.
+
+The citable Track A re-baseline (SIG-27) is committed at
+`docs/v1/tests/sig27-export/sig27-rebaseline.json`: the `BacktestRun` row (full
+config, digests, code version, and the complete `aggregates` including the
+`contractLike` block and per-stat pairs) plus every `CalibrationBin` for the run
+across all segments — pooled, per stat, per season, per era, contract-like, and
+contract-like × stat-type.
+
+Reload into a database that already has the schema (`prisma migrate deploy`):
+
+```bash
+psql "$DIRECT_URL" <<'SQL'
+\set js `cat docs/v1/tests/sig27-export/sig27-rebaseline.json`
+insert into backtest_runs
+  select * from jsonb_populate_record(null::backtest_runs, (:'js'::jsonb)->'backtestRun')
+  on conflict (id) do nothing;
+insert into calibration_bins
+  select * from jsonb_populate_recordset(null::calibration_bins, (:'js'::jsonb)->'calibrationBins')
+  on conflict do nothing;
+SQL
+```
+
+`jsonb_populate_record` maps JSON keys to columns by name and casts enums and
+decimals from the schema, so the reload is schema-aware and order-independent.
+After it, `sightline-backtest show <run-id>` and `calibration <run-id>
+--population contract_like` work against the reloaded run.
+
+The **Parquet predictions are not in the export** (they are gitignored and
+large — ~12 MB for a three-season run) and are only needed for `explain` /
+per-prediction inspection and digest re-verification, not for rendering the
+curve. If a future session needs `verify` to recompute from raw artefacts, the
+run's `artifacts/backtests/<run-id>/` directory must be copied alongside; the
+aggregates and bins in the export are sufficient for everything else.
+
+---
+
 ## Inspecting a run
 
 All read-only. `--strict` turns "this run is not a completed result" into a
