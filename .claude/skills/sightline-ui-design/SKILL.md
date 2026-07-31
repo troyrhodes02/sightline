@@ -6,10 +6,12 @@ description: >
   the slate list, contract detail, accuracy and calibration surface, backtest runs,
   decision log, health, settings, admin user management, invite acceptance, or login —
   or when restyling an existing screen, applying the brand, building an empty or error
-  state, or theming a chart. Produces dense, quiet, instrument-grade UI in Sightline's
-  brand system. Trigger whenever building or restyling a Sightline screen, whenever a
-  ticket touches a component's appearance, and whenever a design doc calls for brand
-  or visual language.
+  state, or theming a chart. Also use when asked for a UI preview, design preview,
+  visual mockup, screen gallery, or a viewable rendering of a design doc, which ships
+  as a standalone HTML file under docs/v1/ui/. Produces dense, quiet, instrument-grade
+  UI in Sightline's brand system. Trigger whenever building or restyling a Sightline
+  screen, whenever a ticket touches a component's appearance, and whenever a design doc
+  calls for brand or visual language.
 ---
 
 # Sightline UI Design
@@ -25,6 +27,14 @@ Sightline must be able to say *nothing here has an edge today* and have that rea
 Copy is flat and declarative. No coaching language, no second person exhortation, no exclamation marks, no "Nice call!" — the product has no opinion about how the user is doing. Numbers carry their own sample size and the interface does not editorialize on top of them.
 
 ## Output format
+
+There are two output modes, and the request decides which.
+
+**Product UI** is the default — a screen, a component, a restyle, a ticket touching appearance. Output is Material UI as described below.
+
+**A UI preview** is a standalone HTML file rendering a design doc's screens for review. Asked for by "preview", "mockup", "show me the screens", "visual", "gallery", or "render the design doc". It is a *picture of the design*, not product code, and it is the one place hand-authored CSS is permitted. See **UI previews** below before writing one.
+
+For product UI:
 
 - Code in TypeScript/React using Material UI components and MUI's `sx` prop and theme system, in a single code block. Material UI is Sightline's only component and styling system — do not introduce Tailwind, styled-components, CSS modules, hand-authored stylesheets, utility classes, or a second component library.
 - Start with a brief response, then the code, then a brief closing response.
@@ -158,6 +168,86 @@ For the accuracy and backtest surfaces, use plausible aggregate mock data — Br
 When the task is a comprehensive visual or brand redesign — the App Shell, Brand & Access pitch, or any later "apply the brand" work — the approved direction applies to **every** existing user-facing page and UI state, not just the primary app screens. That includes: slate list; slate list empty; slate list Kalshi-degraded; contract detail; contract detail with pending suggestion; contract detail with no projection; unresolved contract row and its detail; accuracy and calibration; accuracy with insufficient data; backtest run list; backtest run detail; backtest run with configuration drift; decision log; decision log empty; override performance; override performance with insufficient sample; suggestion reliability; health; health with a stale job; settings; user management; invite creation dialog; revoke confirmation dialog; trading order entry; trading confirmation step; trading fill, partial fill, and rejection results; login; invite acceptance valid, expired, used, and revoked; access denied; not found; application error; every navigation surface at phone, tablet, and desktop widths; the app bar and its mobile drawer; every snackbar and toast; every skeleton loading state; and both light and dark foundations for all of the above.
 
 Full-surface redesign work does **not** include: designing an alternative logo; any sportsbook, DFS, or PrizePicks-style integration surface; any public marketing, signup, or pricing page; in-app messaging or notification centre; a friend pick-sharing feed; bankroll or portfolio surfaces; or any NBA or WNBA surface. Those are permanent non-goals or explicitly deferred past V1.
+
+## UI previews
+
+A UI preview is a single self-contained HTML file that renders every screen and state of a design doc, in both appearance modes, for review before anything is built. It exists because a design doc describes screens in prose and wireframes, and a reviewer needs to see them.
+
+Start from `references/preview-template.html`. It carries the scaffolding, the product tokens, and the component patterns already correct — copy it and replace the example frames. Do not re-derive the token block; it must match the design doc's palette exactly, and retyping hex values is how two visual systems start.
+
+### Where it goes
+
+- **Path:** `docs/v1/ui/<feature-slug>-ui-preview.html` — matching the design doc's slug. Create `docs/v1/ui/` if absent.
+- **One file per design doc.** A preview covering two features is two files.
+- Never overwrite a spec, a design doc, or a pitch. If the requested output path is one of those, say so and write the preview to `docs/v1/ui/` instead.
+
+### The preview is not product code
+
+This is the rule that keeps the hand-authored CSS from becoming a second styling system:
+
+- The HTML and CSS in a preview are **a rendering of the design and are never copied into the application.** The app is built in Material UI against the theme.
+- Say so on the page, in the lead's note pill. A reader who finds the file in six months must not mistake it for the implementation.
+- When a preview and the MUI theme disagree, **the theme wins** and the preview is wrong.
+- Previews are review artefacts. Like the Pitch 2 inspection interface, they are not linked from the application and never ship inside it.
+
+### Two token layers, kept apart
+
+The template defines both. The separation is the point.
+
+| Layer | Prefix | Rule |
+| ----- | ------ | ---- |
+| Preview chrome | `--pv-*` | The studio around the mocks. **Achromatic — greys only.** Colour in this product means provenance, so the scaffolding has none and can never be mistaken for a product surface. |
+| Product tokens | `--sl-*`, scoped to `.sl` | The design doc's theme values, exactly. `.sl[data-sl="dark"]` carries the dark foundation. |
+
+The appearance toggle sets `data-sl` on every `.js-sl` element at once, so all product surfaces flip together. It follows the OS on first load, because system is Sightline's default.
+
+**Chrome conventions do not cross into `.sl`.** Uppercase eyebrows, letter-spaced labels, and pill shapes are fine in the chrome and forbidden in the product. Anything inside a `.mock` obeys the brand system: chips at 4px radius, no pill badges, no gradients, no drop shadows except on menus and dialogs, no uppercase labels, mono tabular numerics, and no bolded data values.
+
+### Required structure
+
+In order. The template lays it out.
+
+1. **Studio header** — sticky. Reticle mark, `Sightline · [Feature]`, a one-line scope, jump links, appearance toggle.
+2. **Lead** — eyebrow, one-sentence thesis in the design doc's north-star language, two or three sentences of scope, and the note pill stating this is a rendering rather than product code.
+3. **Numbered sections** — `01`, `02`, … each with a title and a one-line description of the rule the screens demonstrate. Group by surface, not by component.
+4. **Framed screens** — every screen inside a `.pv-frame` with a caption carrying its **name**, its **route** in monospace, and a right-aligned **tag** for the role or condition. A screen without its route is not reviewable.
+5. **A states section** — loading, empty, degraded, error, terminal, and permission-denied, given the same billing as the populated screens.
+6. **Closing legend** — two cards restating the design commitments the frames are built to respect, as checkmark lists. This is what makes a preview reviewable rather than merely pretty.
+7. **Footer** — the design doc filename and version it was generated from, plus a one-line summary of the commitments.
+
+### Coverage
+
+A preview is complete when every screen and every state named in the design doc appears. Read its screen specifications and enumerate them — each screen's empty, loading, and error states are separate frames, not a note.
+
+Sightline-specific coverage that gets skipped and must not be:
+
+- **Phone frames.** The slate is read on a phone on a Sunday morning, so phone is the design target. Any surface with a list, a table, or a decision control appears at `375px` (`.mock--phone`) as well as desktop. A preview with no phone frame has not previewed the primary reading context.
+- **Both appearance modes**, verified by flipping the toggle rather than assumed.
+- **The states that are legitimate answers, not failures** — an empty slate, nothing clearing the recommendation threshold, a bucket below sample size, a June with no games. These carry as much design weight as the populated case.
+- **Kalshi degraded mode** wherever prices appear, as a designed state with a last-fetch timestamp rather than an error.
+- **Stale projections in list view**, not only on detail.
+- **Role variants** where a surface differs between admin and viewer — including that an admin-only surface is *absent* for a viewer, never disabled or blurred.
+
+### Mock data
+
+Use the vocabulary below in the Mock data section. A preview populated with `Player 1 / Stat A / 50%` reads as a component gallery; the same frames with Ja'Marr Chase, a 74.5 threshold, 54¢, and a `+7.4 pts` edge read as Sightline. Keep numbers internally consistent across frames — the same contract should carry the same probability everywhere it appears.
+
+### Verification before handing it over
+
+- [ ] Opens standalone with no network request. Fonts, logos, and icons resolve from relative paths or are inline.
+- [ ] The appearance toggle flips every product surface, and both modes are correct on every frame.
+- [ ] Dark surfaces are neutral near-black. Nothing in dark mode has a hue.
+- [ ] No hex value inside a `.mock` that is not a `--sl-*` token.
+- [ ] Every numeric is mono with tabular figures. No data value is bold.
+- [ ] No uppercase label, letter-spaced label, or pill-shaped chip inside a `.mock`.
+- [ ] No drop shadow inside a `.mock` except on a menu or dialog.
+- [ ] Every frame carries a name and a route.
+- [ ] Every screen from the design doc is present, with its empty, loading, and error states.
+- [ ] Phone frames exist for every list, table, and decision surface.
+- [ ] Nothing scrolls horizontally inside a phone frame.
+- [ ] No illustration, spot graphic, or empty-state artwork anywhere in a `.mock`.
+- [ ] The note pill states that this is a rendering, not product code.
+- [ ] The footer names the design doc and version it came from.
 
 ## Respecting provided input
 
