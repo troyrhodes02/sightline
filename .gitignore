@@ -20,6 +20,13 @@ dist-ssr
 # Prisma generated client (regenerated from schema; not source of truth)
 /generated/
 
+# Backtest artefacts — millions of per-prediction Parquet rows on local disk,
+# never committed. Only BacktestRun aggregates and CalibrationBin rows persist.
+/python/artifacts/
+
+# Local Supabase dev config/state (from `supabase start`), not source.
+/supabase/
+
 # Python (uv). uv.lock IS committed for reproducibility.
 .venv/
 __pycache__/
