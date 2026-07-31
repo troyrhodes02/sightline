@@ -85,7 +85,8 @@ class ProjectionResult:
     tail_mass: float | None
     zero_mass: float | None
 
-    projected_value: float
+    projected_value: float  # distribution mean — the headline point estimate
+    projected_median: float  # distribution median (q50) — the displayed estimate (SIG-28)
     interval_low: float
     interval_high: float
     mass_below_zero: float
@@ -199,6 +200,11 @@ def project_one(
 
     quantiles = distribution.quantiles()
     projected = distribution.mean()
+    # Both point estimates are stored (SIG-28). The mean stays the headline
+    # comparator (baselines are means); the median is what the slate displays,
+    # because a mean beside a threshold probability from the same distribution
+    # reads as a contradiction when the distribution is skewed.
+    projected_median = quantiles["q50"]
     low, high = quantiles["q10"], quantiles["q90"]
     relative_width = _relative_width(spec, projected, low, high)
     confidence = _confidence(spec, history.n_eff, relative_width)
@@ -230,6 +236,7 @@ def project_one(
         tail_mass=distribution.tail_mass() if is_count else None,
         zero_mass=distribution.zero_mass() if is_count else None,
         projected_value=projected,
+        projected_median=projected_median,
         interval_low=low,
         interval_high=high,
         mass_below_zero=mass_below_zero,
