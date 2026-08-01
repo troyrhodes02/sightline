@@ -190,20 +190,26 @@ test.describe("accessibility", () => {
 });
 
 test.describe("health honesty", () => {
-  test("reports every signal as not yet implemented, with no timestamp", async ({
+  test("derives the three signals from run records, fabricating nothing", async ({
     page,
   }) => {
     await signIn(page, ADMIN_EMAIL!, ADMIN_PASSWORD!);
     await page.goto("/health");
 
-    for (const label of ["Ingest", "Recompute", "Price refresh"]) {
+    for (const label of [
+      "Ingest",
+      "Projection recomputation",
+      "Price refresh",
+    ]) {
       await expect(page.getByText(label, { exact: true })).toBeVisible();
     }
 
-    await expect(page.getByText("Not yet implemented").first()).toBeVisible();
-
-    // No fabricated timestamp anywhere on the surface.
+    // The pre-pipeline placeholder state retired with the live pipeline.
     const body = (await page.textContent("body")) ?? "";
+    expect(body).not.toContain("Not yet implemented");
+
+    // No fabricated timestamp anywhere on the surface — a signal with no
+    // completed successful run behind it shows an em dash, never a date.
     expect(body).not.toMatch(/\d{4}-\d{2}-\d{2}/);
   });
 });

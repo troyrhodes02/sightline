@@ -5,8 +5,8 @@ const PRESENTATION: Record<
   Exclude<HealthSignalState, "ok">,
   { label: string; tone: StatusTone; filled: boolean; icon: boolean }
 > = {
-  not_yet_implemented: {
-    label: "Not yet implemented",
+  running: {
+    label: "Running",
     tone: "neutral",
     filled: false,
     icon: false,
@@ -28,11 +28,13 @@ const PRESENTATION: Record<
 };
 
 /**
- * Six states, four of them kinds of "unavailable".
+ * Six states, and only two of them amber.
  *
- * They stay distinct because a not-built job, a job that has never run, a job
- * outside its window, and a job that failed are four different facts — and the
- * health surface exists precisely so they are not collapsed into one shrug.
+ * `running`, `never run`, and `not expected` are neutral facts — an attempt in
+ * flight, a fresh environment, a correct offseason — not alarms. `late` and
+ * `failed` are the two that want attention. They stay distinct because the
+ * health surface exists precisely so different facts are not collapsed into
+ * one shrug.
  *
  * **`ok` renders nothing.** A healthy job carries no badge, so the only chips
  * on the surface are the ones that want attention.

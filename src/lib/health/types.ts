@@ -2,18 +2,20 @@
  * Health signal states.
  *
  * A **TypeScript union, not a database enum** — no health row is persisted.
- * The three signals are produced by a server-side resolver from a static
- * registry (SIG-37), and Pitch 5 replaces that registry with real values.
+ * Every state is derived at read time from run records, the stored schedule,
+ * and configured bounds (spec RD-25), then discarded.
  *
- * Six states exist so four different kinds of "unavailable" never collapse into
- * one. Rendering a not-built job as though it merely failed, or a failed read
- * as though the job does not exist, is the false reporting this surface exists
- * to prevent.
+ * Six states exist so five different kinds of "not simply fine" never collapse
+ * into one. A job outside its season, a job mid-flight, a job that failed, a
+ * job that succeeded too long ago, and a job that has never run are five
+ * different facts — and the health surface exists precisely so they are not
+ * rendered as one shrug. `not_yet_implemented` retired with the live pipeline:
+ * every category now has a real recording path behind it.
  */
 export type HealthSignalState =
-  | "not_yet_implemented" // the job does not exist in this version
-  | "never_run" // implemented, no successful run recorded
-  | "not_expected" // outside the season, or outside its scheduled window
   | "ok" // last success inside expected bounds
+  | "running" // an attempt is in flight, inside the run timeout
   | "late" // last success outside expected bounds
-  | "failed"; // last run failed
+  | "failed" // latest attempt failed, was incomplete, or timed out mid-run
+  | "never_run" // expected, but no successful run has ever completed
+  | "not_expected"; // no scheduled game inside the lookahead (offseason, dark week)
