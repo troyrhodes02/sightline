@@ -21,16 +21,23 @@ describe("environment configuration", () => {
   });
 
   // AC: "Missing environment variables fail at startup with a named error."
-  it.each([
-    "DATABASE_URL",
-    "DIRECT_URL",
-    "SUPABASE_SERVICE_ROLE_KEY",
-    "APP_URL",
-  ])("fails by name when %s is missing", (key) => {
-    const source: EnvSource = { ...VALID_SERVER };
-    delete source[key];
+  it.each(["DATABASE_URL", "DIRECT_URL", "SUPABASE_SERVICE_ROLE_KEY"])(
+    "fails by name when %s is missing",
+    (key) => {
+      const source: EnvSource = { ...VALID_SERVER };
+      delete source[key];
 
-    expect(() => parseServerEnv(source)).toThrow(key);
+      expect(() => parseServerEnv(source)).toThrow(key);
+    },
+  );
+
+  // Optional, because nothing reads it. A deployment must not fail to boot over
+  // a variable no code touches.
+  it("boots without APP_URL", () => {
+    const source: EnvSource = { ...VALID_SERVER };
+    delete source.APP_URL;
+
+    expect(() => parseServerEnv(source)).not.toThrow();
   });
 
   it("rejects a non-absolute APP_URL", () => {

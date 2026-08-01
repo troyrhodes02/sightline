@@ -29,8 +29,15 @@ const serverSchema = z.object({
     .string()
     .min(1, "SUPABASE_SERVICE_ROLE_KEY is required"),
 
-  /** Absolute origin. Used for absolute links and environment identification. */
-  APP_URL: z.url("APP_URL must be an absolute URL"),
+  /**
+   * Absolute origin of this deployment.
+   *
+   * **Optional**, because nothing currently reads it — its only consumer was
+   * the invitation link builder, removed with the access-model change. Kept
+   * documented for the first surface that needs an absolute URL, but a
+   * deployment must not fail to boot over a variable no code touches.
+   */
+  APP_URL: z.url("APP_URL must be an absolute URL").optional(),
 
   NODE_ENV: z
     .enum(["development", "test", "production"])

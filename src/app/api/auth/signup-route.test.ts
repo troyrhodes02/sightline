@@ -24,10 +24,28 @@ describe("sign-up route", () => {
 
   it("answers identically whether or not the address is already registered", () => {
     // Sign-up is a public surface. A distinct "already registered" reply would
-    // let anyone enumerate who is in the group.
-    const uses = signUp.match(/SUBMITTED/g) ?? [];
-    expect(uses.length).toBeGreaterThanOrEqual(4);
+    // let anyone enumerate who is in the group. Every non-validation exit goes
+    // through one helper, so there is a single response shape by construction.
+    const exits = signUp.match(/return settle\(\)/g) ?? [];
+    expect(exits.length).toBeGreaterThanOrEqual(4);
     expect(signUp).not.toMatch(/already (registered|exists|has an account)/i);
+  });
+
+  it("holds every path to the same response floor", () => {
+    // A uniform BODY is not enough: the registered path returns after a local
+    // read while a new address waits on a remote Supabase call, and that gap is
+    // measurable from anywhere. The floor is what makes the timing uninformative.
+    expect(signUp).toContain("RESPONSE_FLOOR_MS");
+    expect(signUp).toMatch(/RESPONSE_FLOOR_MS - \(Date\.now\(\) - startedAt\)/);
+  });
+
+  it("bounds how many requests can be outstanding", () => {
+    // The per-address limit stops one person retrying; it does nothing about a
+    // script cycling through addresses, each creating an auth user and a row.
+    expect(signUp).toContain("MAX_PENDING_REQUESTS");
+    expect(signUp).toMatch(
+      /prisma\.user\.count\([\s\S]{0,80}status:\s*"pending"/,
+    );
   });
 
   it("deletes the orphaned auth user when the row write fails", () => {

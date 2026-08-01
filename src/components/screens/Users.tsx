@@ -208,6 +208,10 @@ function Row({
 }) {
   return (
     <Stack
+      // Stable hook for the end-to-end suite. Anchoring tests on DOM shape
+      // breaks every time this screen is restructured, and it has been a table
+      // and a Stack already.
+      data-account={row.email}
       direction={{ xs: "column", sm: "row" }}
       spacing={1}
       sx={{

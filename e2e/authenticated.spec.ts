@@ -139,11 +139,14 @@ test.describe("revocation", () => {
       // The access token is minutes old and unquestionably still valid, which
       // is the point: what denies them is the database read, not expiry.
       await adminPage.goto("/users");
-      const row = adminPage
-        .locator("div")
-        .filter({ hasText: VIEWER_EMAIL! })
-        .last();
-      await row.getByRole("button", { name: "Revoke" }).click();
+      // Anchored on the Revoke control scoped to the row containing the
+      // address, rather than on DOM shape. The Users screen has been a table
+      // and is now nested Stacks; a structural locator drifts with it.
+      await adminPage
+        .getByRole("button", { name: "Revoke" })
+        .and(adminPage.locator(`[data-account="${VIEWER_EMAIL}"] button`))
+        .first()
+        .click();
       await adminPage
         .getByRole("button", { name: "Revoke", exact: true })
         .last()

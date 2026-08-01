@@ -12,10 +12,27 @@ import "server-only";
  * because this is a speed bump against credential stuffing on a closed system
  * with a handful of accounts, not a defence against a distributed attack. If it
  * ever needs to be one, it needs a store, and that is a pitch.
+ *
+ * **Keys are attacker-chosen.** Sign-up is public, so anyone can mint a new
+ * window by posting a new address. Without eviction the map would grow for the
+ * life of the instance under input nobody controls, so expired windows are
+ * swept opportunistically below — the map only ever holds live ones.
  */
 type Window = { count: number; resetAt: number };
 
 const windows = new Map<string, Window>();
+
+/**
+ * Sweep only once the map is large enough for it to be worth the walk. Below
+ * this the cost of scanning outweighs the memory it would reclaim.
+ */
+const SWEEP_THRESHOLD = 1_000;
+
+function sweepExpired(now: number): void {
+  for (const [key, window] of windows) {
+    if (now >= window.resetAt) windows.delete(key);
+  }
+}
 
 export type RateLimitResult = { allowed: boolean; retryAfterSeconds: number };
 
@@ -25,6 +42,10 @@ export function rateLimit(
   windowMs: number,
   now: number = Date.now(),
 ): RateLimitResult {
+  // Amortised: O(n) at most once per SWEEP_THRESHOLD insertions, and only ever
+  // removing windows that have already lapsed.
+  if (windows.size >= SWEEP_THRESHOLD) sweepExpired(now);
+
   const existing = windows.get(key);
 
   if (!existing || now >= existing.resetAt) {

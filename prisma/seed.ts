@@ -44,6 +44,11 @@ async function main(): Promise<void> {
   try {
     // Find the auth user first — creating one that already exists errors, and
     // the id has to match the users row either way.
+    //
+    // Single page, deliberately: this is a bootstrap tool for a product with a
+    // handful of accounts. Past 1000 auth users the lookup would miss and the
+    // create below would fail on a duplicate email — noisy rather than silent,
+    // but worth paginating if that ever becomes plausible.
     const existing = await auth.auth.admin.listUsers({ perPage: 1000 });
     if (existing.error) throw existing.error;
 

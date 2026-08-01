@@ -40,6 +40,37 @@ const ATTEMPT_LIMIT = 5;
 const ATTEMPT_WINDOW_MS = 60 * 60 * 1000;
 
 /**
+ * Ceiling on outstanding requests.
+ *
+ * The per-address limit above stops one person retrying; it does nothing about
+ * one script submitting a thousand *different* addresses, each of which would
+ * create a Supabase auth user and a row in the admin's queue. This bounds that.
+ *
+ * Generous for a product with a handful of accounts, and the admin empties the
+ * queue by approving or denying — so hitting it means either genuine interest
+ * worth looking at, or abuse worth noticing.
+ */
+const MAX_PENDING_REQUESTS = 100;
+
+/**
+ * Floor on how long a sign-up takes to answer.
+ *
+ * The response body is uniform by design, but the *paths* are not: a registered
+ * address returns after one local read, while a new one waits on a remote
+ * Supabase call. That difference is measurable from anywhere and re-opens the
+ * enumeration the uniform body exists to close, so every path is padded to the
+ * same floor.
+ *
+ * Set above the slowest normal path rather than tuned tightly — the point is
+ * that the *variance* stops carrying information, not that the number is exact.
+ */
+const RESPONSE_FLOOR_MS = 700;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
  * Requests an account.
  *
  * Creates a `pending` row and nothing else: **no access is granted here**, and
@@ -70,13 +101,31 @@ export async function POST(request: Request): Promise<Response> {
   const { password, displayName } = parsed.data;
   const email = parsed.data.email.trim().toLowerCase();
 
-  // Keyed on the address so one attacker cannot exhaust everyone's budget, and
-  // a rejection carries the same message as a success for the same reason the
-  // duplicate case does.
+  // Every branch below returns the same body. `settle` also holds each of them
+  // to the same floor, so the response reveals nothing by shape OR by timing.
+  const startedAt = Date.now();
+  const settle = async (): Promise<Response> => {
+    await sleep(Math.max(0, RESPONSE_FLOOR_MS - (Date.now() - startedAt)));
+    return Response.json({ message: SUBMITTED }, { status: 202 });
+  };
+
+  // Keyed on the address so one attacker cannot exhaust everyone's budget.
   if (
     !rateLimit(`sign-up:${email}`, ATTEMPT_LIMIT, ATTEMPT_WINDOW_MS).allowed
   ) {
-    return Response.json({ message: SUBMITTED }, { status: 202 });
+    return settle();
+  }
+
+  // Bounds the queue, the Supabase project, and the rate-limiter's key space
+  // against a script cycling through addresses. Counted rather than trusted.
+  const pendingCount = await prisma.user.count({
+    where: { status: "pending" },
+  });
+  if (pendingCount >= MAX_PENDING_REQUESTS) {
+    console.warn(
+      `Sign-up refused: ${pendingCount} requests already pending (ceiling ${MAX_PENDING_REQUESTS}).`,
+    );
+    return settle();
   }
 
   const existing = await prisma.user.findUnique({
@@ -84,8 +133,11 @@ export async function POST(request: Request): Promise<Response> {
     select: { id: true },
   });
   if (existing) {
-    // Same body, same status, no row written. The caller learns nothing.
-    return Response.json({ message: SUBMITTED }, { status: 202 });
+    // Same body, same status, same elapsed time, and no row written. This
+    // covers denied and revoked accounts too: both are terminal per the spec,
+    // so a fresh request changes nothing. Reinstatement is a manual database
+    // change by design, not a self-serve path.
+    return settle();
   }
 
   const admin = createAdminClient();
@@ -98,7 +150,7 @@ export async function POST(request: Request): Promise<Response> {
   if (created.error || !created.data.user) {
     // Most often the address already exists in auth without a users row.
     // Indistinguishable from success, deliberately.
-    return Response.json({ message: SUBMITTED }, { status: 202 });
+    return settle();
   }
 
   try {
@@ -122,5 +174,5 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  return Response.json({ message: SUBMITTED }, { status: 202 });
+  return settle();
 }
