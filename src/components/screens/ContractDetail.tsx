@@ -91,6 +91,12 @@ export function ContractDetail({
           {!hasProjection ? (
             <StatusChip label="no projection" tone="caution" />
           ) : null}
+          {detail.staleness?.isStale ? (
+            <StatusChip label="stale" tone="caution" icon />
+          ) : null}
+          {detail.staleness?.predatesInactives ? (
+            <StatusChip label="predates inactives" tone="neutral" />
+          ) : null}
           {detail.status !== "active" ? (
             <StatusChip label={detail.status} tone="neutral" />
           ) : null}
@@ -228,16 +234,63 @@ export function ContractDetail({
         )}
       </Section>
 
-      <Section title="Provenance">
-        {/* The reserved future home of calibration context (Pitch 6, RD-10). */}
-        <NumericText size="sm" muted>
-          {detail.projectionComputedAt
-            ? `computed ${formatEt(detail.projectionComputedAt)} ET · ` +
-              `cutoff ${detail.informationCutoff ? formatEt(detail.informationCutoff) : "—"} ET · ` +
-              `model ${detail.modelVersion ?? "—"}`
-            : "No projection to attribute."}
-        </NumericText>
-      </Section>
+      {hasProjection ? (
+        <Section title="Currency">
+          {/* Promoted from Provenance: what the projection did and did not
+              include. Also the reserved future home of calibration context
+              (Outcome Scoring & Accuracy Surface, RD-10). */}
+          <Stack spacing={0.5}>
+            <CurrencyLine
+              label="computed"
+              value={
+                detail.projectionComputedAt
+                  ? `${formatEt(detail.projectionComputedAt)} ET${detail.projectionAge ? ` (${detail.projectionAge} ago)` : ""}`
+                  : "—"
+              }
+            />
+            <CurrencyLine
+              label="information cutoff"
+              value={
+                detail.informationCutoff
+                  ? `${formatEt(detail.informationCutoff)} ET`
+                  : "—"
+              }
+            />
+            <CurrencyLine label="model" value={detail.modelVersion ?? "—"} />
+          </Stack>
+          {detail.staleness?.isStale ? (
+            <Typography variant="caption" sx={{ color: "text.secondary" }}>
+              <Typography
+                component="span"
+                variant="caption"
+                sx={{ color: "warning.main" }}
+              >
+                stale
+              </Typography>
+              {" — information Sightline can ingest has arrived for this game" +
+                " since this projection was computed. A scheduled recompute" +
+                " clears this when the cutoff reflects it."}
+            </Typography>
+          ) : null}
+          {detail.staleness?.predatesInactives ? (
+            <Typography variant="caption" sx={{ color: "text.secondary" }}>
+              <Typography
+                component="span"
+                variant="caption"
+                sx={{ color: "text.primary" }}
+              >
+                predates inactives
+              </Typography>
+              {` — official inactives for this game ${
+                detail.staleness.inactivesExpectedAt
+                  ? `are expected as of ${formatEt(detail.staleness.inactivesExpectedAt)} ET`
+                  : "are expected before kickoff"
+              }. Sightline has no inactives source in this version; this` +
+                " projection was computed before them."}
+            </Typography>
+          ) : null}
+        </Section>
+      ) : null}
 
       {decisionSlot ? (
         <Section title="Decision">
@@ -372,6 +425,28 @@ function HeadlineCell({
         {label}
       </Typography>
       {children}
+    </Stack>
+  );
+}
+
+/** One Currency row: label + monospace value, stacking label-over-value at xs. */
+function CurrencyLine({ label, value }: { label: string; value: string }) {
+  return (
+    <Stack
+      direction={{ xs: "column", sm: "row" }}
+      spacing={{ xs: 0, sm: 0.75 }}
+      sx={{ alignItems: { sm: "baseline" } }}
+    >
+      <Typography
+        variant="body2"
+        component="span"
+        sx={{ color: "text.secondary" }}
+      >
+        {label}
+      </Typography>
+      <NumericText size="sm" muted>
+        {value}
+      </NumericText>
     </Stack>
   );
 }

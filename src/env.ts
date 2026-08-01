@@ -67,6 +67,12 @@ const serverSchema = z.object({
   /** Confidence-adjusted-edge recommendation threshold, in points (RD-11). */
   RECOMMENDATION_THRESHOLD_POINTS: z.coerce.number().min(0).default(5),
 
+  /**
+   * Minutes before kickoff at which official inactives are expected (RD-23).
+   * Past kickoff − this lead, a game's contracts disclose "predates inactives".
+   */
+  INACTIVES_LEAD_MINUTES: z.coerce.number().int().min(0).default(90),
+
   /** In-page slate polling interval (RD-12). Scheduling proper is Pitch 5. */
   SLATE_REFRESH_INTERVAL_SECONDS: z.coerce.number().int().min(10).default(60),
 

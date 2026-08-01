@@ -1,3 +1,4 @@
+import Box from "@mui/material/Box";
 import Chip from "@mui/material/Chip";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
@@ -191,13 +192,21 @@ export function formatEtTime(iso: string): string {
 /**
  * The two clocks, side by side and never merged: projection age and price
  * age are different facts about a row. Title attributes carry the absolutes.
+ *
+ * Ages are server-computed strings rendered verbatim (RD-28) — no clock math
+ * happens here, no ticking. At `xs` the absolute times yield to ages alone
+ * (`proj 2d 4h`); the absolutes live on the detail view.
  */
 export function RowTimestamps({
   projectionComputedAt,
+  projectionAge,
   priceObservedAt,
+  priceAge,
 }: {
   projectionComputedAt: string | null;
+  projectionAge?: string | null;
   priceObservedAt: string | null;
+  priceAge?: string | null;
 }) {
   return (
     <Stack direction="row" spacing={1.5} sx={{ alignItems: "baseline" }}>
@@ -206,15 +215,42 @@ export function RowTimestamps({
         sx={{ color: "text.muted" }}
         title={projectionComputedAt ?? undefined}
       >
-        proj {projectionComputedAt ? formatEt(projectionComputedAt) : "—"}
+        proj <Clock at={projectionComputedAt} age={projectionAge ?? null} />
       </Typography>
       <Typography
         variant="numericSm"
         sx={{ color: "text.muted" }}
         title={priceObservedAt ?? undefined}
       >
-        price {priceObservedAt ? formatEt(priceObservedAt) : "—"}
+        price <Clock at={priceObservedAt} age={priceAge ?? null} />
       </Typography>
     </Stack>
+  );
+}
+
+/** `Thu 9:12 AM (2d 4h)` at sm+; the age alone at xs; an em dash when absent. */
+function Clock({ at, age }: { at: string | null; age: string | null }) {
+  if (!at) return <>—</>;
+  return (
+    <>
+      <Box
+        component="span"
+        sx={{ display: { xs: "none", sm: "inline" } }}
+      >{`${formatEt(at)}${age ? " " : ""}`}</Box>
+      {age ? (
+        <>
+          <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>
+            ({age})
+          </Box>
+          <Box component="span" sx={{ display: { xs: "inline", sm: "none" } }}>
+            {age}
+          </Box>
+        </>
+      ) : (
+        <Box component="span" sx={{ display: { xs: "inline", sm: "none" } }}>
+          {formatEt(at)}
+        </Box>
+      )}
+    </>
   );
 }
