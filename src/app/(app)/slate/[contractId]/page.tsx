@@ -4,10 +4,7 @@ import { requireSession } from "@/lib/auth/session";
 import { readContractDetail } from "@/lib/slate/read";
 import { normalizeName } from "@/lib/kalshi/parse";
 import { ContractDetail } from "@/components/screens/ContractDetail";
-<<<<<<< HEAD
-=======
 import { DecisionControl } from "@/components/slate/DecisionControl";
->>>>>>> feat/SIG-45-decision-log
 import type { ResolveCandidate } from "@/components/slate/ResolveControl";
 
 export const dynamic = "force-dynamic";
@@ -54,8 +51,6 @@ export default async function ContractDetailPage({
       isAdmin={isAdmin}
       isUnresolved={Boolean(isUnresolved)}
       resolveCandidates={resolveCandidates}
-<<<<<<< HEAD
-=======
       decisionSlot={
         isAdmin && !isUnresolved ? (
           <DecisionControl
@@ -64,7 +59,6 @@ export default async function ContractDetailPage({
           />
         ) : undefined
       }
->>>>>>> feat/SIG-45-decision-log
     />
   );
 }

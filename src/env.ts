@@ -67,24 +67,9 @@ const serverSchema = z.object({
   /** Confidence-adjusted-edge recommendation threshold, in points (RD-11). */
   RECOMMENDATION_THRESHOLD_POINTS: z.coerce.number().min(0).default(5),
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
   /** In-page slate polling interval (RD-12). Scheduling proper is Pitch 5. */
   SLATE_REFRESH_INTERVAL_SECONDS: z.coerce.number().int().min(10).default(60),
 
->>>>>>> feat/SIG-43-slate-ui
-=======
-  /** In-page slate polling interval (RD-12). Scheduling proper is Pitch 5. */
-  SLATE_REFRESH_INTERVAL_SECONDS: z.coerce.number().int().min(10).default(60),
-
->>>>>>> feat/SIG-44-contract-detail
-=======
-  /** In-page slate polling interval (RD-12). Scheduling proper is Pitch 5. */
-  SLATE_REFRESH_INTERVAL_SECONDS: z.coerce.number().int().min(10).default(60),
-
->>>>>>> feat/SIG-45-decision-log
   NODE_ENV: z
     .enum(["development", "test", "production"])
     .default("development"),
