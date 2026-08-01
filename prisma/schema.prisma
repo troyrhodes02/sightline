@@ -146,6 +146,8 @@ model Player {
   externalIds PlayerExternalId[]
   gameStats   PlayerGameStat[]
   contexts    PlayerGameContext[]
+  contracts   Contract[]
+  projections Projection[]
 
   @@index([fullName])
   @@map("players")
@@ -209,6 +211,8 @@ model Game {
   contexts    PlayerGameContext[]
   weather     GameWeather?
   revisions   GameScheduleRevision[]
+  contracts   Contract[]
+  projections Projection[]
 
   @@unique([season, week, seasonType, homeTeamId, awayTeamId])
   @@index([season, week])
@@ -599,10 +603,265 @@ model User {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  decidedBy     User?  @relation("AccessDecision", fields: [decidedById], references: [id])
-  decisionsMade User[] @relation("AccessDecision")
+  decidedBy     User?      @relation("AccessDecision", fields: [decidedById], references: [id])
+  decisionsMade User[]     @relation("AccessDecision")
+  decisions     Decision[]
 
   // Pending requests are read first and most often; the list groups by status.
   @@index([status, requestedAt])
   @@map("users")
+}
+
+// ---------------------------------------------------------------------------
+// Market, projection, and decision entities
+// (Pitch 4 — Kalshi Sync, The Slate & Decision Log)
+//
+// NONE of these are bitemporal fact tables, and none may carry ingest_run_id:
+// contracts and price observations are market metadata the model never reads
+// (the second invariant — prices never feed projections), projections are
+// model OUTPUT, and snapshots/decisions are product history. Edge, staleness,
+// and recommendation state are computed on read and deliberately have no
+// column here — RecommendationSnapshot and the Decision snapshot fields are
+// frozen history for grading, never caches of current state.
+//
+// Decision and Position (Pitch 11) are the ONLY user-scoped tables. Everything
+// else in this section is shared reference data with no per-user partition.
+// ---------------------------------------------------------------------------
+
+enum Confidence {
+  high
+  medium
+  low
+}
+
+enum ContractStatus {
+  active // listed on the last sync
+  closed // Kalshi reports the market closed for trading
+  delisted // no longer returned by discovery; retained with history
+}
+
+enum MarketSyncStatus {
+  complete // discovery and prices both succeeded
+  partial // some markets or books could not be fetched
+  failed // the sync could not complete at all
+  empty // completed; Kalshi listed no matching markets (a valid state)
+}
+
+enum MarketSide {
+  yes
+  no
+}
+
+enum SnapshotTrigger {
+  appeared // first crossed into recommended
+  state_changed // recommended <-> not recommended, or the better side flipped
+  decision // captured because a decision was recorded
+}
+
+enum Disposition {
+  took
+  faded
+  skipped
+}
+
+/// One Kalshi market. Identity is the ticker (RD-17): a relisting at a new
+/// threshold is a new ticker and therefore a new row; disappeared markets are
+/// marked delisted, never deleted, so observations, snapshots, and decisions
+/// stay attached to the contract they were recorded against.
+model Contract {
+  id                 String                   @id @default(uuid())
+  kalshiTicker       String                   @unique @map("kalshi_ticker")
+  kalshiEventTicker  String?                  @map("kalshi_event_ticker")
+  kalshiSeriesTicker String?                  @map("kalshi_series_ticker")
+  title              String // verbatim Kalshi market title; evidence, never rewritten
+  kalshiPlayerName   String?                  @map("kalshi_player_name") // parsed from title/ticker
+  playerId           String?                  @map("player_id")
+  gameId             String?                  @map("game_id")
+  statType           StatType?                @map("stat_type")
+  threshold          Decimal?                 @db.Decimal(6, 1)
+  resolutionStatus   IdentityResolutionStatus @default(unresolved) @map("resolution_status")
+  resolutionNote     String?                  @map("resolution_note") // admin-only diagnostic
+  status             ContractStatus           @default(active)
+  closeTime          DateTime?                @map("close_time") // Kalshi's stated close, when provided
+  firstSeenAt        DateTime                 @map("first_seen_at")
+  lastSeenAt         DateTime                 @map("last_seen_at")
+  createdAt          DateTime                 @default(now()) @map("created_at")
+  updatedAt          DateTime                 @updatedAt @map("updated_at")
+
+  player            Player?                  @relation(fields: [playerId], references: [id])
+  game              Game?                    @relation(fields: [gameId], references: [id])
+  priceObservations PriceObservation[]
+  snapshots         RecommendationSnapshot[]
+  decisions         Decision[]
+
+  @@index([status, resolutionStatus])
+  @@index([gameId])
+  @@index([playerId, gameId, statType])
+  @@map("contracts")
+}
+
+/// One discovery+price sync execution. The completeness fact behind the slate
+/// banner (RD-8): a partial render must be distinguishable from a complete one.
+model MarketSyncRun {
+  id                  String           @id @default(uuid())
+  status              MarketSyncStatus
+  marketsDiscovered   Int              @default(0) @map("markets_discovered")
+  contractsUpserted   Int              @default(0) @map("contracts_upserted")
+  observationsWritten Int              @default(0) @map("observations_written")
+  errorMessage        String?          @map("error_message") // sanitized; never a credential
+  startedAt           DateTime         @map("started_at")
+  finishedAt          DateTime?        @map("finished_at")
+  createdAt           DateTime         @default(now()) @map("created_at")
+
+  priceObservations PriceObservation[]
+
+  @@index([startedAt(sort: Desc)])
+  @@map("market_sync_runs")
+}
+
+/// A timestamped reading of a contract's book — BOTH sides, integer cents,
+/// append-only. Written on change plus a heartbeat (RD-14). Never updated,
+/// never deleted; later refreshes append rather than mutate.
+model PriceObservation {
+  id          String   @id @default(uuid())
+  contractId  String   @map("contract_id")
+  syncRunId   String   @map("sync_run_id")
+  yesBidCents Int?     @map("yes_bid_cents")
+  yesAskCents Int?     @map("yes_ask_cents")
+  noBidCents  Int?     @map("no_bid_cents")
+  noAskCents  Int?     @map("no_ask_cents")
+  observedAt  DateTime @map("observed_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  contract Contract      @relation(fields: [contractId], references: [id])
+  syncRun  MarketSyncRun @relation(fields: [syncRunId], references: [id])
+
+  snapshots RecommendationSnapshot[]
+  decisions Decision[]
+
+  @@index([contractId, observedAt(sort: Desc)])
+  @@map("price_observations")
+}
+
+/// One player, one stat type, one game, one model version, one information
+/// cutoff. Stores the compact distribution (never raw draws) so any threshold
+/// probability is derivable later without re-simulation. Written ONLY by the
+/// Python runtime through the as-of layer; the app reads and never writes.
+model Projection {
+  id                String     @id @default(uuid())
+  playerId          String     @map("player_id")
+  gameId            String     @map("game_id")
+  statType          StatType   @map("stat_type")
+  modelVersion      String     @map("model_version")
+  distributionKind  String     @map("distribution_kind") // open set; validated by the writer
+  params            Json // distribution parameters, sufficient to rehydrate
+  quantiles         Json // quantile grid for continuous families
+  pmf               Json? // explicit PMF for count families
+  projectedValue    Decimal    @map("projected_value") @db.Decimal(8, 3)
+  projectedMedian   Decimal    @map("projected_median") @db.Decimal(8, 3)
+  intervalLow       Decimal    @map("interval_low") @db.Decimal(8, 3)
+  intervalHigh      Decimal    @map("interval_high") @db.Decimal(8, 3)
+  confidence        Confidence
+  nEff              Int        @map("n_eff")
+  computedAt        DateTime   @map("computed_at")
+  informationCutoff DateTime   @map("information_cutoff")
+  createdAt         DateTime   @default(now()) @map("created_at")
+
+  player  Player             @relation(fields: [playerId], references: [id])
+  game    Game               @relation(fields: [gameId], references: [id])
+  drivers ProjectionDriver[]
+
+  snapshots RecommendationSnapshot[]
+  decisions Decision[]
+
+  // Idempotent persist: same inputs, same row. A new cutoff is a new row;
+  // the freshest (max computedAt) is what the slate reads.
+  @@unique([playerId, gameId, statType, modelVersion, informationCutoff])
+  @@index([gameId, statType, computedAt(sort: Desc)])
+  @@index([playerId, gameId, statType, computedAt(sort: Desc)])
+  @@map("projections")
+}
+
+/// Ordered human-readable sentences behind a projection, stored at persist
+/// time and rendered verbatim. No driver may reference a value the projection
+/// did not use — the application never narrates on top of these.
+model ProjectionDriver {
+  id           String @id @default(uuid())
+  projectionId String @map("projection_id")
+  rank         Int // 0-based display order, by contribution
+  text         String
+
+  projection Projection @relation(fields: [projectionId], references: [id], onDelete: Cascade)
+
+  @@unique([projectionId, rank])
+  @@map("projection_drivers")
+}
+
+/// A recommendation as it existed at a meaningful moment (RD-4 triggers), so
+/// Pitch 6 can grade what Sightline recommended rather than reconstruct what
+/// the current model would recommend after the fact. Historical record, not a
+/// cache; rows are never updated.
+model RecommendationSnapshot {
+  id                     String          @id @default(uuid())
+  contractId             String          @map("contract_id")
+  projectionId           String?         @map("projection_id")
+  priceObservationId     String?         @map("price_observation_id")
+  side                   MarketSide?
+  modelProbability       Decimal?        @map("model_probability") @db.Decimal(6, 5)
+  askCents               Int?            @map("ask_cents")
+  edgePoints             Decimal?        @map("edge_points") @db.Decimal(6, 2)
+  confidenceAdjustedEdge Decimal?        @map("confidence_adjusted_edge") @db.Decimal(6, 2)
+  confidence             Confidence?
+  isRecommended          Boolean         @map("is_recommended")
+  thresholdPoints        Decimal         @map("threshold_points") @db.Decimal(5, 2) // config value in force
+  trigger                SnapshotTrigger
+  createdAt              DateTime        @default(now()) @map("created_at")
+
+  contract         Contract          @relation(fields: [contractId], references: [id])
+  projection       Projection?       @relation(fields: [projectionId], references: [id])
+  priceObservation PriceObservation? @relation(fields: [priceObservationId], references: [id])
+
+  @@index([contractId, createdAt(sort: Desc)])
+  @@map("recommendation_snapshots")
+}
+
+/// The admin's disposition toward a contract — anchored to the CONTRACT, not
+/// to a recommendation, so a decision can exist where Sightline recommended
+/// nothing. Append-only (RD-5): a change appends a superseding row; prior rows
+/// and their snapshots are immutable, and unmarked is the absence of rows.
+/// Snapshot values are read server-side at decision time, never from a client.
+/// User-scoped: userId comes from the session. This is the data that can
+/// never be reconstructed — no migration or cleanup touches it without
+/// explicit sign-off.
+model Decision {
+  id                           String      @id @default(uuid())
+  contractId                   String      @map("contract_id")
+  userId                       String      @map("user_id")
+  disposition                  Disposition
+  supersedesDecisionId         String?     @unique @map("supersedes_decision_id")
+  // Server-read snapshot of the freshest state at decision time. Nullable
+  // because a decision is valid on a contract with no projection or no price.
+  snapshotProjectionId         String?     @map("snapshot_projection_id")
+  snapshotPriceObservationId   String?     @map("snapshot_price_observation_id")
+  snapshotModelProbability     Decimal?    @map("snapshot_model_probability") @db.Decimal(6, 5)
+  snapshotSide                 MarketSide? @map("snapshot_side")
+  snapshotAskCents             Int?        @map("snapshot_ask_cents")
+  snapshotEdgePoints           Decimal?    @map("snapshot_edge_points") @db.Decimal(6, 2)
+  snapshotConfidence           Confidence? @map("snapshot_confidence")
+  snapshotIsRecommended        Boolean?    @map("snapshot_is_recommended")
+  snapshotProjectionComputedAt DateTime?   @map("snapshot_projection_computed_at")
+  snapshotInformationCutoff    DateTime?   @map("snapshot_information_cutoff")
+  snapshotPriceObservedAt      DateTime?   @map("snapshot_price_observed_at")
+  decidedAt                    DateTime    @default(now()) @map("decided_at")
+
+  contract         Contract          @relation(fields: [contractId], references: [id])
+  user             User              @relation(fields: [userId], references: [id])
+  projection       Projection?       @relation(fields: [snapshotProjectionId], references: [id])
+  priceObservation PriceObservation? @relation(fields: [snapshotPriceObservationId], references: [id])
+  supersedes       Decision?         @relation("DecisionSupersedes", fields: [supersedesDecisionId], references: [id])
+  supersededBy     Decision?         @relation("DecisionSupersedes")
+
+  @@index([contractId, decidedAt(sort: Desc)])
+  @@index([userId, decidedAt(sort: Desc)])
+  @@map("decisions")
 }

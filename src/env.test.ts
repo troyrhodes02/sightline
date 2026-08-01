@@ -59,14 +59,26 @@ describe("environment configuration", () => {
     ).toThrow("NEXT_PUBLIC_SUPABASE_ANON_KEY");
   });
 
-  // No Kalshi variable exists until Pitch 11. This asserts the absence, because
-  // "there is nothing to misconfigure yet" is only true while it stays true.
-  it("defines no Kalshi credential variable", () => {
-    const parsed = parseServerEnv(VALID_SERVER) as Record<string, unknown>;
-    const keys = Object.keys(parsed).join(" ").toLowerCase();
+  // Pitch 4 introduced the OPTIONAL market-data key pair (spec RD-18). The
+  // boundary this suite used to assert ("no Kalshi variable exists") moved
+  // with the pitch; what must stay true now is that the pair is optional —
+  // market-data reads work unauthenticated — and server-side only.
+  it("boots without any Kalshi credential configured", () => {
+    const parsed = parseServerEnv(VALID_SERVER);
+    expect(parsed.KALSHI_API_KEY_ID).toBeUndefined();
+    expect(parsed.KALSHI_PRIVATE_KEY_PEM).toBeUndefined();
+    expect(parsed.KALSHI_API_BASE_URL).toContain("https://");
+  });
 
-    expect(keys).not.toContain("kalshi");
-    expect(keys).not.toContain("signing");
-    expect(keys).not.toContain("private_key");
+  it("never exposes a Kalshi value through the client schema", () => {
+    const client = parseClientEnv(VALID_CLIENT) as Record<string, unknown>;
+    expect(Object.keys(client).join(" ").toLowerCase()).not.toContain("kalshi");
+  });
+
+  it("applies the documented sync and threshold defaults", () => {
+    const parsed = parseServerEnv(VALID_SERVER);
+    expect(parsed.KALSHI_SYNC_MIN_INTERVAL_SECONDS).toBe(30);
+    expect(parsed.PRICE_HEARTBEAT_MINUTES).toBe(15);
+    expect(parsed.RECOMMENDATION_THRESHOLD_POINTS).toBe(5);
   });
 });

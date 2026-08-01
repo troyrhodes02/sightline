@@ -25,6 +25,9 @@ sightline-ingest = "sightline_ingest.cli:main"
 # Backtest entry point. The backtest is executed and inspected from the
 # terminal and nowhere else — there is no browser-triggered execution surface.
 sightline-backtest = "sightline_model.cli:main"
+# Projection persistence (Pitch 4): computes and stores current projections
+# for contract-listed players. Manual until Pitch 5 schedules it.
+sightline-model = "sightline_model.project_live:main"
 
 [dependency-groups]
 dev = [
