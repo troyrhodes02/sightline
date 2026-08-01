@@ -276,6 +276,66 @@ Test the risky logic hard; lean tests or manual verification are fine for low-ri
 
 Two pieces of extra care warranted by this product's risk profile. Any change touching the as-of query layer, `known_at` handling, or feature computation requires a backtest re-run and a comparison against the prior stored run before merge — a leak introduced here does not produce a failing test unless someone wrote one, and the calibration numbers will improve rather than degrade. And no trading code path is exercised against a live Kalshi account before it has run against the demo environment.
 
+## Autonomous Pipeline Policy
+
+When running the pitch pipeline unattended, the following governs every decision.
+
+### Decide, don't ask
+
+Resolve open questions yourself. Do not present options, do not wait for confirmation, do not end a turn with a question. The intended mode is: a pitch starts in the evening and is finished by morning.
+
+Resolve in this order of authority:
+
+1. The four approved planning docs at `docs/planning/` — Brief, PRD, Architecture, Roadmap.
+2. `CLAUDE.md` and the skills.
+3. Existing patterns in the codebase. Match what is there over what you would write fresh.
+4. Your own judgment, stated as a decision rather than a preference.
+
+Every resolved question is recorded in the spec as a **Resolved Decision** with a one-line rationale — never left open, and never silently answered.
+
+### The four things that stop a run
+
+Autonomy is bounded. Halt, write the reason to the run report, and stop — do not proceed under an assumption — if any of these arise:
+
+1. **A contradiction with an approved doc.** If implementing the pitch as written would violate the Brief, PRD, Architecture Doc, or Roadmap, stop.
+2. **A breach of a stated invariant.** Kalshi prices reaching a projection. A fact whose `known_at` postdates a projection's information cutoff. Paper and live ledgers becoming aggregable. Anything adapting to measured accuracy other than the recalibration layer.
+3. **Credential or money-path scope.** Anything that stores, transmits, or signs with a Kalshi credential, or that could place a real order, beyond what the current pitch explicitly scopes.
+4. **A destructive or irreversible operation** not named in the pitch — dropping tables, truncating the corpus, rewriting published history, force-pushing a shared branch.
+
+Everything else: decide and continue.
+
+### Verification honesty
+
+Never report a check you did not run. Never mark a ticket complete on a failing check.
+
+- **Per commit:** lint, typecheck, format, unit tests.
+- **Per ticket boundary:** the above plus build.
+- **Per feature branch, before review:** the full suite including e2e.
+
+If a check fails, fix it. If it cannot be fixed without violating a stop condition, halt and report. Do not skip, disable, or mark as expected failure.
+
+### Survive context exhaustion
+
+Maintain `docs/v1/runs/<slug>-progress.md`, updated at every ticket boundary and every step transition. It records: current step, tickets created with their real identifiers, which are complete, branch and PR for each, every Resolved Decision so far, and anything deferred.
+
+Write it so a fresh session with no prior context can read that file plus the spec and resume without repeating work.
+
+### The run report
+
+On completion or halt, write `docs/v1/runs/<slug>-report.md`:
+
+- What shipped, and the state of every ticket and PR.
+- **Decisions made on the user's behalf**, each with its rationale.
+- Review findings and how each was dispositioned.
+- Anything deferred, as ticket or code comment.
+- Anything requiring a decision that could not be made autonomously.
+- Verification results, per check, with actual outcomes.
+- If halted: which stop condition, at which step, and what is needed to resume.
+
+### Ticket identifiers
+
+Ticket numbers do not exist until Linear assigns them. Never reference a number that has not been created. After creating tickets, capture the assigned identifiers, write them to the progress file, and work them in order from that list.
+
 ## Consistency with the planning docs
 
 - Feature names must match `docs/planning/prd.md` and `docs/planning/pitch-roadmap.md` exactly: Historical Data Ingest, Projection Engine, Kalshi Market Sync, Edge Calculation and Recommendation, Staleness Disclosure, Adjustment Suggestions, Suggestion Reliability Analytics, Decision Log, Outcome Ingest and Scoring, Accuracy and Calibration Surface, Backtesting Harness, Authentication and Invite, Brand and Responsive Interface, Kalshi Trading.
