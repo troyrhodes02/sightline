@@ -18,8 +18,11 @@ no-op:
 2. A game-scoped recompute — ``run_project(games=selected)``, one transaction
    per game, per-game outcomes in ``pipeline_run_games``.
 
-The cutoff for the recompute is ``now`` at dispatch, giving each projection an
-honest ``information_cutoff`` >= every fact the ingest pass wrote.
+The cutoff for the recompute is read from the clock AFTER the ingest pass
+completes, giving each projection an honest ``information_cutoff`` >= every
+fact the ingest pass wrote. A cutoff captured at tick start would exclude
+facts whose ``known_at`` lands while the pass runs — and on the last tick
+before kickoff they would never be recomputed at all.
 """
 
 from __future__ import annotations
@@ -104,8 +107,10 @@ def run_gameday(
     # The recompute still runs after a failed ingest pass: the failure is
     # recorded and visible on /health, and a projection from the last good
     # facts with an honest cutoff beats no recompute at all this close to
-    # kickoff. The cutoff is now-at-dispatch either way.
-    totals = run_project(now, now=now, games=games, invocation_id=invocation_id)
+    # kickoff. The cutoff is read post-ingest so facts written during the
+    # pass are inside it (they are genuinely known by this moment).
+    cutoff = _now()
+    totals = run_project(cutoff, now=now, games=games, invocation_id=invocation_id)
 
     failed = ingest_status == RUN_FAILED or bool(totals.get("failed_games"))
     return 1 if failed else 0

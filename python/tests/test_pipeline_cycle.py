@@ -311,6 +311,47 @@ def test_interrupted_cycle_stays_running_never_success(connect, clean_db, monkey
     assert rows["gh-7"] == RUN_RUNNING
 
 
+# ---------------------------------------------------------------------------
+# Cross-runtime pins and fatal-path honesty (PR #44 review)
+# ---------------------------------------------------------------------------
+
+
+def test_lookahead_mirrors_the_ts_season_lookahead() -> None:
+    # health/config.ts SEASON_LOOKAHEAD_DAYS = 7; the two runtimes must agree
+    # or at season start the cycle runs (and can fail) while /health derives
+    # not_expected — which takes precedence and hides the failure.
+    assert LOOKAHEAD_DAYS == 7
+
+
+@pytest.mark.db
+def test_failed_fatal_recording_never_masks_the_original_error(
+    connect, clean_db, monkeypatch
+) -> None:
+    """If the fatal cause also breaks the recording write (a lost DB
+    connection), the original error must propagate — the run row stays
+    ``running`` and the health read times it out to failed."""
+    _seed_upcoming_game(connect)
+    calls: list[str] = []
+    _install_fakes(monkeypatch, calls)
+
+    def interrupted(handle, connect_, season_from, season_to, /, **_: object) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setitem(
+        DATASETS, "pbp", Dataset(name="pbp", source="nflverse", run=interrupted)
+    )
+
+    def broken_finish(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("connection to server was lost")
+
+    monkeypatch.setattr("sightline_ingest.cycle.finish_pipeline_run", broken_finish)
+
+    with pytest.raises(KeyboardInterrupt):  # not the RuntimeError from recording
+        run_cycle(connect, invocation_id="gh-8", now=NOW)
+    (run,) = _pipeline_runs(connect)
+    assert run["status"] == RUN_RUNNING  # abandoned, never success; timeout owns it
+
+
 @pytest.mark.db
 def test_second_cycle_appends_and_never_rewrites_known_at(
     connect, clean_db, monkeypatch

@@ -169,9 +169,19 @@ def run_project(
     except BaseException as exc:
         # Fatal error outside any per-game boundary: the cycle is failed,
         # never left presenting as (or later completing into) a success.
-        finish_pipeline_run(
-            connect, run_id, status=RUN_FAILED, error_message=sanitize_error(exc)
-        )
+        # The recording attempt must never mask the original traceback — if
+        # the fatal cause is a lost DB connection, this write fails too, and
+        # the run row still turns failed via the health read's running
+        # timeout.
+        try:
+            finish_pipeline_run(
+                connect, run_id, status=RUN_FAILED, error_message=sanitize_error(exc)
+            )
+        except Exception as record_exc:  # noqa: BLE001 - deliberate: original error wins
+            print(
+                f"project: could not record fatal failure: {sanitize_error(record_exc)}",
+                file=sys.stderr,
+            )
         raise
 
     totals["failed_games"] = failed_games

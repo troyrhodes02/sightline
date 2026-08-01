@@ -51,10 +51,11 @@ OPTIONAL_SOURCES: tuple[str, ...] = ("weather",)
 GAMEDAY_REQUIRED_SOURCES: tuple[str, ...] = ("schedule", "context")
 GAMEDAY_OPTIONAL_SOURCES: tuple[str, ...] = ("weather",)
 
-# How far ahead the in-week cycle looks for scheduled games. Eight days spans
-# a full NFL week from any weekday, so the cycle wakes exactly when a slate
-# exists to maintain and stays dormant across the offseason.
-LOOKAHEAD_DAYS = 8
+# How far ahead the in-week cycle looks for scheduled games. Mirrors the TS
+# health config's SEASON_LOOKAHEAD_DAYS: the two runtimes must share this
+# value, or at season start the cycle would run (and could fail) while /health
+# still derives not_expected — which takes precedence and hides the failure.
+LOOKAHEAD_DAYS = 7
 
 
 def _now() -> datetime:
@@ -156,9 +157,19 @@ def run_cycle(
                     failed_required.append(name)
     except BaseException as exc:
         # Interrupt or unexpected fatal error: record what we know, re-raise.
-        finish_pipeline_run(
-            connect, run_id, status=RUN_FAILED, error_message=sanitize_error(exc)
-        )
+        # The recording attempt must never mask the original traceback — if
+        # the fatal cause is a lost DB connection, this write fails too, and
+        # the run row still turns failed via the health read's running
+        # timeout.
+        try:
+            finish_pipeline_run(
+                connect, run_id, status=RUN_FAILED, error_message=sanitize_error(exc)
+            )
+        except Exception as record_exc:  # noqa: BLE001 - deliberate: original error wins
+            print(
+                f"cycle: could not record fatal failure: {sanitize_error(record_exc)}",
+                file=sys.stderr,
+            )
         raise
 
     status = RUN_FAILED if failed_required else RUN_SUCCEEDED

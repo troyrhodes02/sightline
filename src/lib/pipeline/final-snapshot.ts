@@ -51,6 +51,12 @@ export async function captureFinalPreKickoffSnapshots(
       threshold: { not: null },
       // The index enforces at-most-one; this filter keeps the routine pass
       // from re-attempting contracts already captured.
+      //
+      // Known limitation: a contract captured inside the window and then
+      // postponed or flexed to a later kickoff keeps its original "final"
+      // snapshot, which predates the true final window. Re-capture semantics
+      // (supersede vs. annotate) belong to Outcome Scoring & Accuracy
+      // Surface, which owns how this snapshot is graded.
       snapshots: { none: { trigger: "final_pre_kickoff" } },
     },
     select: {

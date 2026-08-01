@@ -224,6 +224,34 @@ def test_failed_required_gameday_source_fails_the_tick_but_recompute_runs(
 
 
 @pytest.mark.db
+def test_recompute_cutoff_is_read_after_the_ingest_pass(
+    connect, clean_db, monkeypatch
+) -> None:
+    """A fact whose ``known_at`` lands while the ingest pass runs must be
+    inside this tick's recompute cutoff — on the last tick before kickoff it
+    would otherwise never be recomputed at all (PR #44 review)."""
+    _seed_game(connect, "cutoff", kickoff=NOW + timedelta(hours=3))
+    calls: list[str] = []
+    _install_fakes(monkeypatch, calls)
+
+    post_ingest = NOW + timedelta(minutes=7)
+    monkeypatch.setattr("sightline_model.gameday._now", lambda: post_ingest)
+
+    seen: dict[str, datetime] = {}
+
+    def spy(cutoff: datetime, **_: object) -> dict[str, int]:
+        seen["cutoff"] = cutoff
+        return {"failed_games": 0}
+
+    monkeypatch.setattr("sightline_model.project_live.run_project", spy)
+
+    assert run_gameday(connect, invocation_id="gh-gd-5", now=NOW) == 0
+    assert seen["cutoff"] == post_ingest, (
+        "the recompute cutoff must be read after the ingest pass, not at tick start"
+    )
+
+
+@pytest.mark.db
 def test_failed_optional_weather_does_not_fail_the_tick(
     connect, clean_db, monkeypatch
 ) -> None:
