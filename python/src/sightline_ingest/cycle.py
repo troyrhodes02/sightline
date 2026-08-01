@@ -45,6 +45,12 @@ from .registry import get as get_dataset
 REQUIRED_SOURCES: tuple[str, ...] = ("schedule", "pbp", "stats", "context")
 OPTIONAL_SOURCES: tuple[str, ...] = ("weather",)
 
+# The game-day dispatcher's ingest pass (spec: "game-scoped context/schedule/
+# weather ingest"). Only the fast-moving pre-kickoff facts; pbp and stats move
+# on the nightly cadence, not within a kickoff window.
+GAMEDAY_REQUIRED_SOURCES: tuple[str, ...] = ("schedule", "context")
+GAMEDAY_OPTIONAL_SOURCES: tuple[str, ...] = ("weather",)
+
 # How far ahead the in-week cycle looks for scheduled games. Eight days spans
 # a full NFL week from any weekday, so the cycle wakes exactly when a slate
 # exists to maintain and stays dormant across the offseason.
@@ -83,6 +89,8 @@ def run_cycle(
     invocation_id: str | None = None,
     scope: str = SCOPE_IN_WEEK,
     now: datetime | None = None,
+    required_sources: tuple[str, ...] = REQUIRED_SOURCES,
+    optional_sources: tuple[str, ...] = OPTIONAL_SOURCES,
 ) -> str:
     """Run one ingest cycle. Returns the recorded terminal status, or
     ``"not_expected"`` / ``"duplicate"`` when no run row was written."""
@@ -110,12 +118,12 @@ def run_cycle(
 
     failed_required: list[str] = []
     try:
-        for name in (*REQUIRED_SOURCES, *OPTIONAL_SOURCES):
+        for name in (*required_sources, *optional_sources):
             dataset = get_dataset(name)
             if dataset is None:
                 # A registered-source list naming an unknown dataset is a code
                 # bug, and for a required source it must fail the cycle loudly.
-                if name in REQUIRED_SOURCES:
+                if name in required_sources:
                     failed_required.append(name)
                 print(f"cycle: dataset {name!r} is not registered", file=sys.stderr)
                 continue
@@ -141,10 +149,10 @@ def run_cycle(
                 # IngestRun by record_ingest_run. Remaining sources still run:
                 # one outage must not conceal another source's state.
                 print(f"cycle: {name} failed: {sanitize_error(exc)}", file=sys.stderr)
-                if name in REQUIRED_SOURCES:
+                if name in required_sources:
                     failed_required.append(name)
             else:
-                if handle.status == STATUS_FAILED and name in REQUIRED_SOURCES:
+                if handle.status == STATUS_FAILED and name in required_sources:
                     failed_required.append(name)
     except BaseException as exc:
         # Interrupt or unexpected fatal error: record what we know, re-raise.

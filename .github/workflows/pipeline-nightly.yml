@@ -1,0 +1,52 @@
+name: Pipeline nightly
+
+# The recurring in-week cycle: ingest the live datasets, then recompute
+# projections for upcoming contract-listed games. The Python side decides
+# whether work is expected (stored schedule, 8-day lookahead) — offseason
+# ticks record nothing. Both phases self-deduplicate on the invocation id,
+# so a re-delivered schedule event is a structural no-op.
+#
+# ~4/5am ET: after the previous day's stats and injury updates have landed,
+# before any same-day kickoff window.
+
+on:
+  schedule:
+    - cron: "0 9 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: pipeline-nightly
+  cancel-in-progress: false
+
+jobs:
+  nightly:
+    runs-on: ubuntu-latest
+    env:
+      # Direct (non-pooled) service-role connection. Python bulk writes are a
+      # poor fit for transaction-mode pooling (see CLAUDE.md → Python runtime).
+      INGEST_DATABASE_URL: ${{ secrets.PIPELINE_DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Sync Python deps
+        run: uv sync
+        working-directory: python
+
+      # run_attempt is part of the invocation id so a manual re-run of a
+      # failed run is a NEW logical cycle, not a deduplicated duplicate —
+      # re-running is the documented recovery path.
+      - name: Ingest cycle (in-week)
+        run: >
+          uv run sightline-ingest cycle --scope in-week
+          --invocation-id "gh:${{ github.run_id }}:${{ github.run_attempt }}"
+        working-directory: python
+
+      - name: Recompute projections
+        run: >
+          uv run sightline-model project
+          --invocation-id "gh:${{ github.run_id }}:${{ github.run_attempt }}"
+        working-directory: python

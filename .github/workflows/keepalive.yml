@@ -1,0 +1,53 @@
+name: Keepalive
+
+# GitHub disables scheduled workflows after 60 days without a commit to the
+# default branch — and Sightline's February-to-September offseason is longer
+# than that. A monthly marker commit resets the timer with weeks of margin.
+#
+# Scope discipline (spec RD-27): the commit is made with the workflow's own
+# GITHUB_TOKEN, which CANNOT trigger other workflows — no feedback loops by
+# construction — and touches only `.github/keepalive`, a dedicated marker
+# file that no application, model, or configuration code reads. After
+# committing, the workflow self-reports to the application so /health can
+# show last-acted and next-required-by without a repository dashboard.
+
+on:
+  schedule:
+    - cron: "0 8 1 * *"
+  workflow_dispatch:
+
+concurrency:
+  group: keepalive
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Commit the marker
+        id: marker
+        run: |
+          date --utc +%Y-%m-%dT%H:%M:%SZ > .github/keepalive
+          git config user.name "sightline-keepalive[bot]"
+          git config user.email "keepalive@users.noreply.github.com"
+          git add .github/keepalive
+          git commit -m "chore: keepalive marker"
+          git push
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "acted_at=$(date --utc +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - name: Self-report to the application
+        env:
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
+          PIPELINE_SCHEDULER_TOKEN: ${{ secrets.PIPELINE_SCHEDULER_TOKEN }}
+        run: |
+          curl --fail --silent --show-error --max-time 60 \
+            -X POST "${APP_BASE_URL%/}/api/pipeline/keepalive" \
+            -H "Authorization: Bearer ${PIPELINE_SCHEDULER_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"invocationId\":\"gh:${{ github.run_id }}:${{ github.run_attempt }}\",\"commitSha\":\"${{ steps.marker.outputs.sha }}\",\"actedAt\":\"${{ steps.marker.outputs.acted_at }}\"}"

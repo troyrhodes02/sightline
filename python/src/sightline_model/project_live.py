@@ -469,6 +469,25 @@ def main(argv: list[str] | None = None) -> int:
         "defaults to a unique manual id",
     )
 
+    gameday = sub.add_parser(
+        "gameday",
+        help="game-day dispatcher: select games entering their kickoff window "
+        "and run the game-scoped ingest + recompute (writes nothing when it "
+        "selects nothing)",
+    )
+    gameday.add_argument(
+        "--window-minutes",
+        type=int,
+        default=None,
+        help="dispatch window before kickoff (default: 360)",
+    )
+    gameday.add_argument(
+        "--invocation-id",
+        default=None,
+        help="scheduler invocation id (e.g. the GitHub Actions run id); "
+        "defaults to a unique manual id",
+    )
+
     args = parser.parse_args(argv)
     if args.command == "project":
         totals = run_project(
@@ -477,6 +496,14 @@ def main(argv: list[str] | None = None) -> int:
             invocation_id=args.invocation_id,
         )
         return 1 if totals.get("failed_games") else 0
+    if args.command == "gameday":
+        from .gameday import GAMEDAY_WINDOW_MINUTES, run_gameday
+
+        return run_gameday(
+            connect,
+            invocation_id=args.invocation_id,
+            window_minutes=args.window_minutes or GAMEDAY_WINDOW_MINUTES,
+        )
     return 2  # pragma: no cover - argparse enforces the subcommand
 
 

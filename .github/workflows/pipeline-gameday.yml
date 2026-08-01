@@ -1,0 +1,40 @@
+name: Pipeline game day
+
+# The game-day dispatcher. Every half hour the Python side re-reads the
+# stored schedule and selects games entering their kickoff window (6h) at
+# evaluation time — one kickoff-relative code path for Thursday night, the
+# 9:30am London window, Saturday, Sunday night, and Monday night, and a
+# flexed or postponed game follows its updated kickoff at the next tick.
+# When nothing is selected, nothing is written (spec RD-24): the workflow
+# exits green having recorded no run rows.
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: pipeline-gameday
+  cancel-in-progress: false
+
+jobs:
+  gameday:
+    runs-on: ubuntu-latest
+    env:
+      INGEST_DATABASE_URL: ${{ secrets.PIPELINE_DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Sync Python deps
+        run: uv sync
+        working-directory: python
+
+      - name: Dispatch (select in-window games; ingest + recompute)
+        run: >
+          uv run sightline-model gameday
+          --invocation-id "gh:${{ github.run_id }}:${{ github.run_attempt }}"
+        working-directory: python
