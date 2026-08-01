@@ -1,0 +1,45 @@
+# Prettier governs the TypeScript application only.
+#
+# Prose documents are authored, reviewed, and diffed as prose — reflowing a
+# spec's paragraphs to 80 columns turns every later edit into an unreadable
+# diff, and the planning chain is meant to be read by people.
+
+# Build output and dependencies
+node_modules/
+.next/
+out/
+generated/
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+next-env.d.ts
+
+# Planning chain and design artefacts — prose and a hand-authored preview whose
+# formatting is deliberate.
+docs/
+design/
+README.md
+
+# The Python runtime has its own formatter, configured in python/pyproject.toml.
+python/
+
+# Prisma owns schema formatting via `npm run prisma:format`.
+prisma/
+
+# Local Supabase dev state.
+supabase/
+
+# Binary and vendored assets
+public/
+src/assets/
+*.svg
+*.ttf
+*.png
+
+# Agent skill definitions — prose plus a hand-authored HTML scaffold.
+.claude/
+
+# YAML authored for readability; Prettier's flow style fights the comments.
+*.yml
+*.yaml

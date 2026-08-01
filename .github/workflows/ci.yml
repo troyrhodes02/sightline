@@ -27,6 +27,46 @@ jobs:
       - name: Schema-introspection invariants
         run: npm run test:schema
 
+  web:
+    name: Web app (lint, types, unit, build, e2e)
+    runs-on: ubuntu-latest
+    env:
+      # Placeholders. The web suites never reach Postgres or Supabase — the
+      # values exist only so `src/env.ts` parses, which is itself part of what
+      # is under test. Nothing here is or may become a real credential.
+      DATABASE_URL: postgresql://postgres:postgres@localhost:6543/sightline?pgbouncer=true
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/sightline
+      NEXT_PUBLIC_SUPABASE_URL: https://ci-placeholder.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-anon-placeholder
+      SUPABASE_SERVICE_ROLE_KEY: ci-service-role-placeholder
+      APP_URL: http://localhost:3000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Generate Prisma client
+        run: npm run prisma:generate
+
+      - name: Lint
+        run: npm run lint
+      - name: Type-check
+        run: npm run typecheck
+      - name: Format check
+        run: npm run format
+      - name: Unit and integration tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+      - name: End-to-end tests
+        run: npm run test:e2e -- --project=desktop
+
   python:
     name: Python ingest (unit + DB integration)
     runs-on: ubuntu-latest
