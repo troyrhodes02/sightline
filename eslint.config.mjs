@@ -1,5 +1,6 @@
 import nextCoreWebVitals from "eslint-config-next/core-web-vitals";
 import nextTypeScript from "eslint-config-next/typescript";
+import sightline from "./eslint-rules/no-colour-literals.mjs";
 
 /**
  * `eslint-config-next` v16 exports flat config arrays directly, so it is spread
@@ -62,6 +63,21 @@ const config = [
   },
 
   {
+    // The theme is the single source of colour, and this is what keeps that
+    // true across nine PRs. `src/theme/index.ts` is exempt because it IS the
+    // source; the generated lockup is exempt because its brand colours come
+    // from the supplied asset and must not be re-themed.
+    files: ["src/**/*.{ts,tsx}"],
+    ignores: [
+      "src/theme/index.ts",
+      "src/components/brand/SightlineLockup.tsx",
+      "src/**/*.test.{ts,tsx}",
+    ],
+    plugins: { sightline },
+    rules: { "sightline/no-colour-literals": "error" },
+  },
+
+  {
     // Client components additionally must not reach for Prisma.
     files: ["src/**/*.tsx"],
     rules: {
@@ -86,6 +102,13 @@ const config = [
     // forbidding its import.
     files: ["src/lib/supabase/admin.ts"],
     rules: { "no-restricted-imports": "off" },
+  },
+
+  {
+    // Ambient declaration files use imported types inside `declare module`
+    // blocks, which the unused-vars rule cannot see.
+    files: ["src/**/*.d.ts"],
+    rules: { "@typescript-eslint/no-unused-vars": "off" },
   },
 
   {
