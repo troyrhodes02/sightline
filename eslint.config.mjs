@@ -71,6 +71,10 @@ const config = [
     ignores: [
       "src/theme/index.ts",
       "src/components/brand/SightlineLockup.tsx",
+      // Email clients support neither CSS variables nor a usable stylesheet,
+      // so the invitation email inlines values copied from the theme's light
+      // foundation. The only sanctioned exception.
+      "src/lib/mail/invitation-email.ts",
       "src/**/*.test.{ts,tsx}",
     ],
     plugins: { sightline },
@@ -78,8 +82,10 @@ const config = [
   },
 
   {
-    // Client components additionally must not reach for Prisma.
-    files: ["src/**/*.tsx"],
+    // Client islands live under src/components. App Router pages are also .tsx
+    // but are Server Components by default and read through Prisma legitimately
+    // — `server-only` in src/lib/prisma.ts is what stops a browser import.
+    files: ["src/components/**/*.tsx"],
     rules: {
       "no-restricted-imports": [
         "error",
