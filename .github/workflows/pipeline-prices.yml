@@ -1,0 +1,34 @@
+name: Pipeline prices
+
+# Scheduled price maintenance. The cron calls the application's scheduler
+# route unconditionally every 15 minutes; the ROUTE decides server-side —
+# from the stored schedule, never the calendar — whether Kalshi is actually
+# contacted (not-expected / in-week coalescing / game-day sync), and runs
+# the final pre-kickoff snapshot capture pass. The Kalshi integration,
+# credential, and rate-limit budget all stay inside the application.
+#
+# `curl --fail` makes any non-2xx fail the job, so a misconfigured token
+# (503) or broken deploy is a red run in the Actions history rather than a
+# silent skip.
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: pipeline-prices
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call the price-refresh route
+        env:
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
+          PIPELINE_SCHEDULER_TOKEN: ${{ secrets.PIPELINE_SCHEDULER_TOKEN }}
+        run: |
+          curl --fail --silent --show-error --max-time 300 \
+            -X POST "${APP_BASE_URL%/}/api/pipeline/price-refresh" \
+            -H "Authorization: Bearer ${PIPELINE_SCHEDULER_TOKEN}"
