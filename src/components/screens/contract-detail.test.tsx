@@ -28,11 +28,18 @@ const detail = (
   confidence: "high",
   projectionComputedAt: "2026-11-05T14:12:00.000Z",
   informationCutoff: "2026-11-05T14:00:00.000Z",
+  staleness: {
+    isStale: false,
+    predatesInactives: false,
+    inactivesExpectedAt: null,
+  },
+  projectionAge: "2d 4h",
   yesBidCents: 52,
   yesAskCents: 54,
   noBidCents: 46,
   noAskCents: 48,
   priceObservedAt: "2026-11-08T16:42:00.000Z",
+  priceAge: "0m",
   side: "yes",
   edgePoints: 7.4,
   confidenceAdjustedEdge: 7.4,
@@ -92,12 +99,65 @@ describe("ContractDetail — resolved", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows provenance: computed-at, cutoff, and model version", () => {
+  it("shows the Currency block: computed-at with age, cutoff, model version", () => {
     renderThemed(
       <ContractDetail detail={detail()} isAdmin isUnresolved={false} />,
     );
-    expect(screen.getByText(/model baseline-zil-0\.1\.0/)).toBeInTheDocument();
-    expect(screen.getByText(/cutoff/)).toBeInTheDocument();
+    expect(screen.getByText("Currency")).toBeInTheDocument();
+    expect(screen.getByText(/\(2d 4h ago\)/)).toBeInTheDocument();
+    expect(screen.getByText("information cutoff")).toBeInTheDocument();
+    expect(screen.getByText("baseline-zil-0.1.0")).toBeInTheDocument();
+  });
+
+  it("a current projection renders no staleness explanation", () => {
+    renderThemed(
+      <ContractDetail detail={detail()} isAdmin isUnresolved={false} />,
+    );
+    expect(screen.queryByText(/A scheduled recompute/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/no inactives source/)).not.toBeInTheDocument();
+  });
+
+  it("stale: chip in the header plus the clearing-mechanism sentence", () => {
+    renderThemed(
+      <ContractDetail
+        detail={detail({
+          staleness: {
+            isStale: true,
+            predatesInactives: false,
+            inactivesExpectedAt: null,
+          },
+        })}
+        isAdmin
+        isUnresolved={false}
+      />,
+    );
+    expect(screen.getAllByText("stale").length).toBeGreaterThanOrEqual(2);
+    expect(
+      screen.getByText(/A scheduled recompute clears this/),
+    ).toBeInTheDocument();
+  });
+
+  it("predates inactives: neutral disclosure with the expected instant, not an error", () => {
+    renderThemed(
+      <ContractDetail
+        detail={detail({
+          staleness: {
+            isStale: false,
+            predatesInactives: true,
+            inactivesExpectedAt: "2026-11-08T16:30:00.000Z",
+          },
+        })}
+        isAdmin
+        isUnresolved={false}
+      />,
+    );
+    expect(
+      screen.getAllByText(/predates inactives/).length,
+    ).toBeGreaterThanOrEqual(2);
+    expect(
+      screen.getByText(/Sightline has no inactives source in this version/),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("carries the distribution's text equivalent for screen readers", () => {
@@ -130,6 +190,8 @@ describe("ContractDetail — variants", () => {
           modelVersion: null,
           projectionComputedAt: null,
           informationCutoff: null,
+          staleness: null,
+          projectionAge: null,
         })}
         isAdmin
         isUnresolved={false}
@@ -140,6 +202,11 @@ describe("ContractDetail — variants", () => {
     ).toBeInTheDocument();
     expect(screen.getByLabelText("no projection")).toHaveTextContent("—");
     expect(screen.queryByText("Drivers")).not.toBeInTheDocument();
+    // The Currency block qualifies a projection; with none, it is absent —
+    // and so are both staleness chips.
+    expect(screen.queryByText("Currency")).not.toBeInTheDocument();
+    expect(screen.queryByText("stale")).not.toBeInTheDocument();
+    expect(screen.queryByText("predates inactives")).not.toBeInTheDocument();
   });
 
   it("no current market: last-observed language, projection intact", () => {
