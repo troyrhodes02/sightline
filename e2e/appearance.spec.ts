@@ -11,7 +11,7 @@ test.describe("appearance", () => {
   test.use({ colorScheme: "dark" });
 
   test("paints the dark foundation with no light flash", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/sign-in");
 
     const scheme = await page.evaluate(() =>
       document.documentElement.getAttribute("data-mui-color-scheme"),
