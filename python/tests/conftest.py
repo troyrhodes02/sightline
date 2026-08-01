@@ -23,7 +23,10 @@ _RESET_TABLES = (
     # Backtest results (SIG-13). calibration_bins cascades from backtest_runs,
     # but both are named so a truncate of one never silently depends on the
     # other's FK behaviour.
-    "backtest_runs, calibration_bins"
+    "backtest_runs, calibration_bins, "
+    # Pitch 4 (SIG-41): market, projection, and decision tables.
+    "contracts, market_sync_runs, price_observations, "
+    "projections, projection_drivers, recommendation_snapshots, decisions"
 )
 
 
