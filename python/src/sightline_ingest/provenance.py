@@ -53,6 +53,8 @@ class IngestRunHandle:
     rows_updated: int = 0
     status: str = STATUS_SUCCESS
     error_message: str | None = None
+    # Owning scheduled cycle (Pitch 5); None for standalone/manual dataset runs.
+    pipeline_run_id: str | None = None
     started_at: datetime = field(default_factory=_now)
     # Generated up front so fact/revision rows written by the body can stamp
     # ingest_run_id before the IngestRun row itself is committed at the end.
@@ -80,11 +82,12 @@ def _write_ingest_run(
                 insert into ingest_runs (
                     id, source, dataset, season_from, season_to, status,
                     rows_written, rows_updated, code_version, error_message,
-                    started_at, finished_at, created_at
+                    pipeline_run_id, started_at, finished_at, created_at
                 ) values (
                     %(id)s, %(source)s, %(dataset)s, %(season_from)s, %(season_to)s,
                     %(status)s, %(rows_written)s, %(rows_updated)s, %(code_version)s,
-                    %(error_message)s, %(started_at)s, %(finished_at)s, now()
+                    %(error_message)s, %(pipeline_run_id)s, %(started_at)s,
+                    %(finished_at)s, now()
                 )
                 """,
                 {
@@ -98,6 +101,7 @@ def _write_ingest_run(
                     "rows_updated": handle.rows_updated,
                     "code_version": code_version(),
                     "error_message": handle.error_message,
+                    "pipeline_run_id": handle.pipeline_run_id,
                     "started_at": handle.started_at,
                     "finished_at": finished_at,
                 },
@@ -114,6 +118,7 @@ def record_ingest_run(
     dataset: str,
     season_from: int | None = None,
     season_to: int | None = None,
+    pipeline_run_id: str | None = None,
 ) -> Iterator[IngestRunHandle]:
     """Record one ingest execution, succeed or fail.
 
@@ -128,6 +133,7 @@ def record_ingest_run(
         dataset=dataset,
         season_from=season_from,
         season_to=season_to,
+        pipeline_run_id=pipeline_run_id,
     )
     try:
         yield handle

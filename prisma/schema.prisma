@@ -100,6 +100,36 @@ enum StatType {
   receiving_tds
 }
 
+// ---------------------------------------------------------------------------
+// Pipeline run recording (Pitch 5 — Live Pipeline & Staleness)
+//
+// Operational history for the scheduled maintenance cycle, NOT bitemporal fact
+// tables: a run record is a statement about the pipeline, not about the world,
+// so there is no validAt/knownAt and no ingest_run_id here. Written by the
+// Python runtime (ingest, recompute cycles) and by the token-authenticated
+// pipeline routes (keepalive). Health state is DERIVED from these rows at read
+// time — never stored.
+// ---------------------------------------------------------------------------
+
+enum PipelineJobCategory {
+  ingest
+  recompute
+  keepalive
+}
+
+enum PipelineRunStatus {
+  running // created at start; never readable as success
+  succeeded // completed; for ingest: every required source succeeded
+  failed // completed unsuccessfully, or a required source failed
+  incomplete // interrupted / abandoned (run timeout exceeded while running)
+}
+
+enum PipelineGameStatus {
+  succeeded
+  failed
+  skipped // selected but not attempted (e.g. cycle aborted before reaching it)
+}
+
 enum BacktestStatus {
   running // started; artefacts incomplete; never readable as a result
   completed // finished; manifest + _COMPLETE written; digests computed
@@ -211,8 +241,9 @@ model Game {
   contexts    PlayerGameContext[]
   weather     GameWeather?
   revisions   GameScheduleRevision[]
-  contracts   Contract[]
-  projections Projection[]
+  contracts        Contract[]
+  projections      Projection[]
+  pipelineRunGames PipelineRunGame[]
 
   @@unique([season, week, seasonType, homeTeamId, awayTeamId])
   @@index([season, week])
@@ -398,23 +429,76 @@ model GameWeather {
 // ---------------------------------------------------------------------------
 
 model IngestRun {
-  id           String       @id @default(uuid())
-  source       DataSource
-  dataset      String // e.g. "player_stats", "injuries", "snap_counts", "pbp", "weather"
-  seasonFrom   Int?         @map("season_from")
-  seasonTo     Int?         @map("season_to")
-  status       IngestStatus
-  rowsWritten  Int          @default(0) @map("rows_written")
-  rowsUpdated  Int          @default(0) @map("rows_updated")
-  codeVersion  String       @map("code_version") // git sha of the ingest code
-  errorMessage String?      @map("error_message") // never contains credentials
-  startedAt    DateTime     @map("started_at")
-  finishedAt   DateTime?    @map("finished_at")
-  createdAt    DateTime     @default(now()) @map("created_at")
+  id            String       @id @default(uuid())
+  source        DataSource
+  dataset       String // e.g. "player_stats", "injuries", "snap_counts", "pbp", "weather"
+  seasonFrom    Int?         @map("season_from")
+  seasonTo      Int?         @map("season_to")
+  status        IngestStatus
+  rowsWritten   Int          @default(0) @map("rows_written")
+  rowsUpdated   Int          @default(0) @map("rows_updated")
+  codeVersion   String       @map("code_version") // git sha of the ingest code
+  errorMessage  String?      @map("error_message") // never contains credentials
+  // Owning scheduled cycle (Pitch 5). Null for standalone/manual dataset runs.
+  pipelineRunId String?      @map("pipeline_run_id")
+  startedAt     DateTime     @map("started_at")
+  finishedAt    DateTime?    @map("finished_at")
+  createdAt     DateTime     @default(now()) @map("created_at")
+
+  pipelineRun PipelineRun? @relation(fields: [pipelineRunId], references: [id])
 
   @@index([source, dataset, startedAt(sort: Desc)])
   @@index([status])
+  @@index([pipelineRunId])
   @@map("ingest_runs")
+}
+
+/// One logical cycle of a scheduled job category (or its manual CLI re-run).
+/// Created `running` BEFORE any work; success is written only at completion,
+/// so an interrupted cycle can never read as a success. Written by the Python
+/// runtime (ingest, recompute) and by the pipeline routes (keepalive).
+model PipelineRun {
+  id           String              @id @default(uuid())
+  category     PipelineJobCategory
+  status       PipelineRunStatus   @default(running)
+  /// Scheduler-supplied identifier (GitHub Actions run id) or "manual:<uuid>".
+  /// Unique per category so a re-delivered scheduled invocation records one
+  /// logical cycle rather than two.
+  invocationId String              @map("invocation_id")
+  scope        String? // "in_week" | "gameday" | null (keepalive)
+  codeVersion  String              @map("code_version")
+  errorMessage String?             @map("error_message") // sanitized; never a credential or DSN
+  startedAt    DateTime            @map("started_at")
+  finishedAt   DateTime?           @map("finished_at")
+  createdAt    DateTime            @default(now()) @map("created_at")
+
+  games      PipelineRunGame[]
+  ingestRuns IngestRun[]
+
+  @@unique([category, invocationId])
+  @@index([category, status, finishedAt(sort: Desc)])
+  @@index([category, startedAt(sort: Desc)])
+  @@map("pipeline_runs")
+}
+
+/// Per-game outcome rows for a recompute cycle — the honest completeness
+/// record behind "12 of 14 games current".
+model PipelineRunGame {
+  id             String             @id @default(uuid())
+  pipelineRunId  String             @map("pipeline_run_id")
+  gameId         String             @map("game_id")
+  status         PipelineGameStatus
+  projectedCount Int                @default(0) @map("projected_count")
+  errorMessage   String?            @map("error_message")
+  finishedAt     DateTime?          @map("finished_at")
+  createdAt      DateTime           @default(now()) @map("created_at")
+
+  pipelineRun PipelineRun @relation(fields: [pipelineRunId], references: [id], onDelete: Cascade)
+  game        Game        @relation(fields: [gameId], references: [id])
+
+  @@unique([pipelineRunId, gameId])
+  @@index([gameId])
+  @@map("pipeline_run_games")
 }
 
 model SourceCoverage {
@@ -656,6 +740,7 @@ enum SnapshotTrigger {
   appeared // first crossed into recommended
   state_changed // recommended <-> not recommended, or the better side flipped
   decision // captured because a decision was recorded
+  final_pre_kickoff // captured by the scheduled price path inside the final window (Pitch 5)
 }
 
 enum Disposition {

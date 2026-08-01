@@ -26,7 +26,9 @@ _RESET_TABLES = (
     "backtest_runs, calibration_bins, "
     # Pitch 4 (SIG-41): market, projection, and decision tables.
     "contracts, market_sync_runs, price_observations, "
-    "projections, projection_drivers, recommendation_snapshots, decisions"
+    "projections, projection_drivers, recommendation_snapshots, decisions, "
+    # Pitch 5 (SIG-46): pipeline run recording.
+    "pipeline_runs, pipeline_run_games"
 )
 
 
