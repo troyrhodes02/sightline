@@ -13,9 +13,10 @@ import { z } from "zod";
  *     inlining rules; `serverEnv` is additionally guarded below so an accidental
  *     client import fails loudly rather than silently yielding undefined.
  *
- * No Kalshi variable appears here. The signing key arrives in Pitch 11 and is
- * the highest-value secret in the system; there is deliberately nothing to
- * misconfigure before then.
+ * Kalshi market-data configuration arrives with Pitch 4. The optional key pair
+ * below carries MARKET-DATA read access only — no order, portfolio, or balance
+ * endpoint exists in this codebase before Pitch 11, and the trading key that
+ * pitch introduces is the highest-value secret in the system.
  */
 
 const serverSchema = z.object({
@@ -38,6 +39,33 @@ const serverSchema = z.object({
    * deployment must not fail to boot over a variable no code touches.
    */
   APP_URL: z.url("APP_URL must be an absolute URL").optional(),
+
+  /**
+   * Kalshi trade API v2 base. The default is the production exchange host;
+   * point it at the demo host to exercise the integration without touching
+   * the live exchange.
+   */
+  KALSHI_API_BASE_URL: z
+    .url("KALSHI_API_BASE_URL must be an absolute URL")
+    .default("https://api.elections.kalshi.com/trade-api/v2"),
+
+  /**
+   * Optional API key pair for market-data reads (RSA-PSS request signing).
+   * Kalshi's market-data GETs are public; a key raises the rate-limit tier.
+   * Never logged, never in a response, never sent to a client. **Read access
+   * only in this pitch** — nothing here may sign an order (spec RD-18).
+   */
+  KALSHI_API_KEY_ID: z.string().min(1).optional(),
+  KALSHI_PRIVATE_KEY_PEM: z.string().min(1).optional(),
+
+  /** Server-side refresh coalescing window (spec RD-13). */
+  KALSHI_SYNC_MIN_INTERVAL_SECONDS: z.coerce.number().int().min(0).default(30),
+
+  /** Unchanged books re-observe at most this often (spec RD-14). */
+  PRICE_HEARTBEAT_MINUTES: z.coerce.number().int().min(1).default(15),
+
+  /** Confidence-adjusted-edge recommendation threshold, in points (RD-11). */
+  RECOMMENDATION_THRESHOLD_POINTS: z.coerce.number().min(0).default(5),
 
   NODE_ENV: z
     .enum(["development", "test", "production"])

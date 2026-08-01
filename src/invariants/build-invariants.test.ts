@@ -106,21 +106,40 @@ describe("authorization", () => {
 });
 
 describe("credentials", () => {
-  it("has no field anywhere that could hold a Kalshi credential", () => {
-    // Pitch 11 introduces the signing key. The rule that nothing accepts one is
-    // established before there is one to leak.
-    //
-    // Matches credential-shaped identifiers, not the word "Kalshi" — the slate
-    // placeholder says "arrive with Kalshi market sync", which is product copy
-    // and must stay allowed.
+  it("reads the Kalshi key pair in exactly two modules: env and the client", () => {
+    // Pitch 4 introduced the OPTIONAL market-data key pair (spec RD-18): it
+    // raises the market-data rate tier and signs nothing but GETs. The
+    // boundary this test used to assert ("no field anywhere") moved with the
+    // pitch; the boundary now is that key material is reachable from exactly
+    // two modules — the env schema and the Kalshi client that signs requests
+    // — and nowhere else. The Pitch 11 trading key will demand its own,
+    // stricter accounting.
     const credentialShaped =
       /signingKey|signing_key|privateKey|private_key|rsaKey|rsa_key|apiSecret|api_secret|KALSHI_[A-Z_]*KEY/;
 
-    const offenders = productionFiles(SRC).filter((file) =>
+    const readers = productionFiles(SRC).filter((file) =>
       credentialShaped.test(readCode(file)),
     );
 
-    expect(offenders).toEqual([]);
+    expect(readers.sort()).toEqual([
+      join(SRC, "env.ts"),
+      join(SRC, "lib", "kalshi", "client.ts"),
+    ]);
+  });
+
+  it("gives the Kalshi client no write-capable endpoint", () => {
+    // Read access only in this pitch: no order, portfolio, balance, or fill
+    // path exists to sign. This is the structural half of RD-18.
+    const client = readCode(join(SRC, "lib", "kalshi", "client.ts"));
+    for (const forbidden of [
+      "/orders",
+      "/portfolio",
+      "/balance",
+      "/fills",
+      "/positions",
+    ]) {
+      expect(client).not.toContain(forbidden);
+    }
   });
 
   it("reads the service-role key in exactly one module", () => {
