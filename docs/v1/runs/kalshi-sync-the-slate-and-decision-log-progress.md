@@ -43,7 +43,7 @@ Milestone: **Pitch 4: Kalshi Sync, The Slate & Decision Log** (`d6d3cfb4-c7b4-48
 | 4 | SIG-42 | Slate read model: edge, ranking, recommendation snapshots, DTOs | PR open, verified | `feat/SIG-42-slate-read-model` | #38 |
 | 5 | SIG-43 | The slate UI: ranked list, states, and price polling | PR open, verified | `feat/SIG-43-slate-ui` | #39 |
 | 6 | SIG-44 | Contract detail: reasoning view, distribution summary, unresolved flow | PR open, verified | `feat/SIG-44-contract-detail` | #40 |
-| 7 | SIG-45 | Decision log: capture, snapshots, privacy, and e2e | todo | — | — |
+| 7 | SIG-45 | Decision log: capture, snapshots, privacy, and e2e | PR open, verified | `feat/SIG-45-decision-log` | #41 |
 
 ### First-ticket summary (SIG-39)
 
