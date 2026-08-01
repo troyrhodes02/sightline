@@ -69,6 +69,7 @@ const serverSchema = z.object({
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
   /** In-page slate polling interval (RD-12). Scheduling proper is Pitch 5. */
   SLATE_REFRESH_INTERVAL_SECONDS: z.coerce.number().int().min(10).default(60),
@@ -79,6 +80,11 @@ const serverSchema = z.object({
   SLATE_REFRESH_INTERVAL_SECONDS: z.coerce.number().int().min(10).default(60),
 
 >>>>>>> feat/SIG-44-contract-detail
+=======
+  /** In-page slate polling interval (RD-12). Scheduling proper is Pitch 5. */
+  SLATE_REFRESH_INTERVAL_SECONDS: z.coerce.number().int().min(10).default(60),
+
+>>>>>>> feat/SIG-45-decision-log
   NODE_ENV: z
     .enum(["development", "test", "production"])
     .default("development"),

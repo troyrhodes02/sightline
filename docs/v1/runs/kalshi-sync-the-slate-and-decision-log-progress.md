@@ -42,8 +42,8 @@ Milestone: **Pitch 4: Kalshi Sync, The Slate & Decision Log** (`d6d3cfb4-c7b4-48
 | 3 | SIG-41 | Python projection persistence: sightline-model project CLI | PR open, verified | `feat/SIG-41-projection-persist` | #37 |
 | 4 | SIG-42 | Slate read model: edge, ranking, recommendation snapshots, DTOs | PR open, verified | `feat/SIG-42-slate-read-model` | #38 |
 | 5 | SIG-43 | The slate UI: ranked list, states, and price polling | PR open, verified | `feat/SIG-43-slate-ui` | #39 |
-| 6 | SIG-44 | Contract detail: reasoning view, distribution summary, unresolved flow | todo | — | — |
-| 7 | SIG-45 | Decision log: capture, snapshots, privacy, and e2e | todo | — | — |
+| 6 | SIG-44 | Contract detail: reasoning view, distribution summary, unresolved flow | PR open, verified | `feat/SIG-44-contract-detail` | #40 |
+| 7 | SIG-45 | Decision log: capture, snapshots, privacy, and e2e | PR open, verified | `feat/SIG-45-decision-log` | #41 |
 
 ### First-ticket summary (SIG-39)
 
@@ -77,6 +77,8 @@ All recorded in the spec (`docs/v1/specs/kalshi-sync-the-slate-and-decision-log-
 - RD-16: RLS not enabled this pitch; server-side checks are the mechanism.
 - RD-17: contract identity = kalshiTicker; relisting = new contract; delisted never deleted.
 - RD-18: Kalshi client optional signing for market data; no order/portfolio endpoint wrapped.
+- RD-19 (implementation, SIG-40): Kalshi's live NFL player-prop taxonomy (verified against the exchange 2026-08-01) maps four series to Sightline stat types — KXNFLPASSYDS, KXNFLRSHYDS, KXNFLRECYDS, KXNFLREC. Combined-touchdown series (KXNFLTD/KXNFLANYTD/…) split neither rushing nor receiving TDs, map to no StatType, and are not discovered.
+- RD-20 (implementation, SIG-44): contract detail renders as a URL-addressed page at all widths with a back link, rather than the design doc's xs-drawer/md-side-panel overlay presentation. Content, states, focus, and deep-linking follow the spec; overlay presentation is deferred polish nothing precludes.
 
 ## Deferred
 
