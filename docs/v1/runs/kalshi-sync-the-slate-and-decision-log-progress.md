@@ -9,9 +9,11 @@ the design doc, UI preview, and spec listed below, then continue from **Current 
 
 ## Current step
 
-Step 8 — work tickets SIG-39 → SIG-45 in order via /sightline-ticket-worker.
+Step 11 — full verification suite on the feature branch.
 
-Feature branch: `feature/kalshi-sync-the-slate-and-decision-log`. Feature PR: https://github.com/troyrhodes02/sightline/pull/34 (base `main`). Docs committed as `065e25e` on the feature branch.
+Feature branch: `feature/kalshi-sync-the-slate-and-decision-log`. Feature PR: https://github.com/troyrhodes02/sightline/pull/34 (base `main`). All seven tickets are squash-merged onto the feature branch in order (`53f02fa`, `0655749`, `7b2a354`, `c0cb876`, `0f044e1`, `de9eb56`, `4290fe2`, plus fix `a02c8c9`); the tree is byte-identical to the fully verified stack tip (`git diff feat/SIG-45-decision-log` empty at merge time).
+
+**Merge incident, resolved:** PR #35 was merged via GitHub with `--delete-branch`; deleting its branch CLOSED stacked PR #36 instead of retargeting it, and GitHub refuses to reopen a PR whose base was deleted. The remaining stack (#36–#41) was therefore squash-merged locally in order and each PR closed with a comment naming its squash commit. A scripted conflict resolution during those merges briefly committed conflict markers to `src/env.ts` and the detail page; caught by tree comparison against the stack tip and fixed in `a02c8c9`.
 
 ## Pipeline steps
 
@@ -22,9 +24,9 @@ Feature branch: `feature/kalshi-sync-the-slate-and-decision-log`. Feature PR: ht
 5. [x] Resolve all open questions as Resolved Decisions in the spec (RD-1 … RD-18)
 6. [x] Milestone + Linear issues chained with blockedBy; identifiers recorded below
 7. [x] Feature PR into `main`: #34, branch `feature/kalshi-sync-the-slate-and-decision-log`
-8. [ ] Work every ticket in order via `/sightline-ticket-worker`; PR per ticket
-9. [ ] Runbook (Kalshi API access, env vars; note CI-secret reuse)
-10. [ ] Squash-merge ticket PRs into feature branch in order
+8. [x] Work every ticket in order via `/sightline-ticket-worker`; PR per ticket
+9. [x] Runbook → `docs/v1/runbooks/kalshi-market-sync.md` (Kalshi API access, env vars; note CI-secret reuse)
+10. [x] Squash-merge ticket PRs into feature branch in order
 11. [ ] Full verification suite on feature branch (lint, typecheck, format, tests, build, e2e)
 12. [ ] `/review` feature branch vs `main`; findings as inline comments on feature PR
 13. [ ] `/sightline-review-audit` the findings; implement/defer/discuss/skip
@@ -37,13 +39,13 @@ Milestone: **Pitch 4: Kalshi Sync, The Slate & Decision Log** (`d6d3cfb4-c7b4-48
 
 | # | ID | Title | Status | Branch | PR |
 | - | -- | ----- | ------ | ------ | -- |
-| 1 | SIG-39 | Pitch 4 schema: market, projection, and decision tables | PR open, verified | `feat/SIG-39-pitch-4-schema` | #35 |
-| 2 | SIG-40 | Kalshi client, market sync, and contract resolution | PR open, verified | `feat/SIG-40-kalshi-market-sync` | #36 |
-| 3 | SIG-41 | Python projection persistence: sightline-model project CLI | PR open, verified | `feat/SIG-41-projection-persist` | #37 |
-| 4 | SIG-42 | Slate read model: edge, ranking, recommendation snapshots, DTOs | PR open, verified | `feat/SIG-42-slate-read-model` | #38 |
-| 5 | SIG-43 | The slate UI: ranked list, states, and price polling | PR open, verified | `feat/SIG-43-slate-ui` | #39 |
-| 6 | SIG-44 | Contract detail: reasoning view, distribution summary, unresolved flow | PR open, verified | `feat/SIG-44-contract-detail` | #40 |
-| 7 | SIG-45 | Decision log: capture, snapshots, privacy, and e2e | PR open, verified | `feat/SIG-45-decision-log` | #41 |
+| 1 | SIG-39 | Pitch 4 schema: market, projection, and decision tables | merged (Done) | `feat/SIG-39-pitch-4-schema` | #35 |
+| 2 | SIG-40 | Kalshi client, market sync, and contract resolution | merged (Done) | `feat/SIG-40-kalshi-market-sync` | #36 |
+| 3 | SIG-41 | Python projection persistence: sightline-model project CLI | merged (Done) | `feat/SIG-41-projection-persist` | #37 |
+| 4 | SIG-42 | Slate read model: edge, ranking, recommendation snapshots, DTOs | merged (Done) | `feat/SIG-42-slate-read-model` | #38 |
+| 5 | SIG-43 | The slate UI: ranked list, states, and price polling | merged (Done) | `feat/SIG-43-slate-ui` | #39 |
+| 6 | SIG-44 | Contract detail: reasoning view, distribution summary, unresolved flow | merged (Done) | `feat/SIG-44-contract-detail` | #40 |
+| 7 | SIG-45 | Decision log: capture, snapshots, privacy, and e2e | merged (Done) | `feat/SIG-45-decision-log` | #41 |
 
 ### First-ticket summary (SIG-39)
 
