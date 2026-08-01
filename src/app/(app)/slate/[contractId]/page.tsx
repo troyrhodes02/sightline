@@ -4,6 +4,7 @@ import { requireSession } from "@/lib/auth/session";
 import { readContractDetail } from "@/lib/slate/read";
 import { normalizeName } from "@/lib/kalshi/parse";
 import { ContractDetail } from "@/components/screens/ContractDetail";
+import { DecisionControl } from "@/components/slate/DecisionControl";
 import type { ResolveCandidate } from "@/components/slate/ResolveControl";
 
 export const dynamic = "force-dynamic";
@@ -50,6 +51,14 @@ export default async function ContractDetailPage({
       isAdmin={isAdmin}
       isUnresolved={Boolean(isUnresolved)}
       resolveCandidates={resolveCandidates}
+      decisionSlot={
+        isAdmin && !isUnresolved ? (
+          <DecisionControl
+            contractId={detail.contractId}
+            current={detail.currentDisposition ?? null}
+          />
+        ) : undefined
+      }
     />
   );
 }
