@@ -72,6 +72,15 @@ export const REQUIRED_INGEST_SOURCES: ReadonlyArray<string> = [
 ];
 export const OPTIONAL_INGEST_SOURCES: ReadonlyArray<string> = ["weather"];
 
+/**
+ * Final pre-kickoff snapshots are captured for contracts whose game kicks off
+ * within this window (RD-19). Wide enough that the 15-minute price cron gets
+ * ~3 attempts even under common scheduler delay; the first invocation inside
+ * the window captures, so a wider window trades snapshot lateness for
+ * missed-capture risk.
+ */
+export const FINAL_SNAPSHOT_WINDOW_MINUTES = 45;
+
 /** Offseason banner copy — dormancy is a designed state, not a failure. */
 export const OFFSEASON_DORMANT_COPY =
   "Offseason. Scheduled jobs resume with the season schedule.";

@@ -495,7 +495,7 @@ export async function readContractDetail(
 // Internals
 // ---------------------------------------------------------------------------
 
-function projectionKey(
+export function projectionKey(
   playerId: string,
   gameId: string,
   statType: StatType,
@@ -524,7 +524,7 @@ type FreshProjection = {
  * any model version. Fetched in one query and reduced in memory; a slate is
  * tens of keys, not thousands.
  */
-async function freshestProjections(
+export async function freshestProjections(
   keys: Array<{ playerId: string; gameId: string; statType: StatType }>,
 ): Promise<
   Map<
@@ -581,7 +581,7 @@ type LatestObservation = {
   observedAt: Date;
 };
 
-async function latestObservationByContract(
+export async function latestObservationByContract(
   contractIds: string[],
 ): Promise<Map<string, LatestObservation>> {
   if (contractIds.length === 0) return new Map();
