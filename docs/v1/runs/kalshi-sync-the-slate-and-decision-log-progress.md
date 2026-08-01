@@ -37,13 +37,21 @@ Milestone: **Pitch 4: Kalshi Sync, The Slate & Decision Log** (`d6d3cfb4-c7b4-48
 
 | # | ID | Title | Status | Branch | PR |
 | - | -- | ----- | ------ | ------ | -- |
-| 1 | SIG-39 | Pitch 4 schema: market, projection, and decision tables | todo | — | — |
+| 1 | SIG-39 | Pitch 4 schema: market, projection, and decision tables | PR open, verified | `feat/SIG-39-pitch-4-schema` | #35 |
 | 2 | SIG-40 | Kalshi client, market sync, and contract resolution | todo | — | — |
 | 3 | SIG-41 | Python projection persistence: sightline-model project CLI | todo | — | — |
 | 4 | SIG-42 | Slate read model: edge, ranking, recommendation snapshots, DTOs | todo | — | — |
 | 5 | SIG-43 | The slate UI: ranked list, states, and price polling | todo | — | — |
 | 6 | SIG-44 | Contract detail: reasoning view, distribution summary, unresolved flow | todo | — | — |
 | 7 | SIG-45 | Decision log: capture, snapshots, privacy, and e2e | todo | — | — |
+
+### First-ticket summary (SIG-39)
+
+The foundation the rest stack on. PR #35 (base: feature branch) adds the full Pitch 4 schema — `Contract` (identity = kalshiTicker, never deleted), `MarketSyncRun` (refresh completeness as a recorded fact), append-only `PriceObservation` (both book sides, integer cents), `Projection` + `ProjectionDriver` (compact distribution + both clocks + idempotent persist key), `RecommendationSnapshot` (RD-4 trigger history), and append-only user-scoped `Decision` with the full server-read snapshot column set. Schema-invariant guard extended with five Pitch 4 tests (non-fact classification, no derived-state columns, snapshot completeness, append-only posture, projection clocks/key). Migration `20260801075834_pitch4_market_projection_decision_tables` applied to the local dev DB. Full verification green: schema tests (16), jest (106), lint, typecheck, format, build.
+
+Environment fix made en route: this Windows checkout had `core.autocrlf=true`, which put CRLF in the working copy and failed prettier (`endOfLine: lf`) on 84 files. Fixed repo-locally (`git config core.autocrlf false` + LF normalization); `schema-invariants.test.mjs` was EOL-normalised in the SIG-39 commit. No content changes outside the ticket.
+
+Linear note: the Sightline team has no "In Review" state (Backlog/Todo/In Progress/Done). Tickets are set to **In Progress** when their PR opens and **Done** when squash-merged into the feature branch at step 10.
 
 Branching: SIG-39 branches off the feature branch; each subsequent ticket branches off the previous ticket's branch. Each ticket gets its own PR (base = previous branch / feature branch for the first), attached to its Linear issue. Ticket PRs are squash-merged into the feature branch in order (step 10).
 
