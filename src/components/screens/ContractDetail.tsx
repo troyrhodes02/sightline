@@ -1,3 +1,9 @@
+// A client component because the back link passes `component={Link}` to MUI
+// (a function prop that cannot cross the RSC serialization boundary — same
+// reasoning as EmptyState). Everything it receives is a serializable DTO or a
+// ReactNode slot.
+"use client";
+
 import Divider from "@mui/material/Divider";
 import Link from "next/link";
 import Paper from "@mui/material/Paper";

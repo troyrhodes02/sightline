@@ -1,3 +1,9 @@
+// Client components because rows pass `component={Link}` to MUI — a function
+// prop, which cannot cross the server->client serialization boundary (same
+// reasoning as EmptyState). Row data arrives as plain DTOs, so nothing else
+// is lost by rendering these on the client.
+"use client";
+
 import Box from "@mui/material/Box";
 import Link from "next/link";
 import Stack from "@mui/material/Stack";
