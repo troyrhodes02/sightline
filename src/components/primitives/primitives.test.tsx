@@ -88,9 +88,9 @@ describe("HealthStateChip", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("keeps the four unavailable states distinguishable", () => {
+  it("keeps the five non-ok states distinguishable", () => {
     const labels = (
-      ["not_yet_implemented", "never_run", "not_expected", "failed"] as const
+      ["running", "never_run", "not_expected", "late", "failed"] as const
     ).map((state) => {
       const { container, unmount } = renderThemed(
         <HealthStateChip state={state} />,
@@ -100,7 +100,7 @@ describe("HealthStateChip", () => {
       return text;
     });
 
-    expect(new Set(labels).size).toBe(4);
+    expect(new Set(labels).size).toBe(5);
   });
 
   it("gives the caution states an icon as well as a tint", () => {
