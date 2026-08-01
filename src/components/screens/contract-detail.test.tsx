@@ -1,0 +1,217 @@
+/**
+ * @jest-environment jsdom
+ */
+import { render, screen } from "@testing-library/react";
+import { ThemeProvider } from "@mui/material/styles";
+import { theme } from "@/theme";
+import type { ContractDetailDto } from "@/lib/dto/slate";
+import { ContractDetail } from "./ContractDetail";
+
+jest.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: jest.fn() }),
+}));
+
+function renderThemed(ui: React.ReactElement) {
+  return render(<ThemeProvider theme={theme}>{ui}</ThemeProvider>);
+}
+
+const detail = (
+  overrides: Partial<ContractDetailDto> = {},
+): ContractDetailDto => ({
+  contractId: "c1",
+  playerName: "Ja'Marr Chase",
+  gameLabel: "CIN @ BAL",
+  statType: "receiving_yards",
+  threshold: 74.5,
+  kickoffAt: "2026-11-08T18:00:00.000Z",
+  modelProbability: 0.614,
+  confidence: "high",
+  projectionComputedAt: "2026-11-05T14:12:00.000Z",
+  informationCutoff: "2026-11-05T14:00:00.000Z",
+  yesBidCents: 52,
+  yesAskCents: 54,
+  noBidCents: 46,
+  noAskCents: 48,
+  priceObservedAt: "2026-11-08T16:42:00.000Z",
+  side: "yes",
+  edgePoints: 7.4,
+  confidenceAdjustedEdge: 7.4,
+  isRecommended: true,
+  projectedValue: 78.3,
+  projectedMedian: 76.1,
+  intervalLow: 41,
+  intervalHigh: 118,
+  quantiles: {
+    q05: 18,
+    q10: 41,
+    q25: 58,
+    q50: 76.1,
+    q75: 95,
+    q90: 118,
+    q95: 139,
+  },
+  drivers: [
+    "14 eligible prior games; exponentially-weighted form 81.2 receiving yards.",
+    "Shrunk 22% toward the WR prior for 2025.",
+  ],
+  modelVersion: "baseline-zil-0.1.0",
+  midCents: 53,
+  status: "active",
+  ...overrides,
+});
+
+describe("ContractDetail — resolved", () => {
+  it("shows the comparison headline: probability, ask, edge, confidence", () => {
+    renderThemed(
+      <ContractDetail detail={detail()} isAdmin isUnresolved={false} />,
+    );
+    expect(screen.getByText("61.4%")).toBeInTheDocument();
+    expect(screen.getByText(/model P\(≥ 74\.5\)/)).toBeInTheDocument();
+    expect(screen.getByText(/▲ \+7\.4/)).toBeInTheDocument();
+    expect(screen.getByText("high")).toBeInTheDocument();
+  });
+
+  it("renders drivers verbatim, in order", () => {
+    renderThemed(
+      <ContractDetail detail={detail()} isAdmin isUnresolved={false} />,
+    );
+    const items = screen.getAllByRole("listitem");
+    expect(items[0]).toHaveTextContent("14 eligible prior games");
+    expect(items[1]).toHaveTextContent("Shrunk 22%");
+  });
+
+  it("shows both books with the mid as labelled context", () => {
+    renderThemed(
+      <ContractDetail detail={detail()} isAdmin isUnresolved={false} />,
+    );
+    expect(screen.getByText("yes bid")).toBeInTheDocument();
+    expect(screen.getByText("no ask")).toBeInTheDocument();
+    expect(screen.getByText("mid")).toBeInTheDocument();
+    expect(
+      screen.getByText(/ask drives ranking; mid is context/),
+    ).toBeInTheDocument();
+  });
+
+  it("shows provenance: computed-at, cutoff, and model version", () => {
+    renderThemed(
+      <ContractDetail detail={detail()} isAdmin isUnresolved={false} />,
+    );
+    expect(screen.getByText(/model baseline-zil-0\.1\.0/)).toBeInTheDocument();
+    expect(screen.getByText(/cutoff/)).toBeInTheDocument();
+  });
+
+  it("carries the distribution's text equivalent for screen readers", () => {
+    renderThemed(
+      <ContractDetail detail={detail()} isAdmin isUnresolved={false} />,
+    );
+    expect(
+      screen.getByText(/61\.4% of projected outcomes reach 74\.5/),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("ContractDetail — variants", () => {
+  it("no projection: em dashes and an explanation, nothing fabricated", () => {
+    renderThemed(
+      <ContractDetail
+        detail={detail({
+          modelProbability: null,
+          confidence: null,
+          side: null,
+          edgePoints: null,
+          confidenceAdjustedEdge: null,
+          isRecommended: false,
+          projectedValue: null,
+          projectedMedian: null,
+          intervalLow: null,
+          intervalHigh: null,
+          quantiles: null,
+          drivers: [],
+          modelVersion: null,
+          projectionComputedAt: null,
+          informationCutoff: null,
+        })}
+        isAdmin
+        isUnresolved={false}
+      />,
+    );
+    expect(
+      screen.getByText(/Sightline has no projection for this contract/),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("no projection")).toHaveTextContent("—");
+    expect(screen.queryByText("Drivers")).not.toBeInTheDocument();
+  });
+
+  it("no current market: last-observed language, projection intact", () => {
+    renderThemed(
+      <ContractDetail
+        detail={detail({
+          yesBidCents: null,
+          yesAskCents: null,
+          noBidCents: null,
+          noAskCents: null,
+          midCents: null,
+          side: null,
+          edgePoints: null,
+          confidenceAdjustedEdge: null,
+          isRecommended: false,
+        })}
+        isAdmin
+        isUnresolved={false}
+      />,
+    );
+    expect(screen.getByText(/No current market/)).toBeInTheDocument();
+    expect(screen.getByText("61.4%")).toBeInTheDocument();
+  });
+
+  it("delisted status is visible on deep link", () => {
+    renderThemed(
+      <ContractDetail
+        detail={detail({ status: "delisted" })}
+        isAdmin
+        isUnresolved={false}
+      />,
+    );
+    expect(screen.getByText("delisted")).toBeInTheDocument();
+  });
+});
+
+describe("ContractDetail — unresolved", () => {
+  const unresolved = detail({
+    playerName: "J. Smith-Njigba receiving yards above 74.5",
+    resolutionNote: 'Kalshi name "J. Smith-Njigba" matched 0 players.',
+    kalshiPlayerName: "J. Smith-Njigba",
+  });
+
+  it("admin sees the diagnostic and the resolve control", () => {
+    renderThemed(
+      <ContractDetail
+        detail={unresolved}
+        isAdmin
+        isUnresolved
+        resolveCandidates={[{ id: "p1", label: "Jaxon Smith-Njigba (WR)" }]}
+      />,
+    );
+    expect(screen.getByText(/matched 0 players/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Resolve to player")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Confirm mapping" }),
+    ).toBeInTheDocument();
+  });
+
+  it("viewer sees the plain unavailable state — no diagnostics, no control", () => {
+    const viewerDetail = detail({
+      playerName: "J. Smith-Njigba receiving yards above 74.5",
+    });
+    renderThemed(
+      <ContractDetail detail={viewerDetail} isAdmin={false} isUnresolved />,
+    );
+    expect(
+      screen.getByText(/has not been matched to a player yet/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/matched 0 players/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Confirm mapping" }),
+    ).not.toBeInTheDocument();
+  });
+});
