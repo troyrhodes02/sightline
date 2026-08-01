@@ -1,11 +1,10 @@
+import { redirect } from "next/navigation";
+
 /**
- * Placeholder root. Replaced in SIG-35, where `/` redirects to `/slate` for an
- * authenticated caller and to `/sign-in` otherwise.
- *
- * It is unstyled on purpose — the theme arrives in SIG-31, and building a
- * styled screen before it exists is the exact rework this pitch is sequenced to
- * avoid.
+ * The root has no content of its own. `/slate` is the landing surface, and the
+ * authenticated layout there bounces an unauthenticated caller to sign-in — so
+ * the decision lives in one place rather than being duplicated here.
  */
 export default function Home() {
-  return <main>Sightline</main>;
+  redirect("/slate");
 }
