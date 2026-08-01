@@ -77,6 +77,14 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv and argv[0] == "cycle":
+        # The scheduled in-season cycle (Pitch 5) has its own arguments and
+        # run recording; everything else stays the per-dataset dispatcher.
+        from .cycle import main as cycle_main
+
+        return cycle_main(argv[1:])
+
     parser = _build_parser()
     args = parser.parse_args(argv)
 
