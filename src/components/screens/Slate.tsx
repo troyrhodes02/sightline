@@ -94,7 +94,10 @@ export function Slate({
             detail={
               slate.nextKickoffAt
                 ? `Next kickoff: ${formatEtDate(slate.nextKickoffAt)}, ${formatEt(slate.nextKickoffAt)} ET.`
-                : "The season schedule has not been published."
+                : // No future games in Sightline's database. Honest about WHOSE
+                  // gap that is: nflverse may well have published the schedule;
+                  // Sightline's ingest has not brought it in yet.
+                  "No games are in Sightline's schedule yet — schedule ingest has not run."
             }
           />
         </Paper>

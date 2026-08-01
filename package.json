@@ -19,6 +19,7 @@
     "prisma:generate": "prisma generate",
     "test:schema": "node --test \"prisma/tests/**/*.test.mjs\"",
     "db:seed": "tsx prisma/seed.ts",
+    "db:seed:slate": "tsx prisma/seed-slate.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {
