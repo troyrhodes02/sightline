@@ -17,12 +17,10 @@
 
 <style>
 /* ============================================================
-   FONTS — real IBM Plex, self-hosted from src/assets/fonts/.
-   The comma in the Sans filename is percent-encoded for file://.
+   FONTS — Space Grotesk, self-hosted from src/assets/fonts/.
+   One variable file, weights 300-700.
    ============================================================ */
-@font-face{font-family:'IBM Plex Sans';src:url('../../../src/assets/fonts/ibm-plex-sans/IBMPlexSans-VariableFont_wdth%2Cwght.ttf') format('truetype');font-weight:100 700;font-style:normal;font-display:swap}
-@font-face{font-family:'IBM Plex Mono';src:url('../../../src/assets/fonts/ibm-plex-mono/IBMPlexMono-Regular.ttf') format('truetype');font-weight:400;font-style:normal;font-display:swap}
-@font-face{font-family:'IBM Plex Mono';src:url('../../../src/assets/fonts/ibm-plex-mono/IBMPlexMono-Medium.ttf') format('truetype');font-weight:500;font-style:normal;font-display:swap}
+@font-face{font-family:'Space Grotesk';src:url('../../../src/assets/fonts/space-grotesk/SpaceGrotesk-Variable.woff2') format('woff2');font-weight:300 700;font-style:normal;font-display:swap}
 
 /* ============================================================
    PREVIEW CHROME — achromatic. Never Sightline's palette.
@@ -31,8 +29,8 @@
 :root{
   --pv-bg:#EDEEF1; --pv-panel:#FFFFFF; --pv-frame:#E3E4E9;
   --pv-ink:#16171A; --pv-muted:#5B5D66; --pv-line:#DBDCE1; --pv-accent:#3A3B42;
-  --pv-sans:'IBM Plex Sans',ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
-  --pv-mono:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  --pv-sans:'Space Grotesk',ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --pv-mono:'Space Grotesk',ui-sans-serif,system-ui,sans-serif;
 }
 @media (prefers-color-scheme:dark){
   :root{--pv-bg:#0E0E10;--pv-panel:#161618;--pv-frame:#111113;--pv-ink:#E9E9EC;--pv-muted:#8B8B93;--pv-line:#242428;--pv-accent:#B4B4BD}
@@ -106,7 +104,7 @@ body{margin:0;background:var(--pv-bg);color:var(--pv-ink);font-family:var(--pv-s
   --sl-negative:#C4425F; --sl-negative-soft:#FCEBEF;
   --sl-radius:6px; --sl-radius-chip:4px;
   --sl-shadow-pop:0 12px 32px -8px rgba(16,24,40,.24);
-  font-family:'IBM Plex Sans',ui-sans-serif,system-ui,sans-serif;color:var(--sl-ink);
+  font-family:'Space Grotesk',ui-sans-serif,system-ui,sans-serif;color:var(--sl-ink);
 }
 .sl[data-sl="dark"]{
   --sl-bg:#0A0A0B; --sl-paper:#131315; --sl-elev:#1A1A1D; --sl-hover:#1F1F23;
@@ -120,16 +118,16 @@ body{margin:0;background:var(--pv-bg);color:var(--pv-ink);font-family:var(--pv-s
 }
 
 /* type scale — design doc §4.3 */
-.sl .t-h1{font-size:20px;line-height:28px;font-weight:600;letter-spacing:-.01em;margin:0}
-.sl .t-h2{font-size:16px;line-height:24px;font-weight:500;margin:0}
-.sl .t-body{font-size:14px;line-height:20px;font-weight:400;margin:0}
-.sl .t-body2{font-size:13px;line-height:18px;font-weight:400;margin:0}
-.sl .t-label{font-size:12px;line-height:16px;font-weight:500}
-.sl .t-caption{font-size:12px;line-height:16px;font-weight:400}
-.sl .num{font-family:'IBM Plex Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums;font-weight:400}
-.sl .num-lg{font-size:20px;line-height:28px}
-.sl .num-md{font-size:14px;line-height:20px}
-.sl .num-sm{font-size:12px;line-height:16px}
+.sl .t-h1{font-size:22px;line-height:30px;font-weight:600;letter-spacing:-.01em;margin:0}
+.sl .t-h2{font-size:18px;line-height:26px;font-weight:500;margin:0}
+.sl .t-body{font-size:15px;line-height:22px;font-weight:400;margin:0}
+.sl .t-body2{font-size:14px;line-height:20px;font-weight:400;margin:0}
+.sl .t-label{font-size:13px;line-height:18px;font-weight:500}
+.sl .t-caption{font-size:13px;line-height:18px;font-weight:400}
+.sl .num{font-variant-numeric:tabular-nums;font-weight:400}
+.sl .num-lg{font-size:22px;line-height:30px}
+.sl .num-md{font-size:15px;line-height:22px}
+.sl .num-sm{font-size:13px;line-height:18px}
 .sl .ink2{color:var(--sl-ink2)} .sl .ink3{color:var(--sl-ink3)}
 
 /* mock frames */
@@ -141,7 +139,7 @@ body{margin:0;background:var(--pv-bg);color:var(--pv-ink);font-family:var(--pv-s
 
 /* app shell */
 .sl-shell{display:flex;flex-direction:column;min-height:520px;position:relative}
-.sl-appbar{display:flex;align-items:center;gap:16px;height:56px;padding:0 32px;background:var(--sl-paper);border-bottom:1px solid var(--sl-line);flex:none}
+.sl-appbar{display:flex;align-items:center;gap:16px;height:60px;padding:0 32px;background:var(--sl-paper);border-bottom:1px solid var(--sl-line);flex:none}
 .mock--phone .sl-appbar{padding:0 16px;gap:12px}
 .sl-lockup{display:flex;align-items:center}
 .sl-lockup img{height:20px;display:block}
@@ -149,7 +147,7 @@ body{margin:0;background:var(--pv-bg);color:var(--pv-ink);font-family:var(--pv-s
 .sl[data-sl="dark"] .sl-lockup .light{display:none}
 .sl[data-sl="dark"] .sl-lockup .dark{display:block}
 .sl-mark{width:20px;height:20px;color:var(--sl-ink);display:block;flex:none}
-.sl-tabs{display:flex;align-items:stretch;height:56px;margin-left:8px}
+.sl-tabs{display:flex;align-items:stretch;height:60px;margin-left:8px}
 .sl-tab{display:flex;align-items:center;padding:0 12px;font-size:14px;font-weight:500;color:var(--sl-ink2);border-bottom:2px solid transparent;cursor:pointer}
 .sl-tab.on{color:var(--sl-model);border-bottom-color:var(--sl-model)}
 .sl-spacer{margin-left:auto}
@@ -320,8 +318,8 @@ body{margin:0;background:var(--pv-bg);color:var(--pv-ink);font-family:var(--pv-s
           <div class="sl-entry">
             <div class="sl-form">
               <span class="sl-lockup" style="margin-bottom:-8px">
-                <img class="light" src="../../../src/assets/brand/logo-lockup-for-light-backgrounds.svg" alt="Sightline" style="height:28px">
-                <img class="dark" src="../../../src/assets/brand/logo-lockup-for-dark-backgrounds.svg" alt="Sightline" style="height:28px">
+                <img class="light" src="../../../src/assets/brand/logo-lockup-for-light-backgrounds.svg" alt="Sightline" style="height:30px">
+                <img class="dark" src="../../../src/assets/brand/logo-lockup-for-dark-backgrounds.svg" alt="Sightline" style="height:30px">
               </span>
               <div class="sl-field"><label>Email</label><div class="sl-input ph">you@example.com</div></div>
               <div class="sl-field"><label>Password</label><div class="sl-input"></div></div>
@@ -334,8 +332,8 @@ body{margin:0;background:var(--pv-bg);color:var(--pv-ink);font-family:var(--pv-s
           <div class="sl-entry">
             <div class="sl-form">
               <span class="sl-lockup" style="margin-bottom:-8px">
-                <img class="light" src="../../../src/assets/brand/logo-lockup-for-light-backgrounds.svg" alt="Sightline" style="height:28px">
-                <img class="dark" src="../../../src/assets/brand/logo-lockup-for-dark-backgrounds.svg" alt="Sightline" style="height:28px">
+                <img class="light" src="../../../src/assets/brand/logo-lockup-for-light-backgrounds.svg" alt="Sightline" style="height:30px">
+                <img class="dark" src="../../../src/assets/brand/logo-lockup-for-dark-backgrounds.svg" alt="Sightline" style="height:30px">
               </span>
               <div class="sl-field"><label>Email</label><div class="sl-input sl-input--focus">wtrhodes02@gmail.com</div></div>
               <div class="sl-field"><label>Password</label><div class="sl-input">••••••••••••</div></div>
@@ -353,7 +351,7 @@ body{margin:0;background:var(--pv-bg);color:var(--pv-ink);font-family:var(--pv-s
         <div class="mock sl js-sl" data-sl="light">
           <div class="sl-entry" style="min-height:400px">
             <div class="sl-form">
-              <span class="sl-lockup"><img class="light" src="../../../src/assets/brand/logo-lockup-for-light-backgrounds.svg" alt="Sightline" style="height:28px"><img class="dark" src="../../../src/assets/brand/logo-lockup-for-dark-backgrounds.svg" alt="Sightline" style="height:28px"></span>
+              <span class="sl-lockup"><img class="light" src="../../../src/assets/brand/logo-lockup-for-light-backgrounds.svg" alt="Sightline" style="height:30px"><img class="dark" src="../../../src/assets/brand/logo-lockup-for-dark-backgrounds.svg" alt="Sightline" style="height:30px"></span>
               <div class="sl-alert sl-alert--error" role="alert">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>
                 <span class="body">Email or password is incorrect.</span>
@@ -371,7 +369,7 @@ body{margin:0;background:var(--pv-bg);color:var(--pv-ink);font-family:var(--pv-s
         <div class="mock sl js-sl" data-sl="light">
           <div class="sl-entry" style="min-height:400px">
             <div class="sl-form">
-              <span class="sl-lockup"><img class="light" src="../../../src/assets/brand/logo-lockup-for-light-backgrounds.svg" alt="Sightline" style="height:28px"><img class="dark" src="../../../src/assets/brand/logo-lockup-for-dark-backgrounds.svg" alt="Sightline" style="height:28px"></span>
+              <span class="sl-lockup"><img class="light" src="../../../src/assets/brand/logo-lockup-for-light-backgrounds.svg" alt="Sightline" style="height:30px"><img class="dark" src="../../../src/assets/brand/logo-lockup-for-dark-backgrounds.svg" alt="Sightline" style="height:30px"></span>
               <div class="sl-alert sl-alert--error" role="alert">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>
                 <span class="body">Sign-in is unavailable right now. Try again in a moment.</span>
@@ -390,7 +388,7 @@ body{margin:0;background:var(--pv-bg);color:var(--pv-ink);font-family:var(--pv-s
         <div class="mock sl js-sl" data-sl="light">
           <div class="sl-entry" style="min-height:400px">
             <div class="sl-form">
-              <span class="sl-lockup"><img class="light" src="../../../src/assets/brand/logo-lockup-for-light-backgrounds.svg" alt="Sightline" style="height:28px"><img class="dark" src="../../../src/assets/brand/logo-lockup-for-dark-backgrounds.svg" alt="Sightline" style="height:28px"></span>
+              <span class="sl-lockup"><img class="light" src="../../../src/assets/brand/logo-lockup-for-light-backgrounds.svg" alt="Sightline" style="height:30px"><img class="dark" src="../../../src/assets/brand/logo-lockup-for-dark-backgrounds.svg" alt="Sightline" style="height:30px"></span>
               <div class="sl-alert sl-alert--info">
                 <span class="body">Your access to Sightline has been removed.</span>
               </div>
@@ -409,7 +407,7 @@ body{margin:0;background:var(--pv-bg);color:var(--pv-ink);font-family:var(--pv-s
         <div class="mock mock--phone sl js-sl" data-sl="light">
           <div class="sl-entry">
             <div class="sl-form">
-              <span class="sl-lockup"><img class="light" src="../../../src/assets/brand/logo-lockup-for-light-backgrounds.svg" alt="Sightline" style="height:28px"><img class="dark" src="../../../src/assets/brand/logo-lockup-for-dark-backgrounds.svg" alt="Sightline" style="height:28px"></span>
+              <span class="sl-lockup"><img class="light" src="../../../src/assets/brand/logo-lockup-for-light-backgrounds.svg" alt="Sightline" style="height:30px"><img class="dark" src="../../../src/assets/brand/logo-lockup-for-dark-backgrounds.svg" alt="Sightline" style="height:30px"></span>
               <h2 class="t-h2">You have been invited to Sightline.</h2>
               <div class="sl-between">
                 <span class="t-body" style="overflow-wrap:anywhere">marcus@example.com</span>
@@ -424,7 +422,7 @@ body{margin:0;background:var(--pv-bg);color:var(--pv-ink);font-family:var(--pv-s
         <div class="mock mock--pane sl js-sl" data-sl="light" style="min-width:520px">
           <div class="sl-entry">
             <div class="sl-form">
-              <span class="sl-lockup"><img class="light" src="../../../src/assets/brand/logo-lockup-for-light-backgrounds.svg" alt="Sightline" style="height:28px"><img class="dark" src="../../../src/assets/brand/logo-lockup-for-dark-backgrounds.svg" alt="Sightline" style="height:28px"></span>
+              <span class="sl-lockup"><img class="light" src="../../../src/assets/brand/logo-lockup-for-light-backgrounds.svg" alt="Sightline" style="height:30px"><img class="dark" src="../../../src/assets/brand/logo-lockup-for-dark-backgrounds.svg" alt="Sightline" style="height:30px"></span>
               <h2 class="t-h2">You have been invited to Sightline.</h2>
               <div class="sl-between">
                 <span class="t-body">marcus@example.com</span>
@@ -445,7 +443,7 @@ body{margin:0;background:var(--pv-bg);color:var(--pv-ink);font-family:var(--pv-s
         <div class="mock sl js-sl" data-sl="light">
           <div class="sl-entry" style="min-height:320px">
             <div class="sl-form" style="align-items:center">
-              <span class="sl-lockup"><img class="light" src="../../../src/assets/brand/logo-lockup-for-light-backgrounds.svg" alt="Sightline" style="height:28px"><img class="dark" src="../../../src/assets/brand/logo-lockup-for-dark-backgrounds.svg" alt="Sightline" style="height:28px"></span>
+              <span class="sl-lockup"><img class="light" src="../../../src/assets/brand/logo-lockup-for-light-backgrounds.svg" alt="Sightline" style="height:30px"><img class="dark" src="../../../src/assets/brand/logo-lockup-for-dark-backgrounds.svg" alt="Sightline" style="height:30px"></span>
               <div class="sl-empty" style="padding:24px 0">
                 <h2 class="t-h2">This invitation has expired.</h2>
                 <p>Ask William to send a new one.</p>
@@ -460,7 +458,7 @@ body{margin:0;background:var(--pv-bg);color:var(--pv-ink);font-family:var(--pv-s
         <div class="mock sl js-sl" data-sl="light">
           <div class="sl-entry" style="min-height:320px">
             <div class="sl-form" style="align-items:center">
-              <span class="sl-lockup"><img class="light" src="../../../src/assets/brand/logo-lockup-for-light-backgrounds.svg" alt="Sightline" style="height:28px"><img class="dark" src="../../../src/assets/brand/logo-lockup-for-dark-backgrounds.svg" alt="Sightline" style="height:28px"></span>
+              <span class="sl-lockup"><img class="light" src="../../../src/assets/brand/logo-lockup-for-light-backgrounds.svg" alt="Sightline" style="height:30px"><img class="dark" src="../../../src/assets/brand/logo-lockup-for-dark-backgrounds.svg" alt="Sightline" style="height:30px"></span>
               <div class="sl-empty" style="padding:24px 0">
                 <h2 class="t-h2">This invitation has already been used.</h2>
                 <p>If the account is yours, sign in.</p>
@@ -475,7 +473,7 @@ body{margin:0;background:var(--pv-bg);color:var(--pv-ink);font-family:var(--pv-s
         <div class="mock sl js-sl" data-sl="light">
           <div class="sl-entry" style="min-height:320px">
             <div class="sl-form" style="align-items:center">
-              <span class="sl-lockup"><img class="light" src="../../../src/assets/brand/logo-lockup-for-light-backgrounds.svg" alt="Sightline" style="height:28px"><img class="dark" src="../../../src/assets/brand/logo-lockup-for-dark-backgrounds.svg" alt="Sightline" style="height:28px"></span>
+              <span class="sl-lockup"><img class="light" src="../../../src/assets/brand/logo-lockup-for-light-backgrounds.svg" alt="Sightline" style="height:30px"><img class="dark" src="../../../src/assets/brand/logo-lockup-for-dark-backgrounds.svg" alt="Sightline" style="height:30px"></span>
               <div class="sl-empty" style="padding:24px 0">
                 <h2 class="t-h2">This invitation is no longer valid.</h2>
                 <button class="sl-btn sl-btn--outlined">Go to sign in</button>
@@ -489,7 +487,7 @@ body{margin:0;background:var(--pv-bg);color:var(--pv-ink);font-family:var(--pv-s
         <div class="mock sl js-sl" data-sl="light">
           <div class="sl-entry" style="min-height:320px">
             <div class="sl-form" style="align-items:center">
-              <span class="sl-lockup"><img class="light" src="../../../src/assets/brand/logo-lockup-for-light-backgrounds.svg" alt="Sightline" style="height:28px"><img class="dark" src="../../../src/assets/brand/logo-lockup-for-dark-backgrounds.svg" alt="Sightline" style="height:28px"></span>
+              <span class="sl-lockup"><img class="light" src="../../../src/assets/brand/logo-lockup-for-light-backgrounds.svg" alt="Sightline" style="height:30px"><img class="dark" src="../../../src/assets/brand/logo-lockup-for-dark-backgrounds.svg" alt="Sightline" style="height:30px"></span>
               <div class="sl-empty" style="padding:24px 0">
                 <h2 class="t-h2">This invitation link is not valid.</h2>
                 <p>Check that you copied the whole link.</p>
@@ -1050,17 +1048,17 @@ body{margin:0;background:var(--pv-bg);color:var(--pv-ink);font-family:var(--pv-s
         </div>
       </div>
       <div class="pv-frame">
-        <div class="pv-cap"><span class="name">Type scale</span><span class="route">theme §4.3</span><span class="tag">Plex Sans · Plex Mono for every numeric</span></div>
+        <div class="pv-cap"><span class="name">Type scale</span><span class="route">theme §4.3</span><span class="tag">Space Grotesk · tabular figures on every numeric</span></div>
         <div class="mock sl js-sl" data-sl="light" style="padding:20px 24px">
           <div class="sl-stack" style="gap:14px">
-            <div class="sl-between"><span class="t-h1">Screen title</span><span class="t-caption ink3">20 / 28 · 600</span></div>
-            <div class="sl-between"><span class="t-h2">Section title</span><span class="t-caption ink3">16 / 24 · 500</span></div>
-            <div class="sl-between"><span class="t-body">Body and table cells</span><span class="t-caption ink3">14 / 20 · 400</span></div>
-            <div class="sl-between"><span class="t-label ink2">Column header and form label</span><span class="t-caption ink3">12 / 16 · 500</span></div>
-            <div class="sl-between" style="border-top:1px solid var(--sl-line);padding-top:14px"><span class="num num-lg">2026-09-14 03:12</span><span class="t-caption ink3">mono 20</span></div>
-            <div class="sl-between"><span class="num num-md">2026-09-14 03:12 ET</span><span class="t-caption ink3">mono 14</span></div>
-            <div class="sl-between"><span class="num num-sm ink2">2026-08-04 · 2d</span><span class="t-caption ink3">mono 12</span></div>
-            <span class="t-caption ink3" style="line-height:1.5">Tabular figures on every numeric. No data value is ever bolded — importance is position and colour.</span>
+            <div class="sl-between"><span class="t-h1">Screen title</span><span class="t-caption ink3">22 / 30 · 600</span></div>
+            <div class="sl-between"><span class="t-h2">Section title</span><span class="t-caption ink3">18 / 26 · 500</span></div>
+            <div class="sl-between"><span class="t-body">Body and table cells</span><span class="t-caption ink3">15 / 22 · 400</span></div>
+            <div class="sl-between"><span class="t-label ink2">Column header and form label</span><span class="t-caption ink3">13 / 18 · 500</span></div>
+            <div class="sl-between" style="border-top:1px solid var(--sl-line);padding-top:14px"><span class="num num-lg">2026-09-14 03:12</span><span class="t-caption ink3">22 · tabular</span></div>
+            <div class="sl-between"><span class="num num-md">2026-09-14 03:12 ET</span><span class="t-caption ink3">15 · tabular</span></div>
+            <div class="sl-between"><span class="num num-sm ink2">2026-08-04 · 2d</span><span class="t-caption ink3">13 · tabular</span></div>
+            <span class="t-caption ink3" style="line-height:1.5">Space Grotesk throughout. Its default figures are proportional, so tabular-nums on every numeric is what keeps columns aligned. No data value is ever bolded.</span>
           </div>
         </div>
       </div>

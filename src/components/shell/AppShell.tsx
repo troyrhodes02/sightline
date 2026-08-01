@@ -76,7 +76,7 @@ export function AppShell({
       </Box>
 
       <AppBar position="sticky">
-        <Toolbar sx={{ minHeight: 56, gap: 2, px: { xs: 2, sm: 3, md: 4 } }}>
+        <Toolbar sx={{ minHeight: 60, gap: 2, px: { xs: 2, sm: 3, md: 4 } }}>
           <IconButton
             edge="start"
             aria-label="Open navigation"
@@ -92,11 +92,11 @@ export function AppShell({
             sx={{ display: "flex", color: "text.primary" }}
           >
             <SightlineLockup
-              height={20}
+              height={22}
               sx={{ display: { xs: "none", sm: "block" } }}
             />
             <SightlineMark
-              size={20}
+              size={22}
               sx={{
                 display: { xs: "block", sm: "none" },
                 color: "text.primary",
@@ -131,8 +131,8 @@ export function AppShell({
         variant="temporary"
         slotProps={{ paper: { sx: { width: 264 } } }}
       >
-        <Toolbar sx={{ minHeight: 56, justifyContent: "space-between", px: 2 }}>
-          <SightlineLockup height={20} />
+        <Toolbar sx={{ minHeight: 60, justifyContent: "space-between", px: 2 }}>
+          <SightlineLockup height={22} />
           <IconButton
             aria-label="Close navigation"
             onClick={() => setDrawerOpen(false)}

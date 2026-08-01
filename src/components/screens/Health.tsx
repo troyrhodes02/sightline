@@ -44,7 +44,7 @@ export function Health({ signals }: { signals: HealthSignalDto[] }) {
             <ListItem
               key={signal.key}
               divider={index < signals.length - 1}
-              sx={{ display: "block", py: 2, px: 2, minHeight: 76 }}
+              sx={{ display: "block", py: 2.5, px: 2, minHeight: 80 }}
             >
               <Stack
                 direction="row"

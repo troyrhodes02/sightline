@@ -11,10 +11,12 @@ export type NumericSize = keyof typeof VARIANT;
 /**
  * Every number the product computes or displays goes through here.
  *
- * IBM Plex Mono with tabular figures, so a reader scans **down a column** rather
- * than across a row — which is the entire reason the mono family is in the
- * brand system. Proportional figures defeat it, and sixty slate rows is where
- * that becomes obvious.
+ * Tabular figures, so a reader scans **down a column** rather than across a row.
+ *
+ * Space Grotesk's default figures are proportional — ten digits, nine different
+ * advance widths — so this component is the only thing keeping numeric columns
+ * aligned. Rendering a number outside it will look fine on one row and drift
+ * visibly by the sixtieth.
  *
  * Never bolded. Importance is carried by position and colour, not weight.
  */

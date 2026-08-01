@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import InitColorSchemeScript from "@mui/material/InitColorSchemeScript";
-import { plexMono, plexSans } from "@/theme/fonts";
+import { spaceGrotesk } from "@/theme/fonts";
 import { ThemeRegistry } from "@/theme/ThemeRegistry";
 
 export const metadata: Metadata = {
@@ -20,11 +20,7 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html
-      lang="en"
-      suppressHydrationWarning
-      className={`${plexSans.variable} ${plexMono.variable}`}
-    >
+    <html lang="en" suppressHydrationWarning className={spaceGrotesk.variable}>
       <body>
         {/*
           Applies the stored appearance before first paint. Without it a

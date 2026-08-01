@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import type { Palette } from "@mui/material/styles";
 import { theme } from "@/theme";
+import { FONT_FAMILY_VARIABLE } from "@/theme/fonts";
 import { productionFiles, readCode } from "@/lib/testing/source";
 
 // `createTheme` returns the merged theme; the per-scheme palettes are present
@@ -89,16 +90,60 @@ describe("theme", () => {
   });
 
   it("sets tabular figures on every numeric variant", () => {
+    // Space Grotesk has PROPORTIONAL figures by default — ten digits, nine
+    // widths. Column alignment down a long slate depends entirely on this
+    // setting, so it is asserted rather than trusted.
     for (const variant of ["numericSm", "numericMd", "numericLg"] as const) {
       expect(theme.typography[variant].fontVariantNumeric).toBe("tabular-nums");
-      // next/font is stubbed under Jest, so assert the distinction that
-      // matters — the numeric stack is monospace and differs from body text.
-      expect(theme.typography[variant].fontFamily).toContain("monospace");
-      expect(theme.typography[variant].fontFamily).not.toBe(
-        theme.typography.body1.fontFamily,
-      );
       expect(theme.typography[variant].fontWeight).toBe(400);
     }
+  });
+
+  // This is the assertion that was missing when `var(<class-name>)` shipped:
+  // the old test only checked the family string CONTAINED "monospace", which
+  // the fallback tail satisfied while the real font never loaded.
+  it("references a valid CSS custom property, not a generated class name", () => {
+    for (const variant of [
+      "body1",
+      "h1",
+      "h2",
+      "label",
+      "caption",
+      "numericSm",
+      "numericMd",
+      "numericLg",
+    ] as const) {
+      const family = String(theme.typography[variant].fontFamily);
+
+      expect(family).toMatch(/^var\(--[a-z-]+\)/);
+      // `var(` followed by anything not starting with `--` is invalid CSS that
+      // every browser drops silently, falling back to system-ui.
+      expect(family).not.toMatch(/var\((?!--)/);
+    }
+  });
+
+  it("publishes the font under the same name the theme consumes", () => {
+    expect(FONT_FAMILY_VARIABLE).toMatch(/^--/);
+    expect(String(theme.typography.body1.fontFamily)).toContain(
+      `var(${FONT_FAMILY_VARIABLE})`,
+    );
+
+    // next/font demands a literal, so the name is written twice. Nothing at
+    // runtime notices if the two drift — the page just renders in a fallback —
+    // so the source is read directly.
+    const fonts = readCode(join(process.cwd(), "src", "theme", "fonts.ts"));
+    const declared = /variable:\s*"([^"]+)"/.exec(fonts)?.[1];
+
+    expect(declared).toBe(FONT_FAMILY_VARIABLE);
+  });
+
+  it("uses one family for interface text and numerics alike", () => {
+    for (const variant of ["numericSm", "numericMd", "numericLg"] as const) {
+      expect(theme.typography[variant].fontFamily).toBe(
+        theme.typography.body1.fontFamily,
+      );
+    }
+    expect(theme.typography.body1.fontFamily).not.toContain("monospace");
   });
 
   it("never uppercases a label", () => {

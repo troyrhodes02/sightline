@@ -1,5 +1,5 @@
 import { createTheme, type Shadows } from "@mui/material/styles";
-import { plexMono, plexSans } from "./fonts";
+import { FONT_FAMILY_VARIABLE } from "./fonts";
 
 /**
  * Sightline's Material UI theme — the named deliverable of Pitch 3.
@@ -27,10 +27,21 @@ import { plexMono, plexSans } from "./fonts";
  * Two mint tokens exist because `#4DE4B2` fails contrast for body-size text on
  * white. Light mode uses `main` (`#0F9C6E`) for any market value at 16px or
  * below and `fill` for larger elements and chart strokes.
+ *
+ * ## One family, and why `tabular-nums` now carries the load
+ *
+ * Space Grotesk sets both interface text and every numeric. Its default figures
+ * are **proportional** — ten digits, nine different widths — so column
+ * alignment down a long slate depends entirely on
+ * `font-variant-numeric: tabular-nums` on the numeric variants below. With a
+ * monospace face that setting was belt and braces; here it is the only
+ * mechanism, and removing it breaks every numeric column silently.
  */
 
-const sans = `var(${plexSans.variable}), system-ui, sans-serif`;
-const mono = `var(${plexMono.variable}), ui-monospace, monospace`;
+// FONT_FAMILY_VARIABLE, not `spaceGrotesk.variable` — the latter is a generated
+// CLASS name, and `var(<class-name>)` is invalid CSS that browsers discard
+// silently. See the note in ./fonts.
+const sans = `var(${FONT_FAMILY_VARIABLE}), system-ui, sans-serif`;
 
 // Elevation is carried by 1px borders and background lightness steps. MUI's own
 // shadows survive only where MUI itself uses them — menus at 8, dialogs at 24.
@@ -39,8 +50,9 @@ const shadows = createTheme().shadows.map((shadow, i) =>
 ) as Shadows;
 
 const numeric = {
-  fontFamily: mono,
+  fontFamily: sans,
   fontWeight: 400,
+  // Load-bearing, not cosmetic. See the note above.
   fontVariantNumeric: "tabular-nums" as const,
 };
 
@@ -111,45 +123,48 @@ export const theme = createTheme({
   spacing: 8,
   shadows,
 
+  // The scale sits one step above where it started: body 15 rather than 14,
+  // titles 22 rather than 20, and the control heights below moved with it so
+  // the density reads deliberate rather than merely zoomed.
   typography: {
     fontFamily: sans,
     htmlFontSize: 16, // browser text-size preferences still scale
-    fontSize: 14, // density
+    fontSize: 15,
     h1: {
       fontFamily: sans,
-      fontSize: 20,
-      lineHeight: "28px",
+      fontSize: 22,
+      lineHeight: "30px",
       fontWeight: 600,
       letterSpacing: "-0.01em",
     },
-    h2: { fontFamily: sans, fontSize: 16, lineHeight: "24px", fontWeight: 500 },
+    h2: { fontFamily: sans, fontSize: 18, lineHeight: "26px", fontWeight: 500 },
     body1: {
+      fontFamily: sans,
+      fontSize: 15,
+      lineHeight: "22px",
+      fontWeight: 400,
+    },
+    body2: {
       fontFamily: sans,
       fontSize: 14,
       lineHeight: "20px",
       fontWeight: 400,
     },
-    body2: {
+    label: {
+      fontFamily: sans,
+      fontSize: 13,
+      lineHeight: "18px",
+      fontWeight: 500,
+    },
+    caption: {
       fontFamily: sans,
       fontSize: 13,
       lineHeight: "18px",
       fontWeight: 400,
     },
-    label: {
-      fontFamily: sans,
-      fontSize: 12,
-      lineHeight: "16px",
-      fontWeight: 500,
-    },
-    caption: {
-      fontFamily: sans,
-      fontSize: 12,
-      lineHeight: "16px",
-      fontWeight: 400,
-    },
-    numericLg: { ...numeric, fontSize: 20, lineHeight: "28px" },
-    numericMd: { ...numeric, fontSize: 14, lineHeight: "20px" },
-    numericSm: { ...numeric, fontSize: 12, lineHeight: "16px" },
+    numericLg: { ...numeric, fontSize: 22, lineHeight: "30px" },
+    numericMd: { ...numeric, fontSize: 15, lineHeight: "22px" },
+    numericSm: { ...numeric, fontSize: 13, lineHeight: "18px" },
     button: { textTransform: "none", fontWeight: 500 },
   },
 
@@ -198,8 +213,8 @@ export const theme = createTheme({
     MuiButton: {
       defaultProps: { disableElevation: true },
       styleOverrides: {
-        root: { minHeight: 36 },
-        sizeSmall: { minHeight: 30 },
+        root: { minHeight: 40 },
+        sizeSmall: { minHeight: 34 },
       },
     },
 
@@ -207,8 +222,8 @@ export const theme = createTheme({
     MuiChip: {
       styleOverrides: {
         root: { borderRadius: 4, fontWeight: 500 },
-        sizeSmall: { height: 22, fontSize: 12 },
-        label: { paddingInline: 8 },
+        sizeSmall: { height: 24, fontSize: 13 },
+        label: { paddingInline: 9 },
       },
     },
 
@@ -227,15 +242,15 @@ export const theme = createTheme({
     },
 
     MuiTabs: {
-      styleOverrides: { indicator: { height: 2 }, root: { minHeight: 56 } },
+      styleOverrides: { indicator: { height: 2 }, root: { minHeight: 60 } },
     },
     MuiTab: {
       styleOverrides: {
         root: ({ theme: t }) => ({
-          minHeight: 56,
+          minHeight: 60,
           minWidth: 0,
-          paddingInline: 12,
-          fontSize: 14,
+          paddingInline: 14,
+          fontSize: 15,
           fontWeight: 500,
           color: t.vars.palette.text.secondary,
           "&.Mui-selected": { color: t.vars.palette.primary.main },
@@ -260,10 +275,10 @@ export const theme = createTheme({
       styleOverrides: {
         root: ({ theme: t }) => ({
           borderBottomColor: t.vars.palette.divider,
-          paddingBlock: 12,
+          paddingBlock: 14,
         }),
         head: ({ theme: t }) => ({
-          fontSize: 12,
+          fontSize: 13,
           fontWeight: 500,
           color: t.vars.palette.text.secondary,
         }),

@@ -29,22 +29,36 @@ Three locations, split by how the file is consumed. This is the whole rule: serv
 
 **`currentColor` only inherits when the SVG is inlined in the DOM.** In an `<img>` tag it falls back to black, which is why the two fixed-colour lockups exist. The app bar, sign-in, and invitation screens inline the adaptive lockup; the invitation email uses the fixed-colour pair.
 
-## Fonts — `src/assets/fonts/`
+## Fonts — `src/assets/fonts/space-grotesk/`
 
-Loaded with `next/font/local` from the source tree, not from `public/`. That is what gives them a hashed filename, a preload hint, and a generated `@font-face` with `font-display: swap`.
+Loaded with `next/font/local` from the source tree, not from `public/`. That is
+what gives it a hashed filename, a preload hint, and a generated `@font-face`
+with `font-display: swap`.
 
-| Directory | Files | Notes |
-| --------- | ----- | ----- |
-| `ibm-plex-sans/` | Variable, roman and italic, `wdth,wght` axes | All interface text |
-| `ibm-plex-mono/` | Static, 14 weights and italics | Every numeric the product computes or displays |
+| File | Notes |
+| ---- | ----- |
+| `SpaceGrotesk-Variable.woff2` | One variable file, weights 300–700, 36 KB — the whole type scale |
+| `OFL.txt` | SIL Open Font License. Stays with the font; the licence requires it. |
 
-The two families arrive in different formats — Sans is variable, Mono is static per weight. Both work; the theme declares them separately.
+**One family for everything** — interface text and every numeric alike. The type
+scale uses 400 (body and data values), 500 (labels and column headers), and 600
+(screen titles only).
 
-**The theme loads four faces:** Plex Sans variable roman, and Plex Mono `Regular` (400) and `Medium` (500) upright. Italics are never used anywhere in Sightline, and no weight below 400 or above 600 appears in the type scale. The remaining files are kept as the complete licensed set — they cost nothing, because an unimported font file is never bundled and never served.
+### Tabular figures are load-bearing
 
-`OFL.txt` is the SIL Open Font License covering both families. It stays alongside the fonts; the licence requires it to travel with them.
+Space Grotesk's **default figures are proportional** — its ten digits have nine
+different advance widths. Column alignment down a long slate depends entirely on
+`font-variant-numeric: tabular-nums`, which the theme sets on every numeric
+variant. With a monospace face that was belt and braces; here it is the only
+mechanism, and removing it breaks every numeric column with nothing to catch it.
 
-**Format note:** these are TTF. WOFF2 is materially smaller over the wire and is the right format for self-hosting. Conversion is outstanding — see the design doc's open questions.
+### Do not build `var()` from `next/font`'s `.variable`
+
+That property is a generated **class name**, not a custom-property name.
+`` `var(${font.variable})` `` yields invalid CSS which browsers discard silently,
+falling back to `system-ui`. Reference `var(--font-space-grotesk)` directly. This
+exact mistake shipped once and went unnoticed, because nothing fails — the page
+simply renders in the wrong typeface.
 
 ## Favicon and icons — `public/`
 

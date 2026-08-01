@@ -51,7 +51,7 @@ Design in the style of professional analysis tools and scientific readouts: Line
 Core qualities for Sightline:
 
 - **Two sources, visibly distinct.** Every number on screen came either from Sightline's model or from the Kalshi market, and the palette says which. This is the organizing idea of the whole interface.
-- **Scannable at density.** The slate may be six contracts or sixty; the row design must work at both without changing shape. Numerics are monospaced and column-aligned so a user reads down a column, not across a card.
+- **Scannable at density.** The slate may be six contracts or sixty; the row design must work at both without changing shape. Numerics carry tabular figures and are column-aligned so a user reads down a column, not across a card.
 - **Uncertainty is never stripped.** A probability without its confidence, a rate without its sample size, or a projection without its timestamp is an incomplete display. There is no "clean" version of a number that drops these.
 - **Staleness is loud.** A stale projection paired with a live price is the most dangerous state in the product. It must be visible in the list view, not discovered on a detail view.
 
@@ -66,7 +66,7 @@ Avoid:
 ## Brand system
 
 - The product name is **Sightline** in the shell, titles, and metadata. Rendered lowercase in the wordmark, sentence case everywhere else.
-- A defined primary/secondary palette (see Appearance below) and a single typography family (IBM Plex), used as consistent tokens throughout.
+- A defined primary/secondary palette (see Appearance below) and a single typography family (Space Grotesk), used as consistent tokens throughout.
 - Consistent iconography via `@mui/icons-material`, used at one stroke and size scale per context.
 - No screen should retain an un-themed default Material UI appearance. Stock MUI reads as stock MUI; the theme is a named deliverable, not an emergent property.
 - **The logo is supplied and must not be redesigned.** Sightline's mark is a circular reticle — a stroked circle with four tick marks, a mint quarter-arc from twelve to three o'clock, and a mint centre dot — shipped as SVG. A separate 16px variant drops the tick marks and keeps the arc. A monochrome variant using `currentColor` covers both appearance modes from one file. Do not ideate alternatives, do not add a wordmark to the mark where the mark is used alone, and do not recolour the arc.
@@ -75,10 +75,30 @@ Kalshi is the only third-party brand that appears in this product. Represent it 
 
 ## Typography
 
-- **IBM Plex Sans** is the approved application font for all interface text. **IBM Plex Mono** is the approved font for every numeric value the product computes or displays — probability, price, edge, confidence, threshold, sample size, Brier score, timestamps. Do not leave typography unspecified and do not substitute Inter, Roboto, or the MUI default.
+- **Space Grotesk** is the approved typeface for **everything** — interface text and every numeric the product computes or displays. One variable file covering 300–700. Do not substitute Inter, Roboto, IBM Plex, or the MUI default, and do not introduce a second family for numerics.
+- **Tabular figures are load-bearing, not a nicety.** Space Grotesk's default figures are *proportional* — its ten digits have nine different advance widths — so `font-variant-numeric: tabular-nums` is the only thing keeping numeric columns aligned. Set it on every numeric. Column alignment down sixty slate rows is the whole reason the numeric variants exist, and dropping the setting breaks it silently.
 - Weight posture is restrained: 400 for body and all data values, 500 for column headers, labels, and emphasis, 600 reserved for screen titles only. Never bold a data value to signal importance — importance is carried by position and colour, not weight.
-- Set `font-variant-numeric: tabular-nums` on every numeric. Column alignment down sixty slate rows is the entire reason IBM Plex Mono is here; proportional figures defeat it.
 - Tracking: `-0.01em` on titles at 20px and above, default elsewhere. Never letter-space uppercase labels — there are no uppercase labels.
+
+### The type scale
+
+| Variant | Size / line | Weight | Usage |
+| ------- | ----------- | ------ | ----- |
+| `h1` | 22 / 30 | 600 | Screen title. The only place 600 is used. |
+| `h2` | 18 / 26 | 500 | Section title |
+| `body1` | 15 / 22 | 400 | Body, table cells, form values |
+| `body2` | 14 / 20 | 400 | Supporting text |
+| `label` | 13 / 18 | 500 | Column headers, form labels, chip text |
+| `caption` | 13 / 18 | 400 | Helper text, qualifiers |
+| `numericLg` | 22 / 30 | 400 | Headline figures |
+| `numericMd` | 15 / 22 | 400 | Timestamps, table figures |
+| `numericSm` | 13 / 18 | 400 | Dense secondary figures |
+
+Base size is 15px. `htmlFontSize` stays 16 so browser text-size preferences scale correctly.
+
+### One trap, because it has already been hit once
+
+`next/font`'s `.variable` property is a **generated class name**, not a custom-property name. Writing `` `var(${font.variable})` `` produces `var(spacegrotesk_abc__variable)` — invalid CSS that no tool reports and every browser silently discards, falling back to `system-ui`. Reference the literal property name (`var(--font-space-grotesk)`) instead. Nothing fails; the page just renders in the wrong typeface.
 
 ## Appearance: light, dark, and system
 
