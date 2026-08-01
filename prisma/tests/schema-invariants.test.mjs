@@ -280,3 +280,119 @@ test("PlayerExternalId keeps player_id nullable so unresolved ids are retained",
     "playerId must be nullable — unresolved/ambiguous ids carry no player",
   );
 });
+
+// ---------------------------------------------------------------------------
+// Pitch 4 — market, projection, and decision tables (SIG-39)
+// ---------------------------------------------------------------------------
+
+const PITCH4_TABLES = [
+  "contracts",
+  "market_sync_runs",
+  "price_observations",
+  "projections",
+  "projection_drivers",
+  "recommendation_snapshots",
+  "decisions",
+];
+
+test("pitch 4 tables exist and are not bitemporal fact tables", () => {
+  // Contracts and prices are market metadata the model never reads (prices
+  // never feed projections); projections are model OUTPUT; snapshots and
+  // decisions are product history. None may acquire the temporal trio or an
+  // ingest_run_id by imitation.
+  for (const table of PITCH4_TABLES) {
+    const model = modelsByTable.get(table);
+    assert.ok(model, `${table} not found in schema`);
+    for (const field of ["validAt", "knownAt", "knownAtReconstructed"]) {
+      assert.ok(
+        !model.fields.has(field),
+        `${table} must not carry ${field} — it is not a fact table`,
+      );
+    }
+    assert.ok(
+      !/@map\("ingest_run_id"\)/.test(model.body),
+      `${table} must not carry ingest_run_id`,
+    );
+  }
+});
+
+test("edge is a view, not a record: no derived-state column on contracts", () => {
+  // Live edge, staleness, and recommendation state are computed on read.
+  // A column for any of them is the denormalisation CLAUDE.md forbids.
+  const contract = modelsByTable.get("contracts");
+  for (const forbidden of [
+    "edge",
+    "edgePoints",
+    "confidenceAdjustedEdge",
+    "isStale",
+    "stale",
+    "isRecommended",
+    "recommended",
+  ]) {
+    assert.ok(
+      !contract.fields.has(forbidden),
+      `contracts must not carry ${forbidden} — edge/staleness/recommendation are computed on read`,
+    );
+  }
+});
+
+test("decisions carry the full server-read snapshot and direct user ownership", () => {
+  const decision = modelsByTable.get("decisions");
+  assert.ok(decision, "decisions model not found");
+  for (const field of [
+    "userId",
+    "disposition",
+    "snapshotModelProbability",
+    "snapshotAskCents",
+    "snapshotEdgePoints",
+    "snapshotConfidence",
+    "snapshotIsRecommended",
+    "snapshotProjectionComputedAt",
+    "snapshotInformationCutoff",
+    "snapshotPriceObservedAt",
+    "decidedAt",
+  ]) {
+    assert.ok(decision.fields.has(field), `decisions is missing ${field}`);
+  }
+  // Anchored to the contract, not to a recommendation: contractId required,
+  // and there is deliberately NO recommendation-snapshot foreign key required.
+  assert.ok(
+    decision.fields.get("contractId").required,
+    "decisions.contractId must be non-nullable — decisions anchor to contracts",
+  );
+  assert.ok(
+    decision.fields.get("userId").required,
+    "decisions.userId must be non-nullable — ownership is direct, from the session",
+  );
+});
+
+test("price observations are append-only by construction", () => {
+  const obs = modelsByTable.get("price_observations");
+  assert.ok(obs, "price_observations model not found");
+  assert.ok(
+    !obs.fields.has("updatedAt"),
+    "price_observations must not carry updatedAt — observations are never updated",
+  );
+  // Both sides of the book, never a midpoint column.
+  for (const field of ["yesBidCents", "yesAskCents", "noBidCents", "noAskCents"]) {
+    assert.ok(obs.fields.has(field), `price_observations is missing ${field}`);
+  }
+  assert.ok(
+    !obs.fields.has("midCents"),
+    "price_observations must not store a midpoint — it is derivable",
+  );
+});
+
+test("projections carry both clocks and the idempotent persist key", () => {
+  const projection = modelsByTable.get("projections");
+  assert.ok(projection, "projections model not found");
+  const computedAt = projection.fields.get("computedAt");
+  const cutoff = projection.fields.get("informationCutoff");
+  assert.ok(computedAt?.required, "projections.computedAt must be non-nullable");
+  assert.ok(cutoff?.required, "projections.informationCutoff must be non-nullable");
+  assert.match(
+    projection.body,
+    /@@unique\(\[playerId, gameId, statType, modelVersion, informationCutoff\]\)/,
+    "projections must have the idempotent persist unique key",
+  );
+});

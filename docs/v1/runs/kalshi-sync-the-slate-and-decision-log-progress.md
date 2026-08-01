@@ -9,7 +9,9 @@ the design doc, UI preview, and spec listed below, then continue from **Current 
 
 ## Current step
 
-Step 7 — open the feature branch + feature PR into `main`.
+Step 8 — work tickets SIG-39 → SIG-45 in order via /sightline-ticket-worker.
+
+Feature branch: `feature/kalshi-sync-the-slate-and-decision-log`. Feature PR: https://github.com/troyrhodes02/sightline/pull/34 (base `main`). Docs committed as `065e25e` on the feature branch.
 
 ## Pipeline steps
 
@@ -19,7 +21,7 @@ Step 7 — open the feature branch + feature PR into `main`.
 4. [x] Spec → `docs/v1/specs/kalshi-sync-the-slate-and-decision-log-spec.md`
 5. [x] Resolve all open questions as Resolved Decisions in the spec (RD-1 … RD-18)
 6. [x] Milestone + Linear issues chained with blockedBy; identifiers recorded below
-7. [ ] Feature PR into `main` (feature branch)
+7. [x] Feature PR into `main`: #34, branch `feature/kalshi-sync-the-slate-and-decision-log`
 8. [ ] Work every ticket in order via `/sightline-ticket-worker`; PR per ticket
 9. [ ] Runbook (Kalshi API access, env vars; note CI-secret reuse)
 10. [ ] Squash-merge ticket PRs into feature branch in order
