@@ -6,10 +6,12 @@ description: >
   the slate list, contract detail, accuracy and calibration surface, backtest runs,
   decision log, health, settings, admin user management, invite acceptance, or login —
   or when restyling an existing screen, applying the brand, building an empty or error
-  state, or theming a chart. Produces dense, quiet, instrument-grade UI in Sightline's
-  brand system. Trigger whenever building or restyling a Sightline screen, whenever a
-  ticket touches a component's appearance, and whenever a design doc calls for brand
-  or visual language.
+  state, or theming a chart. Also use when asked for a UI preview, design preview,
+  visual mockup, screen gallery, or a viewable rendering of a design doc, which ships
+  as a standalone HTML file under docs/v1/ui/. Produces dense, quiet, instrument-grade
+  UI in Sightline's brand system. Trigger whenever building or restyling a Sightline
+  screen, whenever a ticket touches a component's appearance, and whenever a design doc
+  calls for brand or visual language.
 ---
 
 # Sightline UI Design
@@ -26,6 +28,14 @@ Copy is flat and declarative. No coaching language, no second person exhortation
 
 ## Output format
 
+There are two output modes, and the request decides which.
+
+**Product UI** is the default — a screen, a component, a restyle, a ticket touching appearance. Output is Material UI as described below.
+
+**A UI preview** is a standalone HTML file rendering a design doc's screens for review. Asked for by "preview", "mockup", "show me the screens", "visual", "gallery", or "render the design doc". It is a *picture of the design*, not product code, and it is the one place hand-authored CSS is permitted. See **UI previews** below before writing one.
+
+For product UI:
+
 - Code in TypeScript/React using Material UI components and MUI's `sx` prop and theme system, in a single code block. Material UI is Sightline's only component and styling system — do not introduce Tailwind, styled-components, CSS modules, hand-authored stylesheets, utility classes, or a second component library.
 - Start with a brief response, then the code, then a brief closing response.
 - Do not mention the implementation format, styling framework, or markup language in the response text.
@@ -41,7 +51,7 @@ Design in the style of professional analysis tools and scientific readouts: Line
 Core qualities for Sightline:
 
 - **Two sources, visibly distinct.** Every number on screen came either from Sightline's model or from the Kalshi market, and the palette says which. This is the organizing idea of the whole interface.
-- **Scannable at density.** The slate may be six contracts or sixty; the row design must work at both without changing shape. Numerics are monospaced and column-aligned so a user reads down a column, not across a card.
+- **Scannable at density.** The slate may be six contracts or sixty; the row design must work at both without changing shape. Numerics carry tabular figures and are column-aligned so a user reads down a column, not across a card.
 - **Uncertainty is never stripped.** A probability without its confidence, a rate without its sample size, or a projection without its timestamp is an incomplete display. There is no "clean" version of a number that drops these.
 - **Staleness is loud.** A stale projection paired with a live price is the most dangerous state in the product. It must be visible in the list view, not discovered on a detail view.
 
@@ -56,7 +66,7 @@ Avoid:
 ## Brand system
 
 - The product name is **Sightline** in the shell, titles, and metadata. Rendered lowercase in the wordmark, sentence case everywhere else.
-- A defined primary/secondary palette (see Appearance below) and a single typography family (IBM Plex), used as consistent tokens throughout.
+- A defined primary/secondary palette (see Appearance below) and a single typography family (Space Grotesk), used as consistent tokens throughout.
 - Consistent iconography via `@mui/icons-material`, used at one stroke and size scale per context.
 - No screen should retain an un-themed default Material UI appearance. Stock MUI reads as stock MUI; the theme is a named deliverable, not an emergent property.
 - **The logo is supplied and must not be redesigned.** Sightline's mark is a circular reticle — a stroked circle with four tick marks, a mint quarter-arc from twelve to three o'clock, and a mint centre dot — shipped as SVG. A separate 16px variant drops the tick marks and keeps the arc. A monochrome variant using `currentColor` covers both appearance modes from one file. Do not ideate alternatives, do not add a wordmark to the mark where the mark is used alone, and do not recolour the arc.
@@ -65,10 +75,30 @@ Kalshi is the only third-party brand that appears in this product. Represent it 
 
 ## Typography
 
-- **IBM Plex Sans** is the approved application font for all interface text. **IBM Plex Mono** is the approved font for every numeric value the product computes or displays — probability, price, edge, confidence, threshold, sample size, Brier score, timestamps. Do not leave typography unspecified and do not substitute Inter, Roboto, or the MUI default.
+- **Space Grotesk** is the approved typeface for **everything** — interface text and every numeric the product computes or displays. One variable file covering 300–700. Do not substitute Inter, Roboto, IBM Plex, or the MUI default, and do not introduce a second family for numerics.
+- **Tabular figures are load-bearing, not a nicety.** Space Grotesk's default figures are *proportional* — its ten digits have nine different advance widths — so `font-variant-numeric: tabular-nums` is the only thing keeping numeric columns aligned. Set it on every numeric. Column alignment down sixty slate rows is the whole reason the numeric variants exist, and dropping the setting breaks it silently.
 - Weight posture is restrained: 400 for body and all data values, 500 for column headers, labels, and emphasis, 600 reserved for screen titles only. Never bold a data value to signal importance — importance is carried by position and colour, not weight.
-- Set `font-variant-numeric: tabular-nums` on every numeric. Column alignment down sixty slate rows is the entire reason IBM Plex Mono is here; proportional figures defeat it.
 - Tracking: `-0.01em` on titles at 20px and above, default elsewhere. Never letter-space uppercase labels — there are no uppercase labels.
+
+### The type scale
+
+| Variant | Size / line | Weight | Usage |
+| ------- | ----------- | ------ | ----- |
+| `h1` | 22 / 30 | 600 | Screen title. The only place 600 is used. |
+| `h2` | 18 / 26 | 500 | Section title |
+| `body1` | 15 / 22 | 400 | Body, table cells, form values |
+| `body2` | 14 / 20 | 400 | Supporting text |
+| `label` | 13 / 18 | 500 | Column headers, form labels, chip text |
+| `caption` | 13 / 18 | 400 | Helper text, qualifiers |
+| `numericLg` | 22 / 30 | 400 | Headline figures |
+| `numericMd` | 15 / 22 | 400 | Timestamps, table figures |
+| `numericSm` | 13 / 18 | 400 | Dense secondary figures |
+
+Base size is 15px. `htmlFontSize` stays 16 so browser text-size preferences scale correctly.
+
+### One trap, because it has already been hit once
+
+`next/font`'s `.variable` property is a **generated class name**, not a custom-property name. Writing `` `var(${font.variable})` `` produces `var(spacegrotesk_abc__variable)` — invalid CSS that no tool reports and every browser silently discards, falling back to `system-ui`. Reference the literal property name (`var(--font-space-grotesk)`) instead. Nothing fails; the page just renders in the wrong typeface.
 
 ## Appearance: light, dark, and system
 
@@ -158,6 +188,86 @@ For the accuracy and backtest surfaces, use plausible aggregate mock data — Br
 When the task is a comprehensive visual or brand redesign — the App Shell, Brand & Access pitch, or any later "apply the brand" work — the approved direction applies to **every** existing user-facing page and UI state, not just the primary app screens. That includes: slate list; slate list empty; slate list Kalshi-degraded; contract detail; contract detail with pending suggestion; contract detail with no projection; unresolved contract row and its detail; accuracy and calibration; accuracy with insufficient data; backtest run list; backtest run detail; backtest run with configuration drift; decision log; decision log empty; override performance; override performance with insufficient sample; suggestion reliability; health; health with a stale job; settings; user management; invite creation dialog; revoke confirmation dialog; trading order entry; trading confirmation step; trading fill, partial fill, and rejection results; login; invite acceptance valid, expired, used, and revoked; access denied; not found; application error; every navigation surface at phone, tablet, and desktop widths; the app bar and its mobile drawer; every snackbar and toast; every skeleton loading state; and both light and dark foundations for all of the above.
 
 Full-surface redesign work does **not** include: designing an alternative logo; any sportsbook, DFS, or PrizePicks-style integration surface; any public marketing, signup, or pricing page; in-app messaging or notification centre; a friend pick-sharing feed; bankroll or portfolio surfaces; or any NBA or WNBA surface. Those are permanent non-goals or explicitly deferred past V1.
+
+## UI previews
+
+A UI preview is a single self-contained HTML file that renders every screen and state of a design doc, in both appearance modes, for review before anything is built. It exists because a design doc describes screens in prose and wireframes, and a reviewer needs to see them.
+
+Start from `references/preview-template.html`. It carries the scaffolding, the product tokens, and the component patterns already correct — copy it and replace the example frames. Do not re-derive the token block; it must match the design doc's palette exactly, and retyping hex values is how two visual systems start.
+
+### Where it goes
+
+- **Path:** `docs/v1/ui/<feature-slug>-ui-preview.html` — matching the design doc's slug. Create `docs/v1/ui/` if absent.
+- **One file per design doc.** A preview covering two features is two files.
+- Never overwrite a spec, a design doc, or a pitch. If the requested output path is one of those, say so and write the preview to `docs/v1/ui/` instead.
+
+### The preview is not product code
+
+This is the rule that keeps the hand-authored CSS from becoming a second styling system:
+
+- The HTML and CSS in a preview are **a rendering of the design and are never copied into the application.** The app is built in Material UI against the theme.
+- Say so on the page, in the lead's note pill. A reader who finds the file in six months must not mistake it for the implementation.
+- When a preview and the MUI theme disagree, **the theme wins** and the preview is wrong.
+- Previews are review artefacts. Like the Pitch 2 inspection interface, they are not linked from the application and never ship inside it.
+
+### Two token layers, kept apart
+
+The template defines both. The separation is the point.
+
+| Layer | Prefix | Rule |
+| ----- | ------ | ---- |
+| Preview chrome | `--pv-*` | The studio around the mocks. **Achromatic — greys only.** Colour in this product means provenance, so the scaffolding has none and can never be mistaken for a product surface. |
+| Product tokens | `--sl-*`, scoped to `.sl` | The design doc's theme values, exactly. `.sl[data-sl="dark"]` carries the dark foundation. |
+
+The appearance toggle sets `data-sl` on every `.js-sl` element at once, so all product surfaces flip together. It follows the OS on first load, because system is Sightline's default.
+
+**Chrome conventions do not cross into `.sl`.** Uppercase eyebrows, letter-spaced labels, and pill shapes are fine in the chrome and forbidden in the product. Anything inside a `.mock` obeys the brand system: chips at 4px radius, no pill badges, no gradients, no drop shadows except on menus and dialogs, no uppercase labels, mono tabular numerics, and no bolded data values.
+
+### Required structure
+
+In order. The template lays it out.
+
+1. **Studio header** — sticky. Reticle mark, `Sightline · [Feature]`, a one-line scope, jump links, appearance toggle.
+2. **Lead** — eyebrow, one-sentence thesis in the design doc's north-star language, two or three sentences of scope, and the note pill stating this is a rendering rather than product code.
+3. **Numbered sections** — `01`, `02`, … each with a title and a one-line description of the rule the screens demonstrate. Group by surface, not by component.
+4. **Framed screens** — every screen inside a `.pv-frame` with a caption carrying its **name**, its **route** in monospace, and a right-aligned **tag** for the role or condition. A screen without its route is not reviewable.
+5. **A states section** — loading, empty, degraded, error, terminal, and permission-denied, given the same billing as the populated screens.
+6. **Closing legend** — two cards restating the design commitments the frames are built to respect, as checkmark lists. This is what makes a preview reviewable rather than merely pretty.
+7. **Footer** — the design doc filename and version it was generated from, plus a one-line summary of the commitments.
+
+### Coverage
+
+A preview is complete when every screen and every state named in the design doc appears. Read its screen specifications and enumerate them — each screen's empty, loading, and error states are separate frames, not a note.
+
+Sightline-specific coverage that gets skipped and must not be:
+
+- **Phone frames.** The slate is read on a phone on a Sunday morning, so phone is the design target. Any surface with a list, a table, or a decision control appears at `375px` (`.mock--phone`) as well as desktop. A preview with no phone frame has not previewed the primary reading context.
+- **Both appearance modes**, verified by flipping the toggle rather than assumed.
+- **The states that are legitimate answers, not failures** — an empty slate, nothing clearing the recommendation threshold, a bucket below sample size, a June with no games. These carry as much design weight as the populated case.
+- **Kalshi degraded mode** wherever prices appear, as a designed state with a last-fetch timestamp rather than an error.
+- **Stale projections in list view**, not only on detail.
+- **Role variants** where a surface differs between admin and viewer — including that an admin-only surface is *absent* for a viewer, never disabled or blurred.
+
+### Mock data
+
+Use the vocabulary below in the Mock data section. A preview populated with `Player 1 / Stat A / 50%` reads as a component gallery; the same frames with Ja'Marr Chase, a 74.5 threshold, 54¢, and a `+7.4 pts` edge read as Sightline. Keep numbers internally consistent across frames — the same contract should carry the same probability everywhere it appears.
+
+### Verification before handing it over
+
+- [ ] Opens standalone with no network request. Fonts, logos, and icons resolve from relative paths or are inline.
+- [ ] The appearance toggle flips every product surface, and both modes are correct on every frame.
+- [ ] Dark surfaces are neutral near-black. Nothing in dark mode has a hue.
+- [ ] No hex value inside a `.mock` that is not a `--sl-*` token.
+- [ ] Every numeric is mono with tabular figures. No data value is bold.
+- [ ] No uppercase label, letter-spaced label, or pill-shaped chip inside a `.mock`.
+- [ ] No drop shadow inside a `.mock` except on a menu or dialog.
+- [ ] Every frame carries a name and a route.
+- [ ] Every screen from the design doc is present, with its empty, loading, and error states.
+- [ ] Phone frames exist for every list, table, and decision surface.
+- [ ] Nothing scrolls horizontally inside a phone frame.
+- [ ] No illustration, spot graphic, or empty-state artwork anywhere in a `.mock`.
+- [ ] The note pill states that this is a rendering, not product code.
+- [ ] The footer names the design doc and version it came from.
 
 ## Respecting provided input
 

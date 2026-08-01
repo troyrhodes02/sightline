@@ -518,14 +518,14 @@ model CalibrationBin {
   // in a unique index, so @@unique below does NOT prevent duplicate "all" rows
   // — four partial unique indexes (one per segment axis) plus a single-axis
   // CHECK do, in the migration.
-  statType StatType?   @map("stat_type")
-  season   Int?
-  era      WeatherEra?
+  statType   StatType?   @map("stat_type")
+  season     Int?
+  era        WeatherEra?
   // SIG-26: the contract-like population segment. NULL for the stat/season/era
   // and "all" segments; 'contract_like' for the volume-floor sub-population the
   // recalibration layer is fitted against. Single-axis is enforced by the CHECK
   // and partial unique indexes in the migration (raw SQL Prisma does not model).
-  population String? @map("population")
+  population String?     @map("population")
 
   binIndex Int     @map("bin_index") // 0..9
   binLow   Decimal @map("bin_low") @db.Decimal(4, 3)
@@ -547,4 +547,62 @@ model CalibrationBin {
   @@unique([backtestRunId, statType, season, era, binIndex])
   @@index([backtestRunId])
   @@map("calibration_bins")
+}
+
+// ---------------------------------------------------------------------------
+// Access control (Pitch 3 — App Shell, Brand & Access)
+//
+// NOT multi-tenancy. Projections, prices, contracts and every reference table
+// are identical for every user; only Decision and Position (Pitch 4 onward) are
+// user-scoped. This table is shared ADMINISTRATIVE data and carries no owner
+// column — do not generalise from it to those.
+//
+// Anyone may request an account. Nobody gets access until an admin approves it,
+// so a `pending` row is a request, not a user. Credentials live in Supabase
+// Auth and never here: this table holds AUTHORIZATION state, which is a
+// different thing and the reason every protected surface re-reads it. An access
+// token minted before a status change still verifies and still carries a role
+// claim, so the token cannot answer "is this person allowed in". Only the
+// database can.
+// ---------------------------------------------------------------------------
+
+enum UserRole {
+  admin
+  viewer
+}
+
+enum UserStatus {
+  pending // account requested; no access of any kind until decided
+  active // approved by an admin
+  denied // request refused; may not sign in
+  revoked // access ended after having been approved
+}
+
+/// An account, or a request for one. `id` IS the Supabase auth.users UUID —
+/// there is deliberately no separate internal identifier and no mapping table.
+///
+/// A row exists from the moment someone signs up, which is why `status` rather
+/// than the row's existence is what grants access.
+model User {
+  id          String     @id // = auth.users.id; NOT @default(uuid())
+  email       String     @unique // mirrored from auth at sign-up; never editable
+  displayName String?    @map("display_name")
+  role        UserRole   @default(viewer)
+  status      UserStatus @default(pending)
+
+  requestedAt  DateTime  @default(now()) @map("requested_at") // when they signed up
+  decidedAt    DateTime? @map("decided_at") // when approved or denied
+  decidedById  String?   @map("decided_by_id") // which admin decided
+  lastActiveAt DateTime? @map("last_active_at") // refreshed at most every 15 minutes
+  revokedAt    DateTime? @map("revoked_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  decidedBy     User?  @relation("AccessDecision", fields: [decidedById], references: [id])
+  decisionsMade User[] @relation("AccessDecision")
+
+  // Pending requests are read first and most often; the list groups by status.
+  @@index([status, requestedAt])
+  @@map("users")
 }
