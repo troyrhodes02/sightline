@@ -9,7 +9,7 @@ the design doc, UI preview, and spec listed below, then continue from **Current 
 
 ## Current step
 
-Step 11 — full verification suite on the feature branch.
+**RUN COMPLETE.** PR #34 squash-merged into `main` 2026-08-01T09:11:58Z. See the run report at `docs/v1/runs/kalshi-sync-the-slate-and-decision-log-report.md`.
 
 Feature branch: `feature/kalshi-sync-the-slate-and-decision-log`. Feature PR: https://github.com/troyrhodes02/sightline/pull/34 (base `main`). All seven tickets are squash-merged onto the feature branch in order (`53f02fa`, `0655749`, `7b2a354`, `c0cb876`, `0f044e1`, `de9eb56`, `4290fe2`, plus fix `a02c8c9`); the tree is byte-identical to the fully verified stack tip (`git diff feat/SIG-45-decision-log` empty at merge time).
 
@@ -27,11 +27,11 @@ Feature branch: `feature/kalshi-sync-the-slate-and-decision-log`. Feature PR: ht
 8. [x] Work every ticket in order via `/sightline-ticket-worker`; PR per ticket
 9. [x] Runbook → `docs/v1/runbooks/kalshi-market-sync.md` (Kalshi API access, env vars; note CI-secret reuse)
 10. [x] Squash-merge ticket PRs into feature branch in order
-11. [ ] Full verification suite on feature branch (lint, typecheck, format, tests, build, e2e)
-12. [ ] `/review` feature branch vs `main`; findings as inline comments on feature PR
-13. [ ] `/sightline-review-audit` the findings; implement/defer/discuss/skip
-14. [ ] Re-verify; squash-merge feature branch into `main` if green
-15. [ ] Run report → `docs/v1/runs/kalshi-sync-the-slate-and-decision-log-report.md`
+11. [x] Full verification suite (lint/typecheck/format/jest 217/schema 16/build/pytest 314/e2e 42+20 skipped) on feature branch (lint, typecheck, format, tests, build, e2e)
+12. [x] `/review` — 5 inline findings on PR #34 feature branch vs `main`; findings as inline comments on feature PR
+13. [x] `/sightline-review-audit` — 4 implemented (`be5b868`), 1 skipped the findings; implement/defer/discuss/skip
+14. [x] Re-verified green; squash-merged feature branch into `main` if green
+15. [x] Run report → `docs/v1/runs/kalshi-sync-the-slate-and-decision-log-report.md`
 
 ## Tickets
 
