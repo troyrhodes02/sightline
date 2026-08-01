@@ -1,3 +1,5 @@
+import "server-only";
+
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../../generated/prisma/client";
 import { serverEnv } from "@/env";
@@ -12,6 +14,10 @@ import { serverEnv } from "@/env";
  *
  * A single instance is cached on `globalThis` in development so Next's hot
  * reload does not open a new pool on every edit.
+ *
+ * `server-only` is the real guard against a browser import — it turns one into
+ * a build error. A lint path rule cannot do the same job, because Server
+ * Components are also `.tsx` and read through Prisma legitimately.
  */
 
 const globalForPrisma = globalThis as unknown as {

@@ -110,10 +110,13 @@ describe("colour literal containment", () => {
   const SRC = join(process.cwd(), "src");
   const THEME = join(SRC, "theme", "index.ts");
   const LOCKUP = join(SRC, "components", "brand", "SightlineLockup.tsx");
+  // Email clients cannot read the theme; see the module's own comment.
+  const EMAIL = join(SRC, "lib", "mail", "invitation-email.ts");
 
-  it("confines hex values to the theme and the supplied lockup", () => {
+  it("confines hex values to the theme, the lockup, and the email template", () => {
+    const exempt = new Set([THEME, LOCKUP, EMAIL]);
     const offenders = productionFiles(SRC)
-      .filter((file) => file !== THEME && file !== LOCKUP)
+      .filter((file) => !exempt.has(file))
       .filter((file) => /#[0-9a-fA-F]{3,8}\b/.test(readCode(file)));
 
     expect(offenders).toEqual([]);

@@ -36,11 +36,14 @@ describe("service-role client isolation", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("is imported by no module in this PR", () => {
-    // SIG-34 (invitation acceptance) and SIG-36 (revocation) each add exactly
-    // one importer, and must extend this list deliberately — so the
-    // credential's reach is reviewed rather than allowed to drift.
-    const allowed: string[] = [];
+  it("is imported only by the sanctioned call sites", () => {
+    // Each entry is a deliberate edit, so the credential's reach is reviewed
+    // rather than allowed to drift. SIG-36 (revocation) adds the second.
+    const allowed = [
+      // Creates the Supabase auth user during invitation acceptance — the only
+      // path that creates an account at all.
+      join(SRC, "app", "api", "invitations", "accept", "route.ts"),
+    ];
 
     const importers = files.filter((file) =>
       /from\s+["'](?:@\/lib\/supabase\/admin|[.\/]*supabase\/admin)["']/.test(

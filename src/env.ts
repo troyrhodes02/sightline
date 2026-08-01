@@ -32,6 +32,14 @@ const serverSchema = z.object({
   /** Absolute origin, used to build invitation links. */
   APP_URL: z.url("APP_URL must be an absolute URL"),
 
+  /** Invitation delivery. Absent in development falls back to the console
+   *  transport; absent in production is a hard failure at send time. */
+  RESEND_API_KEY: z.string().min(1).optional(),
+  MAIL_FROM: z.string().min(1).default("Sightline <invites@sightline.local>"),
+
+  /** Invitation lifetime. Resolved Decisions #3: seven days. */
+  INVITATION_TTL_HOURS: z.coerce.number().int().positive().default(168),
+
   NODE_ENV: z
     .enum(["development", "test", "production"])
     .default("development"),
