@@ -38,7 +38,7 @@ Milestone: **Pitch 4: Kalshi Sync, The Slate & Decision Log** (`d6d3cfb4-c7b4-48
 | # | ID | Title | Status | Branch | PR |
 | - | -- | ----- | ------ | ------ | -- |
 | 1 | SIG-39 | Pitch 4 schema: market, projection, and decision tables | PR open, verified | `feat/SIG-39-pitch-4-schema` | #35 |
-| 2 | SIG-40 | Kalshi client, market sync, and contract resolution | todo | — | — |
+| 2 | SIG-40 | Kalshi client, market sync, and contract resolution | PR open, verified | `feat/SIG-40-kalshi-market-sync` | #36 |
 | 3 | SIG-41 | Python projection persistence: sightline-model project CLI | todo | — | — |
 | 4 | SIG-42 | Slate read model: edge, ranking, recommendation snapshots, DTOs | todo | — | — |
 | 5 | SIG-43 | The slate UI: ranked list, states, and price polling | todo | — | — |
