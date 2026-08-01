@@ -176,8 +176,8 @@ function Frame({ children }: { children: React.ReactNode }) {
         bgcolor: "background.default",
       }}
     >
-      <Stack spacing={3} sx={{ width: "100%", maxWidth: 360 }}>
-        <SightlineLockup height={28} />
+      <Stack spacing={3} sx={{ width: "100%", maxWidth: 380 }}>
+        <SightlineLockup height={30} />
         {children}
       </Stack>
     </Box>

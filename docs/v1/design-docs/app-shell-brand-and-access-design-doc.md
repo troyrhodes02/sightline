@@ -168,24 +168,37 @@ Colour is never the only indicator. Every state above carries a text label, and 
 
 ### 4.3 Typography
 
-**IBM Plex Sans** for all interface text. **IBM Plex Mono** for every numeric the product computes or displays. In this pitch the mono family is exercised by health timestamps and by invited/last-active dates in the users table — a small surface, deliberately, but the right one to prove the primitives on before sixty slate rows depend on them.
+**Space Grotesk for everything** — interface text and every numeric alike. One
+variable file covering weights 300–700, self-hosted, 36 KB.
 
-| Variant | Family | Size / line | Weight | Tracking | Usage |
-| ------- | ------ | ----------- | ------ | -------- | ----- |
-| `h1` | Sans | 20 / 28 | 600 | -0.01em | Screen title. The only place 600 is used. |
-| `h2` | Sans | 16 / 24 | 500 | default | Section title within a screen |
-| `body1` | Sans | 14 / 20 | 400 | default | Body text, table cells, form values |
-| `body2` | Sans | 13 / 18 | 400 | default | Supporting text |
-| `label` | Sans | 12 / 16 | 500 | default | Column headers, form labels, chip text |
-| `caption` | Sans | 12 / 16 | 400 | default | Helper text, timestamps' qualifying words |
-| `numericLg` | Mono | 20 / 28 | 400 | default | Reserved for headline figures (Pitch 6 onward) |
-| `numericMd` | Mono | 14 / 20 | 400 | default | Health timestamps, table dates |
-| `numericSm` | Mono | 12 / 16 | 400 | default | Dense secondary figures |
+| Variant | Size / line | Weight | Tracking | Usage |
+| ------- | ----------- | ------ | -------- | ----- |
+| `h1` | 22 / 30 | 600 | -0.01em | Screen title. The only place 600 is used. |
+| `h2` | 18 / 26 | 500 | default | Section title within a screen |
+| `body1` | 15 / 22 | 400 | default | Body text, table cells, form values |
+| `body2` | 14 / 20 | 400 | default | Supporting text |
+| `label` | 13 / 18 | 500 | default | Column headers, form labels, chip text |
+| `caption` | 13 / 18 | 400 | default | Helper text, qualifiers |
+| `numericLg` | 22 / 30 | 400 | default | Headline figures (Pitch 6 onward) |
+| `numericMd` | 15 / 22 | 400 | default | Health timestamps, table dates |
+| `numericSm` | 13 / 18 | 400 | default | Dense secondary figures |
 
-- `font-variant-numeric: tabular-nums` is set on all three numeric variants. Column alignment down sixty rows is the entire reason IBM Plex Mono is here; proportional figures defeat it.
-- **Never bold a data value to signal importance.** Importance is carried by position and colour.
-- **No uppercase labels anywhere**, therefore no letter-spacing on labels. `textTransform: 'none'` is a global component override, including on buttons.
-- Base font size is 14px for density. `htmlFontSize` stays at 16 so browser text-size preferences scale correctly.
+- **`font-variant-numeric: tabular-nums` is set on all three numeric variants,
+  and it is load-bearing rather than a refinement.** Space Grotesk's default
+  figures are *proportional* — ten digits, nine different advance widths — so
+  this setting is the only thing keeping numeric columns aligned. Column
+  alignment down sixty rows is why the numeric variants exist at all.
+- **Never bold a data value to signal importance.** Importance is carried by
+  position and colour.
+- **No uppercase labels anywhere**, therefore no letter-spacing on labels.
+  `textTransform: 'none'` is a global override, including on buttons.
+- Base font size is 15px. `htmlFontSize` stays at 16 so browser text-size
+  preferences scale correctly.
+
+**One trap, already hit once.** `next/font`'s `.variable` is a generated *class
+name*, not a custom-property name. Building a `var()` expression from it yields
+invalid CSS that browsers discard silently, falling back to `system-ui` with
+nothing reported. Reference `var(--font-space-grotesk)` directly.
 
 ### 4.4 Spacing, shape, elevation
 
@@ -212,16 +225,15 @@ Assets are organised by how they are consumed, in three locations. `design/brand
 | App lockup | `src/assets/brand/logo-lockup-adaptive.svg` | App bar, sign-in, invitation acceptance. **Inlined in the DOM** so `currentColor` resolves. |
 | Mark alone | `src/assets/brand/logo-mark-adaptive.svg` | Compact app bar at `xs` |
 | Fixed-colour lockups | `src/assets/brand/logo-lockup-for-{dark,light}-backgrounds.svg` | Invitation email. Not used in-app — `currentColor` does not inherit through an `<img>` tag. |
-| Interface font | `src/assets/fonts/ibm-plex-sans/` | All interface text. Variable, roman axis only. |
-| Numeric font | `src/assets/fonts/ibm-plex-mono/` | Every computed or displayed numeric. Static; the theme loads `Regular` (400) and `Medium` (500) upright only. |
+| Typeface | `src/assets/fonts/space-grotesk/` | Everything — interface text and numerics alike. One variable file, 300–700, WOFF2. |
 | Favicon | `public/favicon.svg` | Browser tab. A separate drawing with ticks removed — not a scaled mark. Filename is convention-locked. |
 | Touch icon | `public/apple-touch-icon.png` | iOS home screen. Filename is convention-locked. |
 | PWA / store icons | `public/icons/` | Web app manifest |
 | Icon sources | `design/brand/` | Regeneration only. Never served, never imported. |
 
-Fonts are loaded through `next/font/local` from `src/assets/`, **not** served from `public/`. That is what produces the hashed filename, the preload hint, and the generated `@font-face` with `font-display: swap`. Moving them into `public/` loses all three.
+The font is loaded through `next/font/local` from `src/assets/`, **not** served from `public/`. That is what produces the hashed filename, the preload hint, and the generated `@font-face` with `font-display: swap`. Moving it into `public/` loses all three.
 
-**One asset gap remains:** the fonts ship as TTF, and WOFF2 is materially smaller for self-hosting. Conversion is a build-time concern, noted here so the spec picks it up.
+**No asset gaps remain.** The typeface ships as a single WOFF2 variable file, which is the right format for self-hosting and roughly a quarter the size of the equivalent TTF.
 
 No social preview image exists in the set. None is required this pitch — there is no public surface, and the only externally-shared link is an invitation, which resolves to a page behind a token. If one is wanted later it is an additive asset, not a design change.
 
@@ -300,8 +312,8 @@ Revoked variant, shown above the form:
 ### Code reference
 
 ```tsx
-<Stack component="form" spacing={3} sx={{ width: '100%', maxWidth: 360 }}>
-  <SightlineLockup height={28} />
+<Stack component="form" spacing={3} sx={{ width: '100%', maxWidth: 380 }}>
+  <SightlineLockup height={30} />
 
   {reason === 'revoked' && (
     <Alert severity="info" variant="outlined">
@@ -568,7 +580,7 @@ Any authenticated request.
 
 | Element | MUI component / styling | Behavior |
 | ------- | ----------------------- | -------- |
-| **App bar** | `AppBar position="sticky"`, `variant="outlined"`, no elevation, bottom divider only | Height 56px. Background is `background.paper`, not the accent. |
+| **App bar** | `AppBar position="sticky"`, `variant="outlined"`, no elevation, bottom divider only | Height 60px. Background is `background.paper`, not the accent. |
 | **Lockup** | Inlined `SightlineLockup` at `sm+`, `SightlineMark` alone at `xs` | Links to `/slate`. No wordmark added to the mark when the mark stands alone. |
 | **Section nav** | `Tabs` at `md+` with `textTransform: 'none'` | Selected item: model accent text plus a 2px accent underline. Unselected: `text.secondary`. |
 | **Menu button** | `IconButton` with `MenuIcon`, `xs`/`sm` only | Opens the temporary drawer. `aria-label="Open navigation"`. |
@@ -601,8 +613,8 @@ const visible = sections.filter((s) => !s.adminOnly || role === 'admin');
     </IconButton>
 
     <Box component={Link} href="/slate" sx={{ display: 'flex', color: 'text.primary' }}>
-      <SightlineLockup height={20} sx={{ display: { xs: 'none', sm: 'block' } }} />
-      <SightlineMark size={20} sx={{ display: { xs: 'block', sm: 'none' } }} />
+      <SightlineLockup height={22} sx={{ display: { xs: 'none', sm: 'block' } }} />
+      <SightlineMark size={22} sx={{ display: { xs: 'block', sm: 'none' } }} />
     </Box>
 
     <Tabs value={current} sx={{ display: { xs: 'none', md: 'flex' }, ml: 2 }}>
@@ -1347,7 +1359,7 @@ Not built in this pitch, and deliberately: no `DataGrid`, no generic table abstr
 
 **3. There is no password-recovery path.** A user who forgets their password has no route back in: no reset flow exists, and the approved docs do not specify one. The implicit recovery is that William revokes and re-invites, which works but is undocumented and unstated in the interface. Either that is accepted and this document's decision to omit a "forgot password" link stands, or password reset needs a pitch. It should not be added quietly during implementation.
 
-**4. Fonts are TTF and should be WOFF2.** *(Resolved in part: IBM Plex Mono has been supplied and sits in `src/assets/fonts/ibm-plex-mono/`.)* Both families ship as TTF. Self-hosting through `next/font/local` should use WOFF2, which is materially smaller over the wire. Conversion is outstanding and belongs to the spec.
+**4. Typography — RESOLVED.** Space Grotesk replaced IBM Plex on 2026-08-01, as one variable WOFF2 file serving interface text and numerics alike. The former open item about TTF-versus-WOFF2 is closed by the same change. The consequence to carry forward: the new face has proportional default figures, so `tabular-nums` is now the sole mechanism keeping numeric columns aligned.
 
 **5. Invitation email delivery is a dependency, not a design.** The pitch lists email delivery as a dependency but no provider is chosen and no template is designed. The invitation email is the only surface in this pitch that renders outside the application, and it is where the fixed-colour lockups are used. Whether its design belongs in this pitch or in the spec needs deciding.
 

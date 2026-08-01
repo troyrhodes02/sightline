@@ -50,9 +50,9 @@ export function AccountMenu({ user }: { user: SessionUserDto }) {
       >
         <Avatar
           sx={{
-            width: 28,
-            height: 28,
-            fontSize: 12,
+            width: 30,
+            height: 30,
+            fontSize: 13,
             fontWeight: 500,
             bgcolor: "primary.soft",
             color: "primary.main",

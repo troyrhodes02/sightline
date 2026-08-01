@@ -54,7 +54,7 @@ This blocks Pitch 4 entirely: the roadmap sequences this pitch first so no user-
 ### In Scope
 
 - **Authentication and Access Approval** — public account requests, an admin approve/deny queue, persistent sessions across devices, admin and viewer roles, server-enforced authorization on every protected read and write, and immediate revocation.
-- **Brand and Responsive Interface** — the Material UI theme as a named deliverable, self-hosted IBM Plex, the brand asset pipeline, the responsive application shell with role-aware navigation, and the reusable interface-state primitives.
+- **Brand and Responsive Interface** — the Material UI theme as a named deliverable, self-hosted Space Grotesk, the brand asset pipeline, the responsive application shell with role-aware navigation, and the reusable interface-state primitives.
 - **The Next.js application itself** — App Router project, directory structure, Prisma client wiring through the transaction pooler, Supabase SSR session handling, and the test harness (Jest + Playwright).
 - **Four authenticated routes** — `/slate` (placeholder), `/settings`, `/health` (admin), `/users` (admin) — plus two public ones, `/sign-in` and `/sign-up`.
 - **Every interface state named in the design doc**, with the invitation states replaced by the three account statuses — pending, denied, revoked — plus two sign-in failure modes, six health signal states, loading, load failure, access denied, not found, application error.
@@ -203,7 +203,7 @@ Visual detail lives in the design doc and the UI preview. This section specifies
 
 ### Material UI integration
 
-Unchanged from v1.1: `createTheme` with `cssVariables` and both `colorSchemes`; `ThemeRegistry` as the client boundary because the theme carries function-valued `styleOverrides`; `InitColorSchemeScript` for pre-paint application; fonts through `next/font/local` from `src/assets/fonts/`; module augmentation for the custom palette keys and typography variants. Dialogs are `fullScreen` below `sm`.
+Unchanged from v1.1: `createTheme` with `cssVariables` and both `colorSchemes`; `ThemeRegistry` as the client boundary because the theme carries function-valued `styleOverrides`; `InitColorSchemeScript` for pre-paint application; the font through `next/font/local` from `src/assets/fonts/space-grotesk/`; module augmentation for the custom palette keys and typography variants. Dialogs are `fullScreen` below `sm`.
 
 ---
 
@@ -778,7 +778,7 @@ export function createTestUser(overrides: Partial<User> = {}): User {
 
 - [ ] The theme defines palette, typography, spacing, shape, elevation, interaction states, and component overrides for light and dark.
 - [ ] No colour literal exists outside `src/theme/index.ts`, enforced by a build-failing lint rule.
-- [ ] IBM Plex Sans and Mono are self-hosted; every numeric renders in Plex Mono with tabular figures.
+- [ ] Space Grotesk is self-hosted as one variable file; every numeric renders with `tabular-nums`, which is the sole mechanism keeping columns aligned once the face is proportional.
 - [ ] The correct appearance applies before first paint; the appearance control exists only in Settings.
 
 **Shell and states**

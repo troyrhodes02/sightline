@@ -110,9 +110,9 @@ export function SignIn({
         component="form"
         onSubmit={onSubmit}
         spacing={3}
-        sx={{ width: "100%", maxWidth: 360 }}
+        sx={{ width: "100%", maxWidth: 380 }}
       >
-        <SightlineLockup height={28} />
+        <SightlineLockup height={30} />
 
         {statusMessage ? (
           <Alert severity="info" icon={false} role="status">
