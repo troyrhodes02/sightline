@@ -1,31 +1,27 @@
-import Paper from "@mui/material/Paper";
-import Stack from "@mui/material/Stack";
-import Typography from "@mui/material/Typography";
-import { EmptyState } from "@/components/primitives/EmptyState";
+import { serverEnv } from "@/env";
+import { requireSession } from "@/lib/auth/session";
+import { readSlate } from "@/lib/slate/read";
+import { Slate } from "@/components/screens/Slate";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Slate · Sightline" };
 
 /**
- * The slate placeholder.
+ * The slate. A database read — never a model run, and never blocked on the
+ * refresh round-trip: rows render from stored observations and the poller
+ * island keeps prices current in place.
  *
- * **Issues no query and renders no skeleton.** It has nothing to fetch, and a
- * placeholder that shows a loading state first is pretending otherwise.
- *
- * No mock contracts, no sample rows, no illustrative numbers, no disabled
- * filter controls. Pitch 4 replaces this state; the route, the shell, and the
- * theme around it do not move.
+ * The role is resolved server-side and decides which serializer builds the
+ * payload; a viewer's slate is constructed by code that never queries
+ * decisions.
  */
-export default function SlatePage() {
+export default async function SlatePage() {
+  const session = await requireSession();
+  const slate = await readSlate(session.user.role);
   return (
-    <Stack spacing={3}>
-      <Typography variant="h1">Slate</Typography>
-      <Paper>
-        <EmptyState
-          title="The slate is not yet available."
-          detail="Contract listings, projections, and edges arrive with Kalshi market sync."
-        />
-      </Paper>
-    </Stack>
+    <Slate
+      slate={slate}
+      refreshIntervalSeconds={serverEnv().SLATE_REFRESH_INTERVAL_SECONDS}
+    />
   );
 }
