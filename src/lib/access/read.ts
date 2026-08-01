@@ -4,73 +4,65 @@ import { prisma } from "@/lib/prisma";
 import type { AccessRowDto } from "@/lib/dto/access";
 
 /**
- * Reads current access: everyone who has an account, plus everyone who has been
- * invited and has not yet accepted.
+ * Reads everyone the admin can act on, split into two groups.
  *
- * Two queries rather than one, because they are genuinely two things — an
- * account and a promise of one. Merging them in SQL would need a union with
- * null-padded columns and would still produce the same shape.
+ * `pending` is a **queue**, not a list of users — a row there is a request that
+ * has been granted nothing. Keeping it separate from the roster is the point of
+ * the screen: the admin's job here is to empty that queue.
  *
- * Order is deterministic: **self first**, then accepted users by acceptance,
- * then pending invitations by issue. Deterministic because a list that
- * reorders between renders is a list nobody trusts, and William's own row being
- * first is the one that never has a revoke control.
+ * Denied and revoked accounts are deliberately excluded. They are terminal, no
+ * action remains, and listing them would turn an actionable screen into an
+ * audit log nobody asked for.
+ *
+ * Order is deterministic. Requests are **oldest first**, because a queue that
+ * reorders is one people lose their place in. The roster puts the acting admin
+ * first, then everyone else in the order they were approved.
  */
-export async function readAccessRows(
-  currentUserId: string,
-): Promise<AccessRowDto[]> {
-  const [users, pending] = await Promise.all([
+export async function readAccess(currentUserId: string): Promise<{
+  pending: AccessRowDto[];
+  members: AccessRowDto[];
+}> {
+  const select = {
+    id: true,
+    email: true,
+    displayName: true,
+    role: true,
+    status: true,
+    requestedAt: true,
+    lastActiveAt: true,
+  } as const;
+
+  const [pending, members] = await Promise.all([
+    prisma.user.findMany({
+      where: { status: "pending" },
+      orderBy: { requestedAt: "asc" },
+      select,
+    }),
     prisma.user.findMany({
       where: { status: "active" },
-      orderBy: { acceptedAt: "asc" },
-      select: {
-        id: true,
-        email: true,
-        displayName: true,
-        role: true,
-        invitedAt: true,
-        lastActiveAt: true,
-      },
-    }),
-    prisma.invitation.findMany({
-      where: { acceptedAt: null, revokedAt: null },
-      orderBy: { createdAt: "asc" },
-      select: {
-        id: true,
-        email: true,
-        displayName: true,
-        role: true,
-        createdAt: true,
-      },
+      orderBy: { decidedAt: "asc" },
+      select,
     }),
   ]);
 
-  const accepted: AccessRowDto[] = users.map((user) => ({
-    id: user.id,
-    kind: "user",
-    displayName: user.displayName,
-    email: user.email,
-    role: user.role,
-    invitedAt: user.invitedAt.toISOString(),
-    lastActiveAt: user.lastActiveAt?.toISOString() ?? null,
-    pending: false,
-    isSelf: user.id === currentUserId,
-  }));
+  const toDto = (row: (typeof pending)[number]): AccessRowDto => ({
+    id: row.id,
+    displayName: row.displayName,
+    email: row.email,
+    role: row.role,
+    status: row.status,
+    requestedAt: row.requestedAt.toISOString(),
+    lastActiveAt: row.lastActiveAt?.toISOString() ?? null,
+    isSelf: row.id === currentUserId,
+  });
 
-  const invited: AccessRowDto[] = pending.map((invitation) => ({
-    id: invitation.id,
-    kind: "invitation",
-    displayName: invitation.displayName,
-    email: invitation.email,
-    role: invitation.role,
-    invitedAt: invitation.createdAt.toISOString(),
-    lastActiveAt: null,
-    pending: true,
-    isSelf: false,
-  }));
+  const roster = members.map(toDto);
 
-  const self = accepted.filter((row) => row.isSelf);
-  const others = accepted.filter((row) => !row.isSelf);
-
-  return [...self, ...others, ...invited];
+  return {
+    pending: pending.map(toDto),
+    members: [
+      ...roster.filter((row) => row.isSelf),
+      ...roster.filter((row) => !row.isSelf),
+    ],
+  };
 }

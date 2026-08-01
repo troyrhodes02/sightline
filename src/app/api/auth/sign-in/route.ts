@@ -3,6 +3,7 @@ import { createServerClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/prisma";
 import { jsonError } from "@/lib/api/errors";
 import { rateLimit } from "@/lib/auth/rate-limit";
+import { hasAccess, STATUS_MESSAGE } from "@/lib/auth/account-status";
 
 export const dynamic = "force-dynamic";
 
@@ -81,17 +82,30 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   // Authentication succeeded. Authorization has not been checked yet — the
-  // token proves who they are, the database says whether they may still enter.
+  // token proves who they are, the database says whether they may enter.
   const user = await prisma.user.findUnique({
     where: { id: signIn.data.user.id },
     select: { status: true },
   });
 
-  if (!user || user.status === "revoked") {
-    // Undo the session that was just established, then answer exactly as for a
-    // wrong password. A revoked user learns nothing about why.
+  if (!user) {
+    // An auth user with no row: a half-completed sign-up. Opaque, because from
+    // outside it is indistinguishable from an address that never registered.
     await supabase.auth.signOut();
     return jsonError("unauthorized", CREDENTIALS_REJECTED);
+  }
+
+  if (!hasAccess(user.status)) {
+    // Tear the session down, then say WHICH of the three it is.
+    //
+    // Safe to be specific here and only here: they supplied the correct
+    // password, so they already own the address and learn nothing they could
+    // not have learned by owning it. Someone guessing never reaches this branch
+    // — a wrong password returns the opaque message above.
+    await supabase.auth.signOut();
+    return jsonError("forbidden", STATUS_MESSAGE[user.status], {
+      status: user.status,
+    });
   }
 
   return Response.json({ redirectTo: redirectTo ?? "/slate" }, { status: 200 });

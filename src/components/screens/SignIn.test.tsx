@@ -28,30 +28,41 @@ describe("SignIn", () => {
     ).toBeInTheDocument();
   });
 
-  // The absence of these is a product commitment, so it is asserted rather
-  // than assumed to survive future edits.
-  it("has no signup, recovery, or social-auth affordance", () => {
+  it("has no recovery or social-auth affordance", () => {
+    // Their absence is a product commitment, so it is asserted rather than
+    // assumed to survive future edits.
     const { container } = renderSignIn();
     const text = container.textContent ?? "";
 
-    expect(text).not.toMatch(/sign up|create an account|register/i);
     expect(text).not.toMatch(/forgot|reset your password/i);
     expect(text).not.toMatch(/continue with|google|github|apple/i);
-    expect(container.querySelectorAll("a")).toHaveLength(0);
   });
 
-  it("states the access model, so the missing signup path reads as deliberate", () => {
+  it("links to the request form, and only there", () => {
+    renderSignIn();
+    const links = screen.getAllByRole("link");
+
+    expect(links).toHaveLength(1);
+    expect(links[0]).toHaveAttribute("href", "/sign-up");
+  });
+
+  it("says a request is reviewed, so the link does not read as open signup", () => {
     renderSignIn();
     expect(
-      screen.getByText("Access to Sightline is by invitation."),
+      screen.getByText(/every request is reviewed by an admin/i),
     ).toBeInTheDocument();
   });
 
-  it("explains a revoked session without explaining why", () => {
-    const { container } = renderSignIn({ revoked: true });
-    expect(
-      screen.getByText("Your access to Sightline has been removed."),
-    ).toBeInTheDocument();
-    expect(container.textContent).not.toMatch(/admin|revoked by|because/i);
+  it.each([
+    ["pending", /awaiting approval/i],
+    ["denied", /was not approved/i],
+    ["revoked", /has been removed/i],
+  ])("explains a %s account without explaining why", (reason, expected) => {
+    const { container, unmount } = renderSignIn({ reason });
+
+    expect(screen.getByText(expected)).toBeInTheDocument();
+    // The product has no opinion to offer, and a reason invites an argument.
+    expect(container.textContent).not.toMatch(/because|admin decided|sorry/i);
+    unmount();
   });
 });

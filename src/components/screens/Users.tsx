@@ -9,30 +9,20 @@ import Dialog from "@mui/material/Dialog";
 import DialogActions from "@mui/material/DialogActions";
 import DialogContent from "@mui/material/DialogContent";
 import DialogTitle from "@mui/material/DialogTitle";
-import FormControl from "@mui/material/FormControl";
-import FormControlLabel from "@mui/material/FormControlLabel";
-import FormLabel from "@mui/material/FormLabel";
 import Paper from "@mui/material/Paper";
-import Radio from "@mui/material/Radio";
-import RadioGroup from "@mui/material/RadioGroup";
 import Snackbar from "@mui/material/Snackbar";
 import Stack from "@mui/material/Stack";
-import Table from "@mui/material/Table";
-import TableBody from "@mui/material/TableBody";
-import TableCell from "@mui/material/TableCell";
-import TableHead from "@mui/material/TableHead";
-import TableRow from "@mui/material/TableRow";
-import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
-import useMediaQuery from "@mui/material/useMediaQuery";
-import { useTheme } from "@mui/material/styles";
 
+import { EmptyState } from "@/components/primitives/EmptyState";
 import { NumericText } from "@/components/primitives/NumericText";
 import { RoleChip } from "@/components/primitives/RoleChip";
 import { StatusChip } from "@/components/primitives/StatusChip";
 import type { AccessRowDto } from "@/lib/dto/access";
 
-/** Issue dates render as dates; relative age is for activity only. */
+type Action = "approve" | "deny" | "revoke";
+
+/** Requests carry a date; activity carries a relative age. */
 function asDate(iso: string): string {
   return iso.slice(0, 10);
 }
@@ -43,188 +33,151 @@ function asRelative(iso: string | null): string | null {
   return days <= 0 ? "Now" : `${days}d`;
 }
 
+const CONFIRM: Record<
+  Action,
+  (email: string) => { title: string; body: string; verb: string }
+> = {
+  approve: (email) => ({
+    title: "Approve access",
+    body: `Approve ${email}? They will be able to sign in immediately, with viewer access.`,
+    verb: "Approve",
+  }),
+  deny: (email) => ({
+    title: "Deny request",
+    body: `Deny the request from ${email}? They will not be able to sign in, and the decision is final — a new request would have to be made.`,
+    verb: "Deny",
+  }),
+  revoke: (email) => ({
+    title: "Revoke access",
+    body: `Revoke access for ${email}? They will be signed out immediately.`,
+    verb: "Revoke",
+  }),
+};
+
 /**
- * Access management. Deliberately the smallest surface that satisfies
- * invitation creation, current-access visibility, and immediate revocation.
+ * Access management.
  *
- * Rows carry identity and status only — never a password field, never a
+ * Two groups, deliberately apart: **requests are a queue** — rows that have
+ * been granted nothing and are waiting on the admin — and members are the
+ * roster. Merging them would bury the only thing on this page that needs doing.
+ *
+ * Rows carry identity and status only. Never a password field, never a
  * credential, never anything about positions, and no row is a link, because
- * there is no per-user content to open.
+ * there is no per-account content to open.
  */
-export function Users({ rows }: { rows: AccessRowDto[] }) {
+export function Users({
+  pending,
+  members,
+}: {
+  pending: AccessRowDto[];
+  members: AccessRowDto[];
+}) {
   const router = useRouter();
-  const [inviting, setInviting] = useState(false);
-  const [revoking, setRevoking] = useState<AccessRowDto | null>(null);
+  const [confirming, setConfirming] = useState<{
+    row: AccessRowDto;
+    action: Action;
+  } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  function completed(message: string) {
-    setNotice(message);
-    // Re-read from the server rather than mutating local state, so what is
-    // displayed is what the database actually holds.
-    router.refresh();
-  }
-
   return (
-    <Stack spacing={3}>
-      <Stack
-        direction={{ xs: "column", sm: "row" }}
-        spacing={2}
-        sx={{
-          alignItems: { xs: "stretch", sm: "center" },
-          justifyContent: "space-between",
-        }}
-      >
-        <Typography variant="h1">Users</Typography>
-        <Button variant="contained" onClick={() => setInviting(true)}>
-          Invite viewer
-        </Button>
+    <Stack spacing={4}>
+      <Typography variant="h1">Users</Typography>
+
+      <Stack spacing={1.5}>
+        <Stack direction="row" spacing={1} sx={{ alignItems: "baseline" }}>
+          <Typography variant="h2">Requests</Typography>
+          {pending.length > 0 ? (
+            <NumericText size="sm" sx={{ color: "text.secondary" }}>
+              {String(pending.length)}
+            </NumericText>
+          ) : null}
+        </Stack>
+
+        <Paper>
+          {pending.length === 0 ? (
+            // A legitimate answer, not a failure. Most days there is nothing
+            // here, and the screen should read as settled rather than broken.
+            <EmptyState title="No requests waiting." />
+          ) : (
+            <Stack
+              divider={<Box sx={{ borderBottom: 1, borderColor: "divider" }} />}
+            >
+              {pending.map((row) => (
+                <Row
+                  key={row.id}
+                  row={row}
+                  meta={`Requested ${asDate(row.requestedAt)}`}
+                  chip={<StatusChip label="Pending" tone="caution" />}
+                  actions={
+                    <>
+                      <Button
+                        size="small"
+                        variant="contained"
+                        onClick={() =>
+                          setConfirming({ row, action: "approve" })
+                        }
+                      >
+                        Approve
+                      </Button>
+                      <Button
+                        size="small"
+                        color="error"
+                        onClick={() => setConfirming({ row, action: "deny" })}
+                      >
+                        Deny
+                      </Button>
+                    </>
+                  }
+                />
+              ))}
+            </Stack>
+          )}
+        </Paper>
       </Stack>
 
-      <Paper sx={{ display: { xs: "none", md: "block" }, overflow: "hidden" }}>
-        <Table size="small">
-          <TableHead>
-            <TableRow>
-              <TableCell>Name</TableCell>
-              <TableCell>Email</TableCell>
-              <TableCell>Role</TableCell>
-              <TableCell>Invited</TableCell>
-              <TableCell>Last active</TableCell>
-              <TableCell align="right" />
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {rows.map((row) => (
-              <TableRow key={row.id} sx={{ height: 52 }}>
-                <TableCell sx={{ maxWidth: 210 }}>
-                  <Typography
-                    variant="body1"
-                    noWrap
-                    title={row.displayName ?? row.email}
-                    sx={{ color: row.displayName ? undefined : "text.muted" }}
-                  >
-                    {/* Never a blank cell, never a system id. */}
-                    {row.displayName ?? row.email}
-                  </Typography>
-                </TableCell>
-
-                <TableCell sx={{ maxWidth: 240 }}>
-                  <Typography variant="body1" noWrap title={row.email}>
-                    {row.email}
-                  </Typography>
-                </TableCell>
-
-                <TableCell>
-                  <Stack direction="row" spacing={1}>
-                    <RoleChip role={row.role} />
-                    {row.pending ? (
-                      <StatusChip label="Pending" tone="caution" />
-                    ) : null}
-                  </Stack>
-                </TableCell>
-
-                <TableCell>
-                  <NumericText size="sm" sx={{ color: "text.secondary" }}>
-                    {asDate(row.invitedAt)}
-                  </NumericText>
-                </TableCell>
-
-                <TableCell>
-                  <NumericText size="sm" muted={!row.lastActiveAt}>
-                    {asRelative(row.lastActiveAt) ?? "—"}
-                  </NumericText>
-                </TableCell>
-
-                <TableCell align="right">
-                  {/* Absent on your own row, not rendered disabled. */}
-                  {row.isSelf ? null : (
+      <Stack spacing={1.5}>
+        <Typography variant="h2">Members</Typography>
+        <Paper>
+          <Stack
+            divider={<Box sx={{ borderBottom: 1, borderColor: "divider" }} />}
+          >
+            {members.map((row) => (
+              <Row
+                key={row.id}
+                row={row}
+                meta={`Joined ${asDate(row.requestedAt)}${
+                  row.lastActiveAt
+                    ? ` · Last ${asRelative(row.lastActiveAt)}`
+                    : ""
+                }`}
+                chip={<RoleChip role={row.role} />}
+                actions={
+                  // Absent on your own row, not rendered disabled.
+                  row.isSelf ? null : (
                     <Button
                       size="small"
                       color="error"
-                      onClick={() => setRevoking(row)}
+                      onClick={() => setConfirming({ row, action: "revoke" })}
                     >
                       Revoke
                     </Button>
-                  )}
-                </TableCell>
-              </TableRow>
+                  )
+                }
+              />
             ))}
-          </TableBody>
-        </Table>
-      </Paper>
+          </Stack>
+        </Paper>
+      </Stack>
 
-      {/* At xs the table becomes a list. It never gains a scroll container. */}
-      <Paper sx={{ display: { xs: "block", md: "none" } }}>
-        <Stack
-          divider={<Box sx={{ borderBottom: 1, borderColor: "divider" }} />}
-        >
-          {rows.map((row) => (
-            <Stack key={row.id} spacing={1} sx={{ p: 2 }}>
-              <Stack
-                direction="row"
-                spacing={1}
-                sx={{ justifyContent: "space-between", alignItems: "center" }}
-              >
-                <Typography variant="body1" noWrap>
-                  {row.displayName ?? row.email}
-                </Typography>
-                <Stack direction="row" spacing={1}>
-                  <RoleChip role={row.role} />
-                  {row.pending ? (
-                    <StatusChip label="Pending" tone="caution" />
-                  ) : null}
-                </Stack>
-              </Stack>
-
-              {row.displayName ? (
-                <Typography
-                  variant="caption"
-                  sx={{ color: "text.muted", overflowWrap: "anywhere" }}
-                >
-                  {row.email}
-                </Typography>
-              ) : null}
-
-              <Stack
-                direction="row"
-                sx={{ justifyContent: "space-between", alignItems: "center" }}
-              >
-                <NumericText size="sm" sx={{ color: "text.secondary" }}>
-                  {`Invited ${asDate(row.invitedAt)}${
-                    row.lastActiveAt
-                      ? ` · Last ${asRelative(row.lastActiveAt)}`
-                      : ""
-                  }`}
-                </NumericText>
-                {row.isSelf ? null : (
-                  <Button
-                    size="small"
-                    color="error"
-                    onClick={() => setRevoking(row)}
-                  >
-                    Revoke
-                  </Button>
-                )}
-              </Stack>
-            </Stack>
-          ))}
-        </Stack>
-      </Paper>
-
-      <InviteDialog
-        open={inviting}
-        onClose={() => setInviting(false)}
-        onInvited={(email) => {
-          setInviting(false);
-          completed(`Invitation sent to ${email}`);
-        }}
-      />
-
-      <RevokeDialog
-        row={revoking}
-        onClose={() => setRevoking(null)}
-        onRevoked={(email) => {
-          setRevoking(null);
-          completed(`Access revoked for ${email}`);
+      <ConfirmDialog
+        pendingAction={confirming}
+        onClose={() => setConfirming(null)}
+        onDone={(message) => {
+          setConfirming(null);
+          setNotice(message);
+          // Re-read from the server rather than mutating local state, so what
+          // is displayed is what the database actually holds.
+          router.refresh();
         }}
       />
 
@@ -242,179 +195,115 @@ export function Users({ rows }: { rows: AccessRowDto[] }) {
   );
 }
 
-function InviteDialog({
-  open,
-  onClose,
-  onInvited,
+function Row({
+  row,
+  meta,
+  chip,
+  actions,
 }: {
-  open: boolean;
-  onClose: () => void;
-  onInvited: (email: string) => void;
+  row: AccessRowDto;
+  meta: string;
+  chip: React.ReactNode;
+  actions: React.ReactNode;
 }) {
-  const theme = useTheme();
-  const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
-
-  const [email, setEmail] = useState("");
-  const [displayName, setDisplayName] = useState("");
-  const [role, setRole] = useState<"viewer" | "admin">("viewer");
-  const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-
-  async function submit(event: React.FormEvent) {
-    event.preventDefault();
-    setSubmitting(true);
-    setError(null);
-
-    try {
-      const response = await fetch("/api/invitations", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email,
-          role,
-          displayName: displayName.trim() || undefined,
-        }),
-      });
-
-      if (response.ok) {
-        onInvited(email);
-        setEmail("");
-        setDisplayName("");
-        setRole("viewer");
-        return;
-      }
-
-      // Inline in the dialog, never only in a snackbar. The typed email
-      // survives so the admin does not retype it.
-      const payload = (await response.json()) as { message?: string };
-      setError(payload.message ?? "The invitation could not be sent.");
-    } catch {
-      setError("The invitation could not be sent.");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
   return (
-    <Dialog open={open} onClose={onClose} fullScreen={fullScreen}>
-      <form onSubmit={submit}>
-        <DialogTitle>Invite a user</DialogTitle>
-        <DialogContent>
-          <Stack spacing={3} sx={{ pt: 1 }}>
-            {error ? (
-              <Alert severity="error" role="alert">
-                {error}
-              </Alert>
-            ) : null}
-
-            <TextField
-              label="Email"
-              type="email"
-              autoComplete="off"
-              required
-              autoFocus
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              disabled={submitting}
-            />
-
-            {/*
-              Resolved Decisions #2, and a deliberate deviation from design doc
-              §Screen 6. Without it nothing ever sets a display name and the
-              Users list renders a dash for every account permanently.
-            */}
-            <TextField
-              label="Display name (optional)"
-              autoComplete="off"
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              disabled={submitting}
-              slotProps={{ htmlInput: { maxLength: 80 } }}
-            />
-
-            <FormControl>
-              <FormLabel sx={{ typography: "label", mb: 1 }}>Role</FormLabel>
-              <RadioGroup
-                row
-                value={role}
-                onChange={(e) => setRole(e.target.value as "viewer" | "admin")}
-              >
-                <FormControlLabel
-                  value="viewer"
-                  control={<Radio size="small" />}
-                  label="Viewer"
-                />
-                <FormControlLabel
-                  value="admin"
-                  control={<Radio size="small" />}
-                  label="Admin"
-                />
-              </RadioGroup>
-              <Typography variant="caption" sx={{ color: "text.muted" }}>
-                Viewers see the shared analytical surfaces. They cannot log
-                decisions or trade.
-              </Typography>
-            </FormControl>
-          </Stack>
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={onClose} disabled={submitting}>
-            Cancel
-          </Button>
-          <Button
-            type="submit"
-            variant="contained"
-            disabled={submitting || !email}
+    <Stack
+      direction={{ xs: "column", sm: "row" }}
+      spacing={1}
+      sx={{
+        p: 2,
+        alignItems: { xs: "stretch", sm: "center" },
+        justifyContent: "space-between",
+      }}
+    >
+      <Stack spacing={0.5} sx={{ minWidth: 0 }}>
+        <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+          {/* Never a blank cell, never a system id. */}
+          <Typography
+            variant="body1"
+            noWrap
+            title={row.displayName ?? row.email}
+            sx={{ color: row.displayName ? undefined : "text.muted" }}
           >
-            Invite
-          </Button>
-        </DialogActions>
-      </form>
-    </Dialog>
+            {row.displayName ?? row.email}
+          </Typography>
+          {chip}
+        </Stack>
+        {row.displayName ? (
+          <Typography
+            variant="caption"
+            sx={{ color: "text.muted", overflowWrap: "anywhere" }}
+          >
+            {row.email}
+          </Typography>
+        ) : null}
+        <NumericText size="sm" sx={{ color: "text.secondary" }}>
+          {meta}
+        </NumericText>
+      </Stack>
+
+      <Stack direction="row" spacing={1} sx={{ flexShrink: 0 }}>
+        {actions}
+      </Stack>
+    </Stack>
   );
 }
 
-function RevokeDialog({
-  row,
+function ConfirmDialog({
+  pendingAction,
   onClose,
-  onRevoked,
+  onDone,
 }: {
-  row: AccessRowDto | null;
+  pendingAction: { row: AccessRowDto; action: Action } | null;
   onClose: () => void;
-  onRevoked: (email: string) => void;
+  onDone: (message: string) => void;
 }) {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  async function revoke() {
-    if (!row) return;
+  const copy = pendingAction
+    ? CONFIRM[pendingAction.action](pendingAction.row.email)
+    : null;
+
+  async function submit() {
+    if (!pendingAction) return;
     setSubmitting(true);
     setError(null);
 
     try {
-      const response = await fetch(`/api/users/${row.id}/revoke`, {
-        method: "POST",
-      });
+      const response = await fetch(
+        `/api/users/${pendingAction.row.id}/decision`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: pendingAction.action }),
+        },
+      );
 
       if (response.ok) {
-        onRevoked(row.email);
+        const past = {
+          approve: "Approved",
+          deny: "Denied",
+          revoke: "Access revoked for",
+        }[pendingAction.action];
+        onDone(`${past} ${pendingAction.row.email}`);
         return;
       }
 
-      // The row stays in place. Never optimistic: a row vanishing while the
-      // person still has access is the worst outcome on this screen.
+      // The row stays. Never optimistic: a row vanishing while the person still
+      // has access is the worst outcome on this screen.
       const payload = (await response.json()) as { message?: string };
-      setError(payload.message ?? "Access could not be revoked. Try again.");
+      setError(payload.message ?? "That did not work. Try again.");
     } catch {
-      setError("Access could not be revoked. Try again.");
+      setError("That did not work. Try again.");
     } finally {
       setSubmitting(false);
     }
   }
 
   return (
-    <Dialog open={row !== null} onClose={onClose}>
-      <DialogTitle>Revoke access</DialogTitle>
+    <Dialog open={pendingAction !== null} onClose={onClose}>
+      <DialogTitle>{copy?.title}</DialogTitle>
       <DialogContent>
         <Stack spacing={2}>
           {error ? (
@@ -422,12 +311,10 @@ function RevokeDialog({
               {error}
             </Alert>
           ) : null}
-          {/*
-            Names the person. "Are you sure?" is a shrug, not a confirmation.
-            The address is un-truncated here even where the table clips it.
-          */}
+          {/* Names the person. "Are you sure?" is a shrug, not a confirmation.
+              The address is un-truncated here even where a row clips it. */}
           <Typography variant="body1" sx={{ overflowWrap: "anywhere" }}>
-            Revoke access for {row?.email}? They will be signed out immediately.
+            {copy?.body}
           </Typography>
         </Stack>
       </DialogContent>
@@ -436,12 +323,12 @@ function RevokeDialog({
           Cancel
         </Button>
         <Button
-          color="error"
           variant="contained"
-          onClick={revoke}
+          color={pendingAction?.action === "approve" ? "primary" : "error"}
+          onClick={submit}
           disabled={submitting}
         >
-          Revoke
+          {copy?.verb}
         </Button>
       </DialogActions>
     </Dialog>

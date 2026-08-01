@@ -1,9 +1,23 @@
 # Supabase Auth configuration (Pitch 3)
 
-Part of the deliverable, not setup trivia. **Disabling a signup button in the
-interface is not disabling signup** — a default Supabase project accepts direct
-registrations against its own auth API, bypassing the application entirely. The
-pitch names this as a rabbit hole; this runbook is how it is closed.
+> **Updated for the request-and-approve access model.** Accounts are no longer
+> created by invitation. Sightline now has a sign-up page — and Supabase's own
+> public signup setting must still be **off**.
+
+Part of the deliverable, not setup trivia.
+
+Those two facts are not in tension; they are the design:
+
+- The application's `/api/auth/sign-up` route creates the auth user with the
+  **service-role** client, which works whether or not public signup is enabled.
+  It then writes a `users` row with `status = pending`, which grants nothing.
+- Supabase's own `/auth/v1/signup` endpoint, if enabled, creates an auth user
+  with **no `users` row and no status at all** — bypassing the approval gate and
+  leaving an account no admin surface can see or act on.
+
+So the probe below is more load-bearing than before, not less: it is what
+guarantees the application's route is the only way an account comes into
+existence.
 
 Apply to **both** the development and production projects, and keep them
 documented separately so a development shortcut cannot weaken production.

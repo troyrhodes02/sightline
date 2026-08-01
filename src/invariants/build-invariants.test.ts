@@ -57,7 +57,6 @@ describe("styling", () => {
     const exempt = new Set([
       join(SRC, "theme", "index.ts"),
       join(SRC, "components", "brand", "SightlineLockup.tsx"),
-      join(SRC, "lib", "mail", "invitation-email.ts"),
     ]);
 
     const offenders = productionFiles(SRC)
@@ -97,8 +96,7 @@ describe("authorization", () => {
     const adminRoutes = [
       join(SRC, "app", "(app)", "health", "page.tsx"),
       join(SRC, "app", "(app)", "users", "page.tsx"),
-      join(SRC, "app", "api", "invitations", "route.ts"),
-      join(SRC, "app", "api", "users", "[id]", "revoke", "route.ts"),
+      join(SRC, "app", "api", "users", "[id]", "decision", "route.ts"),
     ];
 
     for (const route of adminRoutes) {
@@ -142,9 +140,10 @@ describe("product boundaries", () => {
       f.replace(SRC, "").split(sep).join("/"),
     );
 
+    // `/sign-up` IS a route now — account requests are how people get in.
+    // What stays forbidden is anything that would grant access without an
+    // admin decision, or that belongs to a later pitch.
     for (const forbidden of [
-      "/signup",
-      "/register",
       "/reset-password",
       "/forgot-password",
       "/bankroll",

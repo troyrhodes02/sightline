@@ -9,29 +9,38 @@ import CircularProgress from "@mui/material/CircularProgress";
 import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
+import Link from "next/link";
 import { SightlineLockup } from "@/components/brand/SightlineLockup";
+import { STATUS_MESSAGE, type SignInReason } from "@/lib/auth/account-status";
 
 type Failure = "credentials" | "unavailable" | null;
 
 /**
  * Sign in. **Email and password only.**
  *
- * There is no signup link, no social auth, no magic link, and no "forgot
- * password". Their absence is a product commitment, not an oversight, and the
- * screen should read as deliberate about it rather than as though a link went
- * missing — which is why the footer states the access model outright.
+ * No social auth, no magic link, and no "forgot password" — their absence is a
+ * product commitment rather than an oversight.
+ *
+ * There IS a link to request an account, because account requests are how
+ * people get in. It leads to a queue, not to access.
+ *
+ * `reason` reports the caller's own account status and is only ever reached
+ * after they authenticated successfully, so it reveals nothing to a guesser.
  */
 export function SignIn({
-  revoked = false,
+  reason,
   redirectTo,
 }: {
-  revoked?: boolean;
+  reason?: SignInReason;
   redirectTo?: string;
 }) {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [failure, setFailure] = useState<Failure>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(
+    reason ? STATUS_MESSAGE[reason] : null,
+  );
   const [submitting, setSubmitting] = useState(false);
   const alertRef = useRef<HTMLDivElement>(null);
 
@@ -45,6 +54,7 @@ export function SignIn({
     event.preventDefault();
     setSubmitting(true);
     setFailure(null);
+    setStatusMessage(null);
 
     try {
       const response = await fetch("/api/auth/sign-in", {
@@ -62,10 +72,20 @@ export function SignIn({
         return;
       }
 
-      const { error } = (await response.json()) as { error: string };
-      setFailure(
-        error === "upstream_unavailable" ? "unavailable" : "credentials",
-      );
+      const payload = (await response.json()) as {
+        error: string;
+        message: string;
+      };
+      if (payload.error === "forbidden") {
+        // A status message, not a credential failure: they authenticated.
+        setStatusMessage(payload.message);
+      } else {
+        setFailure(
+          payload.error === "upstream_unavailable"
+            ? "unavailable"
+            : "credentials",
+        );
+      }
       // Email survives a failure; the password does not.
       setPassword("");
     } catch {
@@ -94,9 +114,9 @@ export function SignIn({
       >
         <SightlineLockup height={28} />
 
-        {revoked ? (
-          <Alert severity="info" icon={false}>
-            Your access to Sightline has been removed.
+        {statusMessage ? (
+          <Alert severity="info" icon={false} role="status">
+            {statusMessage}
           </Alert>
         ) : null}
 
@@ -144,7 +164,8 @@ export function SignIn({
         </Button>
 
         <Typography variant="caption" sx={{ color: "text.muted" }}>
-          Access to Sightline is by invitation.
+          Need an account? <Link href="/sign-up">Request access</Link>. Every
+          request is reviewed by an admin before it is granted.
         </Typography>
       </Stack>
     </Box>
