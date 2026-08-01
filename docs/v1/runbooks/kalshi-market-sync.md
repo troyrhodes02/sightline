@@ -102,7 +102,33 @@ uv run sightline-model project --cutoff 2026-11-08T14:00:00Z
 4. Refresh the slate. Rows rank by confidence-adjusted edge; contracts at or
    above `RECOMMENDATION_THRESHOLD_POINTS` carry the recommendation marker.
 
-## 5. Operational notes
+## 5. Local testing in the offseason
+
+The live slate needs an ingested schedule, listed Kalshi markets, and stored
+projections — none of which exist between February and September. To exercise
+every slate and detail state locally:
+
+```bash
+npm run db:seed:slate
+```
+
+Seeds four upcoming games (kickoffs a few days out, refreshed on re-run) with
+contracts in every state: two recommended rows, a below-threshold row, a
+fade-side (`no`) row, a no-projection row, a projection-with-no-price row, and
+an unresolved contract whose diagnostic and resolve control work (the matching
+player is seeded, so resolving it succeeds). Projections are stored as real
+distribution parameters, so probabilities and edges on screen are computed by
+the app's own arithmetic rather than painted on. Decisions are deliberately
+not seeded — Take/Fade/Skip is the flow to test by hand.
+
+Idempotent (deterministic ids + upserts) and guarded: it refuses a
+non-localhost `DATABASE_URL` unless `SEED_SLATE_FORCE=1`. Seeded rows use
+`kalshiSeriesTicker = "SEEDSERIES"` and game weeks 90+, so they never collide
+with real ingest and are easy to delete
+(`delete from contracts where kalshi_series_ticker = 'SEEDSERIES'` plus the
+seeded games/projections if you want a clean slate before real data arrives).
+
+## 6. Operational notes
 
 - **A Kalshi outage is not an incident.** The slate degrades to
   projections-only with a banner and last-observed prices. Check
