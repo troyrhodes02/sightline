@@ -83,13 +83,10 @@ test.describe("role enforcement", () => {
   }) => {
     await signIn(page, VIEWER_EMAIL!, VIEWER_PASSWORD!);
 
-    const invite = await request.post("/api/invitations", {
-      data: { email: "probe@example.com", role: "viewer" },
+    const decision = await request.post("/api/users/some-id/decision", {
+      data: { action: "approve" },
     });
-    expect(invite.status()).toBe(403);
-
-    const revoke = await request.post("/api/users/some-id/revoke");
-    expect(revoke.status()).toBe(403);
+    expect(decision.status()).toBe(403);
   });
 });
 
@@ -142,7 +139,10 @@ test.describe("revocation", () => {
       // The access token is minutes old and unquestionably still valid, which
       // is the point: what denies them is the database read, not expiry.
       await adminPage.goto("/users");
-      const row = adminPage.locator("tr", { hasText: VIEWER_EMAIL! });
+      const row = adminPage
+        .locator("div")
+        .filter({ hasText: VIEWER_EMAIL! })
+        .last();
       await row.getByRole("button", { name: "Revoke" }).click();
       await adminPage
         .getByRole("button", { name: "Revoke", exact: true })

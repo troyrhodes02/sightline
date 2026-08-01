@@ -3,6 +3,7 @@ import "server-only";
 import { forbidden, redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { createServerClient } from "@/lib/supabase/server";
+import { hasAccess } from "./account-status";
 
 export type SessionUser = {
   id: string;
@@ -20,20 +21,22 @@ const LAST_ACTIVE_THROTTLE_MS = 15 * 60 * 1000;
  * Resolves the caller. **Two checks, not one.**
  *
  *  1. Supabase verifies the access token — authentication.
- *  2. Postgres confirms the account is still active — authorization.
+ *  2. Postgres confirms the account is `active` — authorization.
  *
- * Step 2 is the whole mechanism behind "revocation takes effect immediately,
- * including when a session was already active". An access token minted before
- * revocation still verifies, still decodes, and still carries whatever role
- * claim it was issued with; only the database knows access ended ninety seconds
- * ago. **Never read a role from a token claim.**
+ * Step 2 is the mechanism behind both "revocation takes effect immediately" and
+ * "a pending account has no access". A `users` row exists from the moment
+ * someone signs up, so **the row's existence grants nothing** — only its status
+ * does. An access token minted while an account was active still verifies after
+ * it is revoked, and a token minted at sign-up carries no hint that approval
+ * never came. Only the database knows.
  *
- * The cost is a query per protected request, which at three users and a slate
- * of fourteen games is not a cost. The alternative — trusting the token until
- * it expires — makes revocation a promise the product cannot keep.
+ * **Never read a role or a status from a token claim.**
  *
- * Consequence worth stating: no authenticated route may be statically rendered
- * or cached, or a revoked user is served a shell from cache.
+ * The cost is a query per protected request, which at three users is not a
+ * cost. The alternative — trusting the token until it expires — makes both
+ * immediate revocation and pending-means-no-access promises the product cannot
+ * keep. It also means no authenticated route may be statically rendered or
+ * cached.
  */
 export async function requireSession(): Promise<SessionContext> {
   const supabase = await createServerClient();
@@ -54,11 +57,18 @@ export async function requireSession(): Promise<SessionContext> {
   });
 
   // An auth user with no `users` row is not a valid caller. It can only arise
-  // from a half-completed acceptance, and treating it as anonymous is the safe
-  // reading — see the rollback in the acceptance route.
-  if (!user || user.status === "revoked") {
+  // from a half-completed sign-up, and treating it as anonymous is the safe
+  // reading — see the rollback in the sign-up route.
+  if (!user) {
     await supabase.auth.signOut();
-    redirect("/sign-in?reason=revoked");
+    redirect("/sign-in");
+  }
+
+  if (!hasAccess(user.status)) {
+    // Tear the session down and say which of the three it is. Safe here: they
+    // authenticated, so they already own the address.
+    await supabase.auth.signOut();
+    redirect(`/sign-in?reason=${user.status}`);
   }
 
   void touchLastActive(user.id, user.lastActiveAt);

@@ -43,10 +43,11 @@ describe("service-role client isolation", () => {
     const allowed = [
       // Creates the Supabase auth user during invitation acceptance — the only
       // path that creates an account at all.
-      join(SRC, "app", "api", "invitations", "accept", "route.ts"),
-      // Invalidates refresh tokens on revocation. Best-effort: the database
-      // write is the authoritative gate.
-      join(SRC, "app", "api", "users", "[id]", "revoke", "route.ts"),
+      // Creates the Supabase auth user when someone requests an account.
+      join(SRC, "app", "api", "auth", "sign-up", "route.ts"),
+      // Invalidates refresh tokens on deny and revoke. Best-effort: the
+      // database write is the authoritative gate.
+      join(SRC, "app", "api", "users", "[id]", "decision", "route.ts"),
     ];
 
     const importers = files.filter((file) =>

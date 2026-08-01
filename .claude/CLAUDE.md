@@ -1,6 +1,6 @@
 # Sightline — CLAUDE.md
 
-Sightline tells its admin which of today's Kalshi NFL player-prop contracts are mispriced, and how much to trust that judgment. Access is invite-only through Supabase Auth with public signup disabled: one admin who sees everything and logs decisions, and a handful of viewer accounts who see the shared analytical surfaces and nothing personal. This is not multi-tenancy — the projections, prices, and edges are identical for every user.
+Sightline tells its admin which of today's Kalshi NFL player-prop contracts are mispriced, and how much to trust that judgment. Access is **request-and-approve** through Supabase Auth: anyone may request an account, nobody gets access until the admin approves it. One admin who sees everything and logs decisions, and a handful of viewer accounts who see the shared analytical surfaces and nothing personal. This is not multi-tenancy — the projections, prices, and edges are identical for every user.
 
 This file is persistent context for Claude Code. It encodes the non-obvious rules and invariants specific to this project. For product intent see `docs/planning/product-brief.md`; for features and acceptance criteria see `docs/planning/prd.md`; for technical decisions and rationale see `docs/planning/architecture.md`; for build sequencing see `docs/planning/pitch-roadmap.md`. This file is the "how we write code here" layer on top of those.
 
@@ -152,9 +152,16 @@ async function recordDecisionInner(
 
 ### Access and registration model
 
-Supabase Auth with email and password. **Public signup does not exist.** Accounts are created only by admin invitation, and the admin can revoke access with immediate effect. Sessions are Supabase-managed and persist across devices.
+Supabase Auth with email and password. **Anyone may request an account; nobody gets access until the admin approves it.**
 
-What deliberately does not exist, so that it does not get helpfully added: no self-serve signup, no social or OAuth login, no magic links, no public account-recovery flow. Password reset is not specified in the approved docs — do not build one without a pitch.
+A `User` row exists from the moment someone signs up, so **the row's existence grants nothing — only `status` does.** Four states: `pending` (requested, no access of any kind), `active` (approved), `denied` (refused), `revoked` (access ended after approval). Every protected surface re-reads that status per request, which is what makes both approval and revocation take effect immediately rather than whenever a token happens to expire.
+
+Two consequences that are easy to get wrong:
+
+- **Supabase's own public signup stays DISABLED at the project level.** Accounts are created by the application's `/api/auth/sign-up` route using the service-role client, which forces `status = pending`. Enabling Supabase's signup endpoint would open a path that bypasses that and creates an account with no status discipline at all. The `422` probe in the auth runbook remains a required invariant.
+- **Sign-up answers identically whether or not the address already has an account.** It is a public surface, so a distinct "already registered" reply would let anyone enumerate who is in the group.
+
+What deliberately does not exist, so that it does not get helpfully added: no social or OAuth login, no magic links, no public account-recovery flow, no email verification round-trip (approval is the gate). Password reset is not specified in the approved docs — do not build one without a pitch.
 
 Authentication is enforced **server-side in Next.js**, in server components and route handlers. Every protected read and write independently verifies the session. Conditionally rendering the interface is not authentication.
 
@@ -166,7 +173,7 @@ Two roles, admin and viewer. **This is not multi-tenancy and must not be built a
 
 - **Shared read surfaces** — slate, projections, prices, edges, recommendations, drivers, staleness, and model accuracy — require an authenticated session and nothing more.
 - **Admin-only surfaces** — decision log, positions, override performance, timing cost, suggestion reliability analytics, trading, and user management — require a server-side role check.
-- **User-scoped writes** — decisions, and positions from the trading pitch onward — are always written with the acting user's identity resolved from the session. Never accept a user identifier from the client.
+- **User-scoped writes** — decisions, and positions from the trading pitch onward — are always written with the acting user's identity resolved from the session. Never accept a user identifier from the client, and never accept a role: a sign-up body carrying one is an attempt to self-assign admin.
 
 Hiding a navigation item is not authorization. A viewer deep-linking to an admin route must be rejected by the server. Postgres row-level security on the user-scoped tables is proposed as defence in depth but is **not** the primary mechanism and is not yet decided; server-side role checks are.
 
@@ -182,6 +189,7 @@ Sightline has no user-facing file storage and no uploads. Supabase Storage is un
 - It is never sent to a client, never logged, never included in an error message, and never appears in a response body.
 - All Kalshi calls originate from the server.
 - Only the admin's credentials are ever held. **No viewer credential is ever accepted, stored, transmitted, or custodied** — this is a product commitment from the Brief, not an implementation detail, and it is the reason viewers trade on Kalshi directly.
+- The Supabase **service-role** key is the second-highest-value secret. It bypasses every Supabase-side check, and exactly two modules may reach it: the sign-up route and the access-decision route. A third importer is a review-blocking finding.
 - Trading requires an explicit confirmation step and enforces a configurable per-slate exposure cap.
 - The trading feature is exercised against Kalshi's demo environment before any live account is enabled, and cannot be enabled before a stored `BacktestRun` demonstrating accuracy exists.
 
@@ -271,5 +279,5 @@ Two pieces of extra care warranted by this product's risk profile. Any change to
 ## Consistency with the planning docs
 
 - Feature names must match `docs/planning/prd.md` and `docs/planning/pitch-roadmap.md` exactly: Historical Data Ingest, Projection Engine, Kalshi Market Sync, Edge Calculation and Recommendation, Staleness Disclosure, Adjustment Suggestions, Suggestion Reliability Analytics, Decision Log, Outcome Ingest and Scoring, Accuracy and Calibration Surface, Backtesting Harness, Authentication and Invite, Brand and Responsive Interface, Kalshi Trading.
-- Data objects must match `docs/planning/architecture.md`'s data model: `Team`, `Player`, `Game`, `PlayByPlay`, `PlayerGameStat`, `PlayerGameContext`, `Projection`, `ProjectionDriver`, `Contract`, `PriceObservation`, `RecommendationSnapshot`, `AdjustmentSuggestion`, `Decision`, `Position`, `Outcome`, `BacktestRun`, `CalibrationBin`, `User`, `Invitation`. Note that the PRD's "Edge / Recommendation" object is `RecommendationSnapshot` here; live edge is computed on read and has no entity.
+- Data objects must match `docs/planning/architecture.md`'s data model: `Team`, `Player`, `Game`, `PlayByPlay`, `PlayerGameStat`, `PlayerGameContext`, `Projection`, `ProjectionDriver`, `Contract`, `PriceObservation`, `RecommendationSnapshot`, `AdjustmentSuggestion`, `Decision`, `Position`, `Outcome`, `BacktestRun`, `CalibrationBin`, `User`. **`Invitation` was removed when the access model changed to request-and-approve; the Architecture Doc and PRD still name it and should be amended.** Note that the PRD's "Edge / Recommendation" object is `RecommendationSnapshot` here; live edge is computed on read and has no entity.
 - If a task seems to require contradicting an approved doc — or weakening temporal integrity — **stop and flag it rather than silently diverging.**

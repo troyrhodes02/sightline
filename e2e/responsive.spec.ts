@@ -15,7 +15,8 @@ const NARROW = { width: 320, height: 720 };
 const PUBLIC_ROUTES = [
   { path: "/sign-in", name: "sign in" },
   { path: "/sign-in?reason=revoked", name: "sign in — revoked" },
-  { path: "/invite/not-a-real-token", name: "invitation — invalid" },
+  { path: "/sign-in?reason=pending", name: "sign in — awaiting approval" },
+  { path: "/sign-up", name: "request an account" },
   { path: "/no-such-page", name: "not found" },
 ];
 
@@ -66,13 +67,29 @@ test.describe("sign-in at 320px", () => {
     await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
   });
 
-  test("offers no signup, recovery, or social auth", async ({ page }) => {
+  test("offers no recovery or social auth, and links only to the request form", async ({
+    page,
+  }) => {
     await page.goto("/sign-in");
     const body = (await page.textContent("body")) ?? "";
 
-    expect(body).not.toMatch(/sign up|create an account|register/i);
     expect(body).not.toMatch(/forgot|reset your password/i);
     expect(body).not.toMatch(/continue with|sign in with/i);
-    expect(await page.locator("a").count()).toBe(0);
+
+    // Exactly one link, and it leads to a queue rather than to access.
+    const links = page.locator("a");
+    await expect(links).toHaveCount(1);
+    await expect(links.first()).toHaveAttribute("href", "/sign-up");
+  });
+
+  test("says up front that a request is reviewed, not granted", async ({
+    page,
+  }) => {
+    await page.goto("/sign-up");
+    const body = (await page.textContent("body")) ?? "";
+
+    // Stated before the form is filled in, not discovered after submitting.
+    expect(body).toMatch(/admin reviews every request/i);
+    expect(body).toMatch(/will not have access until one is approved/i);
   });
 });

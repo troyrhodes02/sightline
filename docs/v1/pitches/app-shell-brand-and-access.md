@@ -1,5 +1,31 @@
 # Sightline — Pitch: App Shell, Brand & Access
 
+> ## ⚠ Superseded in part — access model changed (2026-08-01)
+>
+> This document was written for an **invite-only** access model: the admin
+> issued invitations and a `User` existed only once one was accepted. That is no
+> longer how Sightline works.
+>
+> **The current model is request-and-approve.** Anyone may request an account at
+> `/sign-up`; a `User` row is created immediately with `status = pending` and
+> **grants nothing**; the admin approves or denies it on `/users`. There is no
+> `Invitation` entity, no token, and no email of any kind.
+>
+> What is unchanged, and is most of this document: the server-side role model,
+> the per-request database read that makes access decisions immediate, the theme
+> and every screen outside the access flow, the privacy posture, and the
+> responsive and accessibility requirements.
+>
+> What is superseded: everything describing invitations, tokens, invitation
+> acceptance, and mail delivery. Sections are annotated inline where the change
+> is not obvious from context.
+>
+> This change contradicts a Brief-level non-goal — the Product Brief and the PRD
+> still state that access is invite-only and that public signup does not exist.
+> **Both should be amended.** Recorded here so the divergence is deliberate and
+> visible rather than discovered later.
+
+
 ## Summary
 
 This pitch delivers the branded, responsive, invite-only application shell that every later Sightline capability will inhabit. Authenticated users can accept invitations, sign in across devices, navigate the application according to their role, and encounter deliberate loading, empty, unavailable, and access-denied states rather than unfinished scaffolding.

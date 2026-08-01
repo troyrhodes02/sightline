@@ -1,4 +1,5 @@
 import { SignIn } from "@/components/screens/SignIn";
+import { isSignInReason } from "@/lib/auth/account-status";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +14,7 @@ export default async function SignInPage({
 
   return (
     <SignIn
-      revoked={reason === "revoked"}
+      reason={isSignInReason(reason) ? reason : undefined}
       // Only ever a relative path; the route validates it again server-side
       // before trusting it, so a crafted absolute URL cannot become an open
       // redirect.

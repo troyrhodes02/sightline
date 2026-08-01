@@ -554,14 +554,16 @@ model CalibrationBin {
 //
 // NOT multi-tenancy. Projections, prices, contracts and every reference table
 // are identical for every user; only Decision and Position (Pitch 4 onward) are
-// user-scoped. These two tables are shared ADMINISTRATIVE data and carry no
-// owner column — do not generalise from them to those.
+// user-scoped. This table is shared ADMINISTRATIVE data and carries no owner
+// column — do not generalise from it to those.
 //
-// Credentials live in Supabase Auth and never here. This table holds
-// AUTHORIZATION state, which is a different thing and the reason every
-// protected surface re-reads it: an access token minted before revocation still
-// verifies and still carries a role claim, so the token cannot answer "is this
-// person still allowed in". Only the database can.
+// Anyone may request an account. Nobody gets access until an admin approves it,
+// so a `pending` row is a request, not a user. Credentials live in Supabase
+// Auth and never here: this table holds AUTHORIZATION state, which is a
+// different thing and the reason every protected surface re-reads it. An access
+// token minted before a status change still verifies and still carries a role
+// claim, so the token cannot answer "is this person allowed in". Only the
+// database can.
 // ---------------------------------------------------------------------------
 
 enum UserRole {
@@ -570,65 +572,37 @@ enum UserRole {
 }
 
 enum UserStatus {
-  active // may sign in and hold a session
-  revoked // access ended; denied on the next request, on every device
+  pending // account requested; no access of any kind until decided
+  active // approved by an admin
+  denied // request refused; may not sign in
+  revoked // access ended after having been approved
 }
 
-/// An account. `id` IS the Supabase auth.users UUID — there is deliberately no
-/// separate internal identifier and no mapping table.
+/// An account, or a request for one. `id` IS the Supabase auth.users UUID —
+/// there is deliberately no separate internal identifier and no mapping table.
+///
+/// A row exists from the moment someone signs up, which is why `status` rather
+/// than the row's existence is what grants access.
 model User {
   id          String     @id // = auth.users.id; NOT @default(uuid())
-  email       String     @unique // mirrored from auth at acceptance; never editable
+  email       String     @unique // mirrored from auth at sign-up; never editable
   displayName String?    @map("display_name")
-  role        UserRole
-  status      UserStatus @default(active)
+  role        UserRole   @default(viewer)
+  status      UserStatus @default(pending)
 
-  invitedAt    DateTime  @map("invited_at") // the invitation's createdAt, carried over
-  acceptedAt   DateTime  @map("accepted_at")
+  requestedAt  DateTime  @default(now()) @map("requested_at") // when they signed up
+  decidedAt    DateTime? @map("decided_at") // when approved or denied
+  decidedById  String?   @map("decided_by_id") // which admin decided
   lastActiveAt DateTime? @map("last_active_at") // refreshed at most every 15 minutes
   revokedAt    DateTime? @map("revoked_at")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  invitation        Invitation?  @relation("InvitationAcceptedBy")
-  invitationsIssued Invitation[] @relation("InvitationIssuedBy")
+  decidedBy     User?  @relation("AccessDecision", fields: [decidedById], references: [id])
+  decisionsMade User[] @relation("AccessDecision")
 
-  // The Users list reads active-first, then in acceptance order.
-  @@index([status, acceptedAt])
+  // Pending requests are read first and most often; the list groups by status.
+  @@index([status, requestedAt])
   @@map("users")
-}
-
-/// An admin-issued grant for one email address at one role.
-///
-/// Lifecycle state is DERIVED from the three nullable timestamps plus
-/// expiresAt — there is no status column, because one would drift the moment
-/// expiry passed with no write to observe it.
-model Invitation {
-  id          String   @id @default(uuid())
-  email       String
-  role        UserRole
-  displayName String?  @map("display_name")
-
-  /// SHA-256 of the plaintext token, hex-encoded. The plaintext is emailed and
-  /// never persisted, never logged, and never returned by any route.
-  tokenHash String   @unique @map("token_hash")
-  expiresAt DateTime @map("expires_at")
-
-  acceptedAt DateTime? @map("accepted_at")
-  revokedAt  DateTime? @map("revoked_at")
-
-  invitedById    String  @map("invited_by_id")
-  acceptedUserId String? @unique @map("accepted_user_id")
-
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  invitedBy    User  @relation("InvitationIssuedBy", fields: [invitedById], references: [id])
-  acceptedUser User? @relation("InvitationAcceptedBy", fields: [acceptedUserId], references: [id])
-
-  @@index([email])
-  @@index([invitedById])
-  @@index([expiresAt])
-  @@map("invitations")
 }

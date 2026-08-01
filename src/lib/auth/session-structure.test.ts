@@ -29,11 +29,13 @@ describe("role resolution", () => {
     const code = readCode(join(SRC, "lib", "auth", "session.ts"));
 
     expect(code).toContain("prisma.user.findUnique");
-    expect(code).toContain("status");
-    // The revoked branch must sign the caller out rather than merely redirect,
-    // or the stale cookie survives to the next request.
+    expect(code).toContain("hasAccess(user.status)");
+    // A blocked account must be signed OUT rather than merely redirected, or
+    // the stale cookie survives to the next request.
     expect(code).toContain("signOut");
-    expect(code).toContain("reason=revoked");
+    // The status travels on the URL so the sign-in page can say which of the
+    // three it is — pending, denied, or revoked.
+    expect(code).toContain("reason=${user.status}");
   });
 
   it("denies admin routes in place rather than redirecting", () => {
