@@ -7,6 +7,14 @@ const nextConfig: NextConfig = {
   // stops the bundler trying to trace them into the server bundle.
   serverExternalPackages: ["@prisma/adapter-pg", "pg"],
 
+  experimental: {
+    // Enables `forbidden()` and `unauthorized()` from next/navigation, which is
+    // what lets an admin route deny IN PLACE at the requested URL with a real
+    // 403 rather than redirecting. A redirect would leak that the route exists
+    // and is worth redirecting away from.
+    authInterrupts: true,
+  },
+
   typescript: {
     // A type error must fail the build. Never set this to true.
     ignoreBuildErrors: false,

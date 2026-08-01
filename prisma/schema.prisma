@@ -518,14 +518,14 @@ model CalibrationBin {
   // in a unique index, so @@unique below does NOT prevent duplicate "all" rows
   // — four partial unique indexes (one per segment axis) plus a single-axis
   // CHECK do, in the migration.
-  statType StatType?   @map("stat_type")
-  season   Int?
-  era      WeatherEra?
+  statType   StatType?   @map("stat_type")
+  season     Int?
+  era        WeatherEra?
   // SIG-26: the contract-like population segment. NULL for the stat/season/era
   // and "all" segments; 'contract_like' for the volume-floor sub-population the
   // recalibration layer is fitted against. Single-axis is enforced by the CHECK
   // and partial unique indexes in the migration (raw SQL Prisma does not model).
-  population String? @map("population")
+  population String?     @map("population")
 
   binIndex Int     @map("bin_index") // 0..9
   binLow   Decimal @map("bin_low") @db.Decimal(4, 3)
@@ -547,4 +547,88 @@ model CalibrationBin {
   @@unique([backtestRunId, statType, season, era, binIndex])
   @@index([backtestRunId])
   @@map("calibration_bins")
+}
+
+// ---------------------------------------------------------------------------
+// Access control (Pitch 3 — App Shell, Brand & Access)
+//
+// NOT multi-tenancy. Projections, prices, contracts and every reference table
+// are identical for every user; only Decision and Position (Pitch 4 onward) are
+// user-scoped. These two tables are shared ADMINISTRATIVE data and carry no
+// owner column — do not generalise from them to those.
+//
+// Credentials live in Supabase Auth and never here. This table holds
+// AUTHORIZATION state, which is a different thing and the reason every
+// protected surface re-reads it: an access token minted before revocation still
+// verifies and still carries a role claim, so the token cannot answer "is this
+// person still allowed in". Only the database can.
+// ---------------------------------------------------------------------------
+
+enum UserRole {
+  admin
+  viewer
+}
+
+enum UserStatus {
+  active // may sign in and hold a session
+  revoked // access ended; denied on the next request, on every device
+}
+
+/// An account. `id` IS the Supabase auth.users UUID — there is deliberately no
+/// separate internal identifier and no mapping table.
+model User {
+  id          String     @id // = auth.users.id; NOT @default(uuid())
+  email       String     @unique // mirrored from auth at acceptance; never editable
+  displayName String?    @map("display_name")
+  role        UserRole
+  status      UserStatus @default(active)
+
+  invitedAt    DateTime  @map("invited_at") // the invitation's createdAt, carried over
+  acceptedAt   DateTime  @map("accepted_at")
+  lastActiveAt DateTime? @map("last_active_at") // refreshed at most every 15 minutes
+  revokedAt    DateTime? @map("revoked_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  invitation        Invitation?  @relation("InvitationAcceptedBy")
+  invitationsIssued Invitation[] @relation("InvitationIssuedBy")
+
+  // The Users list reads active-first, then in acceptance order.
+  @@index([status, acceptedAt])
+  @@map("users")
+}
+
+/// An admin-issued grant for one email address at one role.
+///
+/// Lifecycle state is DERIVED from the three nullable timestamps plus
+/// expiresAt — there is no status column, because one would drift the moment
+/// expiry passed with no write to observe it.
+model Invitation {
+  id          String   @id @default(uuid())
+  email       String
+  role        UserRole
+  displayName String?  @map("display_name")
+
+  /// SHA-256 of the plaintext token, hex-encoded. The plaintext is emailed and
+  /// never persisted, never logged, and never returned by any route.
+  tokenHash String   @unique @map("token_hash")
+  expiresAt DateTime @map("expires_at")
+
+  acceptedAt DateTime? @map("accepted_at")
+  revokedAt  DateTime? @map("revoked_at")
+
+  invitedById    String  @map("invited_by_id")
+  acceptedUserId String? @unique @map("accepted_user_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  invitedBy    User  @relation("InvitationIssuedBy", fields: [invitedById], references: [id])
+  acceptedUser User? @relation("InvitationAcceptedBy", fields: [acceptedUserId], references: [id])
+
+  @@index([email])
+  @@index([invitedById])
+  @@index([expiresAt])
+  @@map("invitations")
 }

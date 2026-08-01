@@ -1,3 +1,5 @@
+"use client";
+
 import Button from "@mui/material/Button";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
@@ -17,6 +19,11 @@ export type EmptyStateAction = { label: string; href: string };
  * has an edge today* and have that read as a legitimate answer.
  *
  * Copy is flat and declarative: no coaching language, no exclamation marks.
+ *
+ * A client component because it passes `component={Link}` to MUI's Button, and
+ * a Server Component cannot hand a function to a Client Component — the build
+ * fails rather than degrading. The alternative, a bare `href`, would drop
+ * client-side navigation from every empty state in the product.
  */
 export function EmptyState({
   title,
