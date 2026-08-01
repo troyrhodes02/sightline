@@ -64,8 +64,18 @@ jobs:
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
+      # The authenticated suites (adversarial role enforcement, revocation
+      # across devices, credential-failure parity) require a provisioned
+      # Supabase project with seeded accounts. Without those secrets they
+      # report as SKIPPED, never as passed — a green run that silently dropped
+      # its most important assertions is worse than a red one.
       - name: End-to-end tests
         run: npm run test:e2e -- --project=desktop
+        env:
+          E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
+          E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
+          E2E_VIEWER_EMAIL: ${{ secrets.E2E_VIEWER_EMAIL }}
+          E2E_VIEWER_PASSWORD: ${{ secrets.E2E_VIEWER_PASSWORD }}
 
   python:
     name: Python ingest (unit + DB integration)
