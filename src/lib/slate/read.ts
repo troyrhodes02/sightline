@@ -561,15 +561,21 @@ type SnapshotInput = {
  * flips. Unchanged states — including "still not recommended" — persist
  * nothing: routine refreshes must not write snapshot noise.
  *
- * The latest snapshot is re-read INSIDE the transaction so two concurrent
- * slate reads cannot both record the same transition.
+ * Every resolved row is a candidate: a contract whose inputs VANISHED (no
+ * side, not recommended) must still record the transition off recommended,
+ * or Pitch 6 would grade against a stale "recommended" as the last known
+ * state. The transition check itself decides whether anything is written.
+ *
+ * The latest snapshot is re-read inside the transaction, which narrows —
+ * but at READ COMMITTED does not eliminate — the window in which two
+ * concurrent slate reads record the same transition twice. A duplicate is
+ * identical noise, not corruption: grading reads latest-per-contract, and
+ * at three users the window is acceptable.
  */
 async function persistSnapshotTransitions(
   inputs: SnapshotInput[],
 ): Promise<void> {
-  const candidates = inputs.filter(
-    (input) => input.isRecommended || input.side !== null,
-  );
+  const candidates = inputs;
   if (candidates.length === 0) return;
 
   await prisma.$transaction(async (tx) => {

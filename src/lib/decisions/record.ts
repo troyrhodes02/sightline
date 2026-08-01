@@ -82,12 +82,16 @@ async function recordDecisionInner(
       statType: true,
       threshold: true,
       closeTime: true,
+      status: true,
       game: { select: { kickoffAt: true, status: true } },
     },
   });
   if (!contract) throw new ContractNotFoundError();
 
   if (contract.game) {
+    // The game boundary is primary: a resolved contract with a live future
+    // game stays decidable even if Kalshi pulled the market — a decision
+    // needs no recommendation and no price.
     if (
       contract.game.kickoffAt.getTime() <= now.getTime() ||
       contract.game.status !== "scheduled"
@@ -95,9 +99,11 @@ async function recordDecisionInner(
       throw new DecisionClosedError();
     }
   } else if (
-    contract.closeTime &&
-    contract.closeTime.getTime() <= now.getTime()
+    contract.status !== "active" ||
+    (contract.closeTime && contract.closeTime.getTime() <= now.getTime())
   ) {
+    // With no game to anchor the boundary, a delisted/closed ghost or a
+    // passed close time is the only honest closure signal.
     throw new DecisionClosedError();
   }
 

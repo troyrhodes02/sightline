@@ -167,8 +167,12 @@ async function executeSync(): Promise<SyncResult> {
   // Delist pass: an active contract in a governed series that a COMPLETE
   // discovery no longer returned has left the market. Partial discoveries
   // must not delist — absence from a failed fetch is not absence from the
-  // exchange. History is retained; nothing is deleted.
-  if (completeDiscovery) {
+  // exchange — and neither does a discovery that returned NOTHING: a
+  // legitimately empty exchange and a silently drifted series taxonomy are
+  // indistinguishable from here, and started games leave the slate via the
+  // kickoff boundary regardless, so the conservative reading costs only a
+  // cosmetic status. History is retained; nothing is deleted.
+  if (completeDiscovery && marketsDiscovered > 0) {
     await prisma.contract.updateMany({
       where: {
         status: "active",

@@ -76,9 +76,15 @@ describe("sync structure", () => {
     expect(syncCode).toMatch(/status: "failed", startedAt/);
   });
 
-  it("delists only after a COMPLETE discovery, and only governed series", () => {
-    const delist = syncCode.slice(syncCode.indexOf("completeDiscovery)"));
-    expect(syncCode).toContain("if (completeDiscovery)");
+  it("delists only after a COMPLETE, NON-EMPTY discovery, and only governed series", () => {
+    // Zero markets from a "complete" discovery is indistinguishable from
+    // taxonomy drift, so it must not mass-delist (review finding, PR #34).
+    expect(syncCode).toContain(
+      "if (completeDiscovery && marketsDiscovered > 0)",
+    );
+    const delist = syncCode.slice(
+      syncCode.indexOf("completeDiscovery && marketsDiscovered > 0"),
+    );
     expect(delist).toContain('status: "delisted"');
     expect(delist).toContain("kalshiSeriesTicker: { in: NFL_SERIES_TICKERS }");
   });
