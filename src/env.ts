@@ -67,8 +67,24 @@ const serverSchema = z.object({
   /** Confidence-adjusted-edge recommendation threshold, in points (RD-11). */
   RECOMMENDATION_THRESHOLD_POINTS: z.coerce.number().min(0).default(5),
 
+  /**
+   * Minutes before kickoff at which official inactives are expected (RD-23).
+   * Past kickoff − this lead, a game's contracts disclose "predates inactives".
+   */
+  INACTIVES_LEAD_MINUTES: z.coerce.number().int().min(0).default(90),
+
   /** In-page slate polling interval (RD-12). Scheduling proper is Pitch 5. */
   SLATE_REFRESH_INTERVAL_SECONDS: z.coerce.number().int().min(10).default(60),
+
+  /**
+   * Bearer token for the scheduler-facing `/api/pipeline/*` routes (RD-20).
+   * A machine caller, not a user session: it can trigger a price refresh and
+   * report a keepalive, and nothing else. Optional so environments without a
+   * scheduler still boot — the routes answer 503 while it is unset, so a
+   * misconfigured deploy is loud rather than silently unauthenticated.
+   * Minimum length guards against a placeholder value shipping to production.
+   */
+  PIPELINE_SCHEDULER_TOKEN: z.string().min(32).optional(),
 
   NODE_ENV: z
     .enum(["development", "test", "production"])

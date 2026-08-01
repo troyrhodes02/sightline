@@ -121,9 +121,20 @@ export function SlateRow({ row }: { row: SlateRowDto }) {
         {row.currentDisposition ? (
           <DispositionChip disposition={row.currentDisposition} />
         ) : null}
+        {/* The two staleness states: distinct chips, never collapsed, never
+            dropped at any width. `stale` is caution; `predates inactives` is
+            a neutral disclosure — deliberately not amber (RD-22/RD-23). */}
+        {row.staleness?.isStale ? (
+          <StatusChip label="stale" tone="caution" icon />
+        ) : null}
+        {row.staleness?.predatesInactives ? (
+          <StatusChip label="predates inactives" tone="neutral" />
+        ) : null}
         <RowTimestamps
           projectionComputedAt={row.projectionComputedAt}
+          projectionAge={row.projectionAge}
           priceObservedAt={row.priceObservedAt}
+          priceAge={row.priceAge}
         />
       </Stack>
     </Box>

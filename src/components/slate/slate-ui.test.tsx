@@ -33,11 +33,18 @@ const row = (overrides: Partial<SlateRowDto> = {}): SlateRowDto => ({
   confidence: "high",
   projectionComputedAt: "2026-11-05T14:12:00.000Z",
   informationCutoff: "2026-11-05T14:00:00.000Z",
+  staleness: {
+    isStale: false,
+    predatesInactives: false,
+    inactivesExpectedAt: null,
+  },
+  projectionAge: "2d 4h",
   yesBidCents: 52,
   yesAskCents: 54,
   noBidCents: 46,
   noAskCents: 48,
   priceObservedAt: "2026-11-08T16:42:00.000Z",
+  priceAge: "0m",
   side: "yes",
   edgePoints: 7.4,
   confidenceAdjustedEdge: 7.4,
@@ -128,8 +135,67 @@ describe("SlateRow", () => {
 
   it("shows both clocks on every row", () => {
     renderThemed(<SlateRow row={row()} />);
-    expect(screen.getByText(/^proj /)).toBeInTheDocument();
-    expect(screen.getByText(/^price /)).toBeInTheDocument();
+    expect(screen.getByText(/^proj/)).toBeInTheDocument();
+    expect(screen.getByText(/^price/)).toBeInTheDocument();
+  });
+
+  it("appends server-computed ages to both clocks, never merging them", () => {
+    renderThemed(<SlateRow row={row()} />);
+    expect(screen.getByText(/^proj/)).toHaveTextContent("(2d 4h)");
+    expect(screen.getByText(/^price/)).toHaveTextContent("(0m)");
+  });
+
+  it("renders the stale chip with its word — caution, list-visible", () => {
+    renderThemed(
+      <SlateRow
+        row={row({
+          staleness: {
+            isStale: true,
+            predatesInactives: false,
+            inactivesExpectedAt: null,
+          },
+        })}
+      />,
+    );
+    expect(screen.getByText("stale")).toBeInTheDocument();
+    expect(screen.queryByText("predates inactives")).not.toBeInTheDocument();
+  });
+
+  it("renders predates-inactives as its own chip; the two states co-occur", () => {
+    renderThemed(
+      <SlateRow
+        row={row({
+          staleness: {
+            isStale: true,
+            predatesInactives: true,
+            inactivesExpectedAt: "2026-11-08T16:30:00.000Z",
+          },
+        })}
+      />,
+    );
+    expect(screen.getByText("stale")).toBeInTheDocument();
+    expect(screen.getByText("predates inactives")).toBeInTheDocument();
+  });
+
+  it("a no-projection row carries neither staleness chip", () => {
+    renderThemed(
+      <SlateRow
+        row={row({
+          modelProbability: null,
+          confidence: null,
+          side: null,
+          edgePoints: null,
+          confidenceAdjustedEdge: null,
+          isRecommended: false,
+          projectionComputedAt: null,
+          informationCutoff: null,
+          staleness: null,
+          projectionAge: null,
+        })}
+      />,
+    );
+    expect(screen.queryByText("stale")).not.toBeInTheDocument();
+    expect(screen.queryByText("predates inactives")).not.toBeInTheDocument();
   });
 });
 

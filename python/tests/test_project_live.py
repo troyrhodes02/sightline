@@ -215,6 +215,156 @@ def test_rerun_with_same_cutoff_changes_nothing(connect, clean_db, monkeypatch) 
     assert after == before
 
 
+# ---------------------------------------------------------------------------
+# Pipeline run recording (SIG-46): per-game outcomes, scoping, dedup
+# ---------------------------------------------------------------------------
+
+
+def _seed_second_game(connect) -> None:
+    """A second upcoming game + contract for the same player (late window)."""
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "insert into games (id, season, week, season_type, home_team_id,"
+            " away_team_id, is_dome, status, kickoff_at, created_at, updated_at)"
+            " values (%s,%s,%s,'REG',%s,%s,false,'scheduled',%s,now(),now())",
+            (_uid("game-upcoming-2"), 2025, 10, _uid("team-CIN"), _uid("team-BAL"),
+             KICKOFF_UPCOMING + timedelta(hours=7)),
+        )
+        cur.execute(
+            "insert into contracts (id, kalshi_ticker, title, kalshi_player_name,"
+            " player_id, game_id, stat_type, threshold, resolution_status, status,"
+            " first_seen_at, last_seen_at, created_at, updated_at)"
+            " values (%s,%s,%s,%s,%s,%s,%s::\"StatType\",%s,"
+            " 'resolved'::\"IdentityResolutionStatus\", 'active'::\"ContractStatus\","
+            " now(), now(), now(), now())",
+            (_uid("contract-2"), "KXNFLRECYDS-25NOV09BALCIN-JC-89.5",
+             "Ja'Marr Chase: 90+ receiving yards", "Ja'Marr Chase",
+             _uid("player"), _uid("game-upcoming-2"), "receiving_yards", 89.5),
+        )
+        conn.commit()
+
+
+def _run_rows(connect) -> list[dict]:
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "select id, category, status, scope, invocation_id from pipeline_runs"
+            " order by started_at"
+        )
+        cols = [d.name for d in cur.description]
+        return [dict(zip(cols, row)) for row in cur.fetchall()]
+
+
+def _game_rows(connect) -> dict[str, dict]:
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "select game_id, status, projected_count, error_message"
+            " from pipeline_run_games"
+        )
+        cols = [d.name for d in cur.description]
+        return {row[0]: dict(zip(cols, row)) for row in cur.fetchall()}
+
+
+@pytest.mark.db
+def test_project_records_run_and_per_game_outcomes(connect, clean_db, monkeypatch) -> None:
+    _seed(connect)
+    _seed_second_game(connect)
+    monkeypatch.setattr("sightline_model.project_live.connect", connect)
+
+    totals = run_project(CUTOFF, now=NOW, invocation_id="gh-100")
+
+    assert totals["projected"] == 2
+    (run,) = _run_rows(connect)
+    assert run["category"] == "recompute"
+    assert run["status"] == "succeeded"
+    assert run["scope"] == "in_week"
+    games = _game_rows(connect)
+    assert len(games) == 2
+    assert all(g["status"] == "succeeded" for g in games.values())
+    assert games[_uid("game-upcoming")]["projected_count"] == 1
+
+
+@pytest.mark.db
+def test_games_scoping_projects_only_selected_games(connect, clean_db, monkeypatch) -> None:
+    _seed(connect)
+    _seed_second_game(connect)
+    monkeypatch.setattr("sightline_model.project_live.connect", connect)
+
+    totals = run_project(
+        CUTOFF, now=NOW, games=[_uid("game-upcoming")], invocation_id="gh-101"
+    )
+
+    assert totals["projected"] == 1
+    (run,) = _run_rows(connect)
+    assert run["scope"] == "gameday"
+    games = _game_rows(connect)
+    assert set(games) == {_uid("game-upcoming")}, (
+        "a scoped recompute must not touch (or record) unselected games"
+    )
+
+
+@pytest.mark.db
+def test_one_failed_game_fails_cycle_but_not_other_games(
+    connect, clean_db, monkeypatch
+) -> None:
+    from sightline_model.project_live import run_project as _run
+    import sightline_model.project_live as pl
+
+    _seed(connect)
+    _seed_second_game(connect)
+    monkeypatch.setattr("sightline_model.project_live.connect", connect)
+
+    real_project_one = pl.project_one
+    bad_game = _uid("game-upcoming-2")
+
+    def failing_project_one(history, **kwargs):
+        if kwargs.get("game_id") == bad_game:
+            raise RuntimeError("engine exploded for this game")
+        return real_project_one(history, **kwargs)
+
+    monkeypatch.setattr("sightline_model.project_live.project_one", failing_project_one)
+
+    totals = _run(CUTOFF, now=NOW, invocation_id="gh-102")
+
+    assert totals["projected"] == 1
+    assert totals["failed_games"] == 1
+    (run,) = _run_rows(connect)
+    assert run["status"] == "failed"
+    games = _game_rows(connect)
+    assert games[_uid("game-upcoming")]["status"] == "succeeded"
+    assert games[bad_game]["status"] == "failed"
+    # The healthy game's projections were committed (per-game transaction).
+    assert len(_projection_rows(connect)) == 1
+
+
+@pytest.mark.db
+def test_duplicate_recompute_invocation_records_and_writes_nothing(
+    connect, clean_db, monkeypatch
+) -> None:
+    _seed(connect)
+    monkeypatch.setattr("sightline_model.project_live.connect", connect)
+
+    run_project(CUTOFF, now=NOW, invocation_id="gh-103")
+    before_rows = _projection_rows(connect)
+
+    totals = run_project(CUTOFF, now=NOW, invocation_id="gh-103")
+
+    assert totals["projected"] == 0
+    assert _projection_rows(connect) == before_rows
+    assert len(_run_rows(connect)) == 1, "one logical cycle for one invocation id"
+
+
+@pytest.mark.db
+def test_empty_candidate_set_is_a_success(connect, clean_db, monkeypatch) -> None:
+    # GIVEN a corpus with no resolved contracts at all
+    monkeypatch.setattr("sightline_model.project_live.connect", connect)
+
+    totals = run_project(CUTOFF, now=NOW, invocation_id="gh-104")
+
+    assert totals["projected"] == 0
+    (run,) = _run_rows(connect)
+    assert run["status"] == "succeeded", "no-new-data success is a valid success"
+
+
 @pytest.mark.db
 def test_post_cutoff_fact_cannot_move_the_projection(connect, clean_db, monkeypatch) -> None:
     """The adversarial pair: construct the leak, prove it is blocked.

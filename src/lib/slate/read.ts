@@ -19,6 +19,8 @@ import {
   recommendationThresholdPoints,
 } from "./edge";
 import { probAtLeast } from "./probability";
+import { formatAge } from "./staleness";
+import { latestFactKnownAtByGame, stalenessForRow } from "./staleness-read";
 
 /**
  * The slate read: the two-clock join, computed when someone looks.
@@ -43,6 +45,9 @@ export async function readSlate(role: SlateRole): Promise<SlateDto> {
     select: {
       id: true,
       kickoffAt: true,
+      season: true,
+      homeTeamId: true,
+      awayTeamId: true,
       homeTeam: { select: { nflverseAbbr: true } },
       awayTeam: { select: { nflverseAbbr: true } },
     },
@@ -97,6 +102,17 @@ export async function readSlate(role: SlateRole): Promise<SlateDto> {
     })),
   );
 
+  // One batched fact-recency read for every game on the slate (RD-22);
+  // per-game scoping is inherent — each game gets only its own facts.
+  const latestFacts = await latestFactKnownAtByGame(
+    games.map((game) => ({
+      id: game.id,
+      season: game.season,
+      homeTeamId: game.homeTeamId,
+      awayTeamId: game.awayTeamId,
+    })),
+  );
+
   const thresholdPoints = recommendationThresholdPoints();
   const rows: SlateRowDto[] = [];
   const snapshotInputs: SnapshotInput[] = [];
@@ -146,11 +162,23 @@ export async function readSlate(role: SlateRole): Promise<SlateDto> {
       confidence: projection?.confidence ?? null,
       projectionComputedAt: projection?.computedAt.toISOString() ?? null,
       informationCutoff: projection?.informationCutoff.toISOString() ?? null,
+      staleness: stalenessForRow({
+        kickoffAt: game.kickoffAt,
+        informationCutoff: projection?.informationCutoff ?? null,
+        latestFactKnownAt: latestFacts.get(game.id) ?? null,
+        now,
+      }),
+      projectionAge: projection
+        ? formatAge(projection.computedAt.toISOString(), now)
+        : null,
       yesBidCents: observation?.yesBidCents ?? null,
       yesAskCents: observation?.yesAskCents ?? null,
       noBidCents: observation?.noBidCents ?? null,
       noAskCents: observation?.noAskCents ?? null,
       priceObservedAt: observation?.observedAt.toISOString() ?? null,
+      priceAge: observation
+        ? formatAge(observation.observedAt.toISOString(), now)
+        : null,
       side: edge.side,
       edgePoints: edge.edgePoints,
       confidenceAdjustedEdge: edge.confidenceAdjustedEdge,
@@ -294,7 +322,11 @@ export async function readContractDetail(
       player: { select: { fullName: true } },
       game: {
         select: {
+          id: true,
           kickoffAt: true,
+          season: true,
+          homeTeamId: true,
+          awayTeamId: true,
           homeTeam: { select: { nflverseAbbr: true } },
           awayTeam: { select: { nflverseAbbr: true } },
         },
@@ -302,6 +334,7 @@ export async function readContractDetail(
     },
   });
   if (!contract) return null;
+  const now = new Date();
 
   const observation =
     (await latestObservationByContract([contract.id])).get(contract.id) ?? null;
@@ -371,6 +404,29 @@ export async function readContractDetail(
       ? Math.round((observation.yesBidCents + observation.yesAskCents) / 2)
       : null;
 
+  // Same derivation the slate used — the two surfaces can never disagree,
+  // because neither computes staleness locally (RD-28).
+  const latestFactKnownAt = contract.game
+    ? ((
+        await latestFactKnownAtByGame([
+          {
+            id: contract.game.id,
+            season: contract.game.season,
+            homeTeamId: contract.game.homeTeamId,
+            awayTeamId: contract.game.awayTeamId,
+          },
+        ])
+      ).get(contract.game.id) ?? null)
+    : null;
+  const staleness = contract.game
+    ? stalenessForRow({
+        kickoffAt: contract.game.kickoffAt,
+        informationCutoff: projection?.informationCutoff ?? null,
+        latestFactKnownAt,
+        now,
+      })
+    : null;
+
   const detail: ContractDetailDto = {
     contractId: contract.id,
     playerName:
@@ -385,11 +441,18 @@ export async function readContractDetail(
     confidence: projection?.confidence ?? null,
     projectionComputedAt: projection?.computedAt.toISOString() ?? null,
     informationCutoff: projection?.informationCutoff.toISOString() ?? null,
+    staleness,
+    projectionAge: projection
+      ? formatAge(projection.computedAt.toISOString(), now)
+      : null,
     yesBidCents: observation?.yesBidCents ?? null,
     yesAskCents: observation?.yesAskCents ?? null,
     noBidCents: observation?.noBidCents ?? null,
     noAskCents: observation?.noAskCents ?? null,
     priceObservedAt: observation?.observedAt.toISOString() ?? null,
+    priceAge: observation
+      ? formatAge(observation.observedAt.toISOString(), now)
+      : null,
     side: edge.side,
     edgePoints: edge.edgePoints,
     confidenceAdjustedEdge: edge.confidenceAdjustedEdge,
@@ -432,7 +495,7 @@ export async function readContractDetail(
 // Internals
 // ---------------------------------------------------------------------------
 
-function projectionKey(
+export function projectionKey(
   playerId: string,
   gameId: string,
   statType: StatType,
@@ -461,7 +524,7 @@ type FreshProjection = {
  * any model version. Fetched in one query and reduced in memory; a slate is
  * tens of keys, not thousands.
  */
-async function freshestProjections(
+export async function freshestProjections(
   keys: Array<{ playerId: string; gameId: string; statType: StatType }>,
 ): Promise<
   Map<
@@ -518,7 +581,7 @@ type LatestObservation = {
   observedAt: Date;
 };
 
-async function latestObservationByContract(
+export async function latestObservationByContract(
   contractIds: string[],
 ): Promise<Map<string, LatestObservation>> {
   if (contractIds.length === 0) return new Map();

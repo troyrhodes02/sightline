@@ -1,4 +1,5 @@
 import Alert from "@mui/material/Alert";
+import Box from "@mui/material/Box";
 import List from "@mui/material/List";
 import ListItem from "@mui/material/ListItem";
 import Paper from "@mui/material/Paper";
@@ -7,71 +8,255 @@ import Typography from "@mui/material/Typography";
 
 import { HealthStateChip } from "@/components/primitives/HealthStateChip";
 import { NumericText } from "@/components/primitives/NumericText";
-import type { HealthSignalDto } from "@/lib/dto/health";
+import { StatusChip } from "@/components/primitives/StatusChip";
+import type {
+  HealthDto,
+  HealthGameDetailDto,
+  HealthSignalDto,
+  HealthSourceDetailDto,
+} from "@/lib/dto/health";
 
 /**
  * System health.
  *
  * Makes the freshness of Sightline's scheduled systems visible inside the
- * product rather than in a logs tab — and, in this pitch, says plainly that
- * none of them exists yet.
+ * product rather than in a logs tab: three per-category signals, each moved
+ * only by completed successful runs, with per-source and per-game detail when
+ * — and only when — a cycle was not fully green.
  *
- * Not an operations console: no logs, no feature flags, no job triggers, no
- * database tools, no deploy controls. Values are read on request; there is no
- * polling and no countdown.
+ * The surface reports; it does not operate. No mutations, no retry buttons,
+ * no polling, no countdowns, no links to CI, no log excerpts — recovery is a
+ * command-line concern, and every value on this page was computed server-side
+ * at request time (RD-28: no client clock math).
  */
-export function Health({ signals }: { signals: HealthSignalDto[] }) {
-  const anyUnbuilt = signals.some((s) => s.state === "not_yet_implemented");
+export function Health({ health }: { health: HealthDto }) {
+  const { signals, offseason } = health;
 
   return (
     <Stack spacing={3}>
       <Typography variant="h1">System health</Typography>
 
-      {/*
-        Conditional, not permanent: it disappears on its own once every signal
-        is live, without anyone remembering to remove it.
-      */}
-      {anyUnbuilt ? (
-        <Alert severity="info" icon={false}>
-          Scheduled jobs are not part of this version. These signals report as
-          unavailable until the live pipeline ships.
-        </Alert>
+      {offseason ? (
+        <Typography variant="body2" sx={{ color: "text.secondary" }}>
+          {offseason.dormantCopy}
+        </Typography>
       ) : null}
 
       <Paper>
         <List disablePadding>
           {signals.map((signal, index) => (
-            <ListItem
+            <SignalBlock
               key={signal.key}
+              signal={signal}
               divider={index < signals.length - 1}
-              sx={{ display: "block", py: 2.5, px: 2, minHeight: 80 }}
-            >
-              <Stack
-                direction="row"
-                spacing={1}
-                sx={{ alignItems: "center", justifyContent: "space-between" }}
-              >
-                <Typography variant="body1">{signal.label}</Typography>
-                {/* Renders nothing when the signal is healthy. */}
-                <HealthStateChip state={signal.state} />
-              </Stack>
-
-              <Row
-                label="Last successful run"
-                value={signal.lastSuccessAt}
-                age={signal.lastSuccessAge}
-              />
-              {signal.expectedWithin ? (
-                <Row label="Expected within" value={signal.expectedWithin} />
-              ) : null}
-              {signal.lastAttemptAt ? (
-                <Row label="Last attempt" value={signal.lastAttemptAt} />
-              ) : null}
-            </ListItem>
+            />
           ))}
         </List>
       </Paper>
+
+      {offseason ? (
+        <OffseasonReadiness keepalive={offseason.keepalive} />
+      ) : null}
     </Stack>
+  );
+}
+
+function SignalBlock({
+  signal,
+  divider,
+}: {
+  signal: HealthSignalDto;
+  divider: boolean;
+}) {
+  const running = signal.state === "running";
+  // The attempt row earns its place only when it says something the success
+  // row does not: an in-flight attempt, or a latest attempt that is not the
+  // latest success.
+  const showAttempt =
+    !running &&
+    signal.lastAttemptAt !== null &&
+    signal.lastAttemptAt !== signal.lastSuccessAt;
+
+  return (
+    <ListItem
+      divider={divider}
+      sx={{ display: "block", py: 2.5, px: 2, minHeight: 80 }}
+    >
+      <Stack
+        direction="row"
+        spacing={1}
+        sx={{ alignItems: "center", justifyContent: "space-between" }}
+      >
+        <Typography variant="body1">{signal.label}</Typography>
+        {/* Renders nothing when the signal is healthy. */}
+        <HealthStateChip state={signal.state} />
+      </Stack>
+
+      <Row
+        label="Last successful run"
+        value={signal.lastSuccessAt}
+        age={signal.lastSuccessAge}
+      />
+      {signal.expectedWithin ? (
+        <Row label="Expected within" value={signal.expectedWithin} />
+      ) : null}
+      {running && signal.lastAttemptAt ? (
+        <Row
+          label="Current attempt"
+          value={`started ${signal.lastAttemptAt}`}
+        />
+      ) : null}
+      {showAttempt ? (
+        <Row
+          label="Last attempt"
+          value={`${signal.lastAttemptAt} · ${signal.lastAttemptOutcome}`}
+        />
+      ) : null}
+
+      {signal.sources ? <SourceDetail sources={signal.sources} /> : null}
+      {signal.games ? <GameCompleteness games={signal.games} /> : null}
+    </ListItem>
+  );
+}
+
+/**
+ * Per-source detail of the latest ingest cycle. Present only when a source is
+ * non-ok; a failed required source has already made the parent signal
+ * `failed`, while a degraded optional source alone leaves it green with this
+ * block as the honest footnote (RD-P7).
+ */
+function SourceDetail({ sources }: { sources: HealthSourceDetailDto[] }) {
+  return (
+    <DetailBlock title="sources — latest cycle">
+      {sources.map((source) => (
+        <Stack
+          key={source.name}
+          direction="row"
+          spacing={1.5}
+          sx={{ alignItems: "baseline", justifyContent: "space-between" }}
+        >
+          <Typography variant="body2">{source.name}</Typography>
+          <Stack direction="row" spacing={1.5} sx={{ alignItems: "baseline" }}>
+            <Typography
+              variant="body2"
+              sx={{
+                color:
+                  source.state === "ok" ? "text.secondary" : "warning.main",
+              }}
+            >
+              {source.state}
+            </Typography>
+            <NumericText size="sm" muted={!source.finishedAt}>
+              {source.finishedAt ?? "—"}
+            </NumericText>
+            <Typography variant="caption" sx={{ color: "text.muted" }}>
+              {source.required ? "required" : "optional"}
+            </Typography>
+          </Stack>
+        </Stack>
+      ))}
+    </DetailBlock>
+  );
+}
+
+/**
+ * Per-game completeness of the latest recompute cycle. Names games, never
+ * players — per-contract currency lives on the slate (RD-P6).
+ */
+function GameCompleteness({ games }: { games: HealthGameDetailDto }) {
+  return (
+    <DetailBlock title="games — current slate">
+      <Typography variant="body2">
+        {games.currentCount} of {games.totalCount} games current
+      </Typography>
+      {games.lagging.map((game) => (
+        <Stack
+          key={game.label}
+          direction="row"
+          spacing={1.5}
+          sx={{ alignItems: "baseline", justifyContent: "space-between" }}
+        >
+          <Typography variant="body2">{game.label}</Typography>
+          <Stack direction="row" spacing={1.5} sx={{ alignItems: "baseline" }}>
+            <NumericText size="sm">{game.kickoffAt}</NumericText>
+            <Typography variant="caption" sx={{ color: "warning.main" }}>
+              {game.reason}
+            </Typography>
+          </Stack>
+        </Stack>
+      ))}
+    </DetailBlock>
+  );
+}
+
+/**
+ * Offseason readiness: the keepalive's last action and its next-required-by
+ * date. Amber on exactly one condition — the required date has passed without
+ * action (RD-Q11). Old job timestamps elsewhere on the offseason layout stay
+ * neutral; they are correct, not late.
+ */
+function OffseasonReadiness({
+  keepalive,
+}: {
+  keepalive: NonNullable<HealthDto["offseason"]>["keepalive"];
+}) {
+  return (
+    <Paper>
+      <Box sx={{ py: 2.5, px: 2 }}>
+        <Stack
+          direction="row"
+          spacing={1}
+          sx={{ alignItems: "center", justifyContent: "space-between" }}
+        >
+          <Typography variant="body1">Offseason readiness</Typography>
+          {keepalive.overdue ? (
+            <StatusChip label="overdue" tone="caution" filled icon />
+          ) : null}
+        </Stack>
+
+        <Row
+          label="Keepalive last acted"
+          value={keepalive.lastActedAt}
+          age={keepalive.lastActedAge}
+        />
+        <Row label="Next required by" value={keepalive.nextRequiredBy} />
+
+        {keepalive.overdue ? (
+          <Alert severity="warning" sx={{ mt: 1.5 }}>
+            keepalive overdue — scheduled workflows may be disabled before the
+            season resumes.
+          </Alert>
+        ) : null}
+      </Box>
+    </Paper>
+  );
+}
+
+function DetailBlock({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Box
+      sx={{
+        mt: 1.5,
+        p: 1.5,
+        border: 1,
+        borderColor: "divider",
+        borderRadius: 1,
+      }}
+    >
+      <Typography
+        variant="label"
+        sx={{ color: "text.secondary", display: "block", mb: 0.75 }}
+      >
+        {title}
+      </Typography>
+      <Stack spacing={0.5}>{children}</Stack>
+    </Box>
   );
 }
 
