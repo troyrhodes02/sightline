@@ -86,7 +86,7 @@ Chained SIG-51 ← SIG-52 ← SIG-53 ← SIG-54 ← SIG-55 (each blockedBy its p
 
 | # | ID | Title | Status |
 |---|----|-------|--------|
-| 1 | SIG-51 | Outcome schema & Kalshi settlement ingest | Todo |
+| 1 | SIG-51 | Outcome schema & Kalshi settlement ingest | In Progress — PR #51 attached (review convention) |
 | 2 | SIG-52 | Python grading job: projection & threshold grades | Todo |
 | 3 | SIG-53 | Accuracy surface: shared calibration, error & market panels | Todo |
 | 4 | SIG-54 | Overrides surface & contract detail outcome block | Todo |
@@ -101,7 +101,7 @@ Ticket branches: stacked — first off the feature branch, each subsequent off t
 
 | Ticket | Branch | PR |
 |--------|--------|----|
-| SIG-51 | wtrhodesdev/sig-51-outcome-schema-kalshi-settlement-ingest | (pending) |
+| SIG-51 | wtrhodesdev/sig-51-outcome-schema-kalshi-settlement-ingest | [#51](https://github.com/troyrhodes02/sightline/pull/51) |
 | SIG-52 | wtrhodesdev/sig-52-python-grading-job-projection-threshold-grades | (pending) |
 | SIG-53 | wtrhodesdev/sig-53-accuracy-surface-shared-calibration-error-market-panels | (pending) |
 | SIG-54 | wtrhodesdev/sig-54-overrides-surface-contract-detail-outcome-block | (pending) |
