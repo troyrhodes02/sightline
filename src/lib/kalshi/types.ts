@@ -21,6 +21,14 @@ export type KalshiMarket = {
   no_ask?: number;
   /** Numeric strike for scalar-derived binaries ("75+ yards" → 74.5). */
   floor_strike?: number;
+  /**
+   * Settlement result. Empty string until the market settles; "yes" / "no"
+   * for determined markets; "void" for voided ones. Open set upstream — an
+   * unrecognised value must degrade to `unavailable`, never to a guess.
+   */
+  result?: string;
+  /** ISO 8601 settlement time, when Kalshi supplies one. */
+  settled_time?: string;
 };
 
 export type KalshiEvent = {

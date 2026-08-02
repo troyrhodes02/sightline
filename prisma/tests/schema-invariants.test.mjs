@@ -383,6 +383,98 @@ test("price observations are append-only by construction", () => {
   );
 });
 
+// ---------------------------------------------------------------------------
+// Outcome Scoring & Accuracy Surface — settlement and grade tables (SIG-51)
+// ---------------------------------------------------------------------------
+
+const GRADING_TABLES = ["outcomes", "projection_grades", "threshold_grades"];
+
+test("settlement and grade tables are measurement records, not bitemporal fact tables", () => {
+  // An outcome is a measurement of a market and a grade is a measurement of
+  // the model — neither is a fact about the world, and neither may ever feed
+  // a projection. They deliberately carry no validAt/knownAt (like
+  // backtest_runs) and no ingest_run_id, which also keeps them outside the
+  // self-extending fact-table guard above.
+  for (const table of GRADING_TABLES) {
+    const model = modelsByTable.get(table);
+    assert.ok(model, `${table} not found in schema`);
+    for (const field of ["validAt", "knownAt", "knownAtReconstructed"]) {
+      assert.ok(
+        !model.fields.has(field),
+        `${table} must not carry ${field} — it is not a fact table`,
+      );
+    }
+    assert.ok(
+      !/@map\("ingest_run_id"\)/.test(model.body),
+      `${table} must not carry ingest_run_id`,
+    );
+  }
+});
+
+test("settlement lives on outcomes, never as columns on contracts", () => {
+  // The contract row is market identity; its settlement is a separate record
+  // with its own provenance and supersession history. A settlement (or any
+  // grade-derived) column on contracts would be the stored-derived-state
+  // denormalisation CLAUDE.md forbids, and would tempt read paths into
+  // treating one truth as THE truth.
+  const contract = modelsByTable.get("contracts");
+  for (const forbidden of [
+    "result",
+    "settled",
+    "settledAt",
+    "settlementResult",
+    "outcomeResult",
+    "isSettled",
+    "graded",
+  ]) {
+    assert.ok(
+      !contract.fields.has(forbidden),
+      `contracts must not carry ${forbidden} — settlement lives on outcomes`,
+    );
+  }
+});
+
+test("outcome supersession provenance and grade coherence CHECKs exist", () => {
+  for (const name of [
+    "outcomes_supersession_provenance",
+    "threshold_grades_market_has_contract",
+    "projection_grades_status_values",
+  ]) {
+    assert.match(
+      migration,
+      new RegExp(`CONSTRAINT "${name}"[\\s\\S]{0,200}?CHECK`),
+      `migration is missing the ${name} constraint`,
+    );
+  }
+});
+
+test("outcomes retain supersession provenance fields and one row per contract", () => {
+  const outcome = modelsByTable.get("outcomes");
+  assert.ok(outcome, "outcomes model not found");
+  for (const field of [
+    "result",
+    "settledAt",
+    "recordedAt",
+    "rawResult",
+    "supersededCount",
+    "previousResult",
+    "previousRecordedAt",
+  ]) {
+    assert.ok(outcome.fields.has(field), `outcomes is missing ${field}`);
+  }
+  assert.match(
+    outcome.fields.get("contractId").line,
+    /@unique/,
+    "outcomes.contractId must be unique — one settlement per contract",
+  );
+  // Settlement retention is independent of resolution and projection state:
+  // the row references the contract and nothing else.
+  assert.ok(
+    !outcome.fields.has("projectionId"),
+    "outcomes must not reference a projection — settlement retention and grading are separate",
+  );
+});
+
 test("projections carry both clocks and the idempotent persist key", () => {
   const projection = modelsByTable.get("projections");
   assert.ok(projection, "projections model not found");

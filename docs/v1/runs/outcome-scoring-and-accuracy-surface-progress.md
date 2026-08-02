@@ -1,0 +1,161 @@
+# Run Progress — Outcome Scoring & Accuracy Surface
+
+Slug: `outcome-scoring-and-accuracy-surface`
+Linear project: Sightline V1
+Mode: Autonomous Pipeline Policy (CLAUDE.md)
+
+## Current step
+
+**Step 8 complete — all five tickets done; step 9 runbook next.** (SIG-51 done: PR #51; SIG-52 done: PR #52; SIG-53 done: PR #53; SIG-54 done: PR #54; SIG-55 done: PR #55 — full suite green on the closing ticket: lint, typecheck, format, jest 474, test:schema, prisma:validate, build, pytest 358, e2e 44 passed / 36 skipped locally without seeded-account creds — authenticated suites run in CI.)
+
+Key ground truth established (from planning-doc + codebase research):
+- Final pre-kickoff snapshot EXISTS and is wired: `RecommendationSnapshot.trigger = final_pre_kickoff`, captured by `src/lib/pipeline/final-snapshot.ts` via `/api/pipeline/price-refresh` on the 15-min cron, 45-min window, partial unique index one-per-contract. Postponed-game re-capture semantics deliberately deferred to this pitch.
+- NO `Outcome` model exists; `Contract` has no settlement columns; Kalshi client has no settlement endpoint (needs new method).
+- Python import-graph guard (`python/tests/test_import_graph.py`) forbids price/recommendation table names in both Python packages → contract-facing grading (settlement, recommendations, decisions, market comparison) must be TypeScript-side; model grading (projection vs official stats) is Python-side via `GradingCorpus`.
+- `CalibrationBin` is backtest-scoped (`backtestRunId` FK, population `contract_like`, `belowFloor` at 1,000-obs REPORTING_FLOOR, 10 fixed bins). Live calibration needs new storage.
+- Correction signal exists: `PlayerGameStatCorrection` rows written by stats ingest; nothing consumes them yet.
+- Health: closed union `"ingest"|"recompute"|"price_refresh"` in `src/lib/dto/health.ts` must widen; `PipelineJobCategory` enum needs new values via migration.
+- SIG-28: `projectedValue` = mean (headline), `projectedMedian` = q50. Aggregates JSON has `pointEstimates {mean, median}`; baselines refuse Brier (metrics.py).
+- Nav: add Accuracy to `src/components/shell/NavSections.ts` (`adminOnly: false`); admin routes must be added to `build-invariants.test.ts` list.
+
+## Pipeline checklist
+
+- [x] 1. Pull pitch doc from Linear → `docs/v1/pitches/outcome-scoring-and-accuracy-surface.md`
+- [x] 2. Design doc → `docs/v1/design-docs/outcome-scoring-and-accuracy-surface-design-doc.md`
+- [x] 3. UI preview → `docs/v1/ui/outcome-scoring-and-accuracy-surface-ui-preview.html`
+- [x] 4. Spec → `docs/v1/specs/outcome-scoring-and-accuracy-surface-spec.md`
+- [x] 5. Resolve remaining open questions as Resolved Decisions (all 18: 1–11 pre-resolved by instruction, 12–18 in design doc; spec restates; three inherited postures noted non-blocking in spec §16)
+- [x] 6. Milestone + Linear issues, chained blockedBy, IDs captured here
+- [x] 7. Feature PR into main (#50)
+- [x] 8. Work every ticket in order (branch chain), PR each
+- [ ] 9. Runbook
+- [ ] 10. Squash-merge ticket PRs into feature branch in order
+- [ ] 11. Full verification suite on feature branch
+- [ ] 12. /review feature branch vs main, findings as inline comments on feature PR
+- [ ] 13. /sightline-review-audit those comments; disposition each
+- [ ] 14. Re-run suite; squash-merge feature branch into main if green
+- [ ] 15. Run report → `docs/v1/runs/outcome-scoring-and-accuracy-surface-report.md`
+
+## Pre-resolved decisions (from the run instruction — treat as approved-doc authority)
+
+1. Grading truth splits: official stats grade the model; Kalshi settlement grades contract-facing objects (recommendations, decisions, later positions). Disagreement is a displayable fact.
+2. Final pre-kickoff snapshot is owned by Live Pipeline & Staleness; this pitch grades it. Verify capture exists; if missing/unreliable, mark decisions unavailable for timing cost — never fabricate zero. Record hidden dependency in run report.
+3. Model calibration IS visible to viewers (Architecture Doc wins over PRD). Private stays private: positions, decision log, override perf, timing cost, ledgers, bankroll. Note PRD amendment in report.
+4. Calibration reports two denominators always: threshold observations AND distinct projections. No statistical correlation correction — disclose.
+5. Population explicit + selectable: contract-like (default), all eligible projections, market-linked (only valid pop for market comparison). Never silently chosen.
+6. Baselines and Brier are separate panels: error panel (MAE/RMSE vs both baselines, mean-vs-mean headline per SIG-28); calibration panel (reliability + Brier, model + market). Never one comparison.
+7. Market comparison: contemporaneous with the graded recommendation snapshot, executable price on relevant side (midpoint secondary, labelled); requires an uncertainty interval, not just sample size.
+8. Model versions separated by default; explicitly labelled combined "deployed-system record" view permitted; never backfill history with a newer model.
+9. Backtest and live always separately labelled; comparison permitted, never combined into one curve/score.
+10. Timing cost signed: positive = acting early cost you (final pre-kickoff edge exceeded decision-time edge). Probability points. Fades oriented to preferred side. Missing snapshot → unavailable, never zero. Edited decision → acted-on snapshot governs.
+11. Grading freshness: extend existing health surface with exactly three signals — last successful outcome ingest, last successful grading cycle, count of completed games awaiting grades. Nothing more.
+- Override performance: descriptive, never causal; took/faded/skipped distinct; skip = no action; unmarked excluded; selection-bias caveat stated on the surface.
+- Stale pitch numbers: reference dependencies by feature name, never pitch number, throughout design doc/spec/tickets.
+
+## Remaining open questions to resolve during design/spec (record as Resolved Decisions)
+
+From the pitch's 18: Q9 (insufficient-data thresholds), Q12 (confidence intervals outside market comparison), Q14 (weather-era visibility), Q15 (suggestion outcomes derivability), Q17 (unresolved-outcome taxonomy), plus bucket scheme, time-period definitions, and any others arising. (Q1–Q8, Q10, Q11, Q13, Q16, Q18 covered above.)
+
+## Resolved Decisions (accumulating)
+
+Design-doc decisions 12–18 (see "Decisions settled for this document" in the design doc; to be restated in spec):
+
+12. Reliability curve: ten fixed-width buckets matching stored backtest `binIndex` 0–9, so Compare overlays are like-for-like. Adaptive/quantile binning rejected.
+13. Insufficient data: calibration buckets below the established 1,000-threshold-observation floor render provisional (hollow/dashed, counts shown, excluded from summaries) matching `belowFloor`; market comparison needs ≥30 graded observations for a headline edge; override performance has no suppression floor (admin's own record, n always shown).
+14. Time period = NFL season (+ "All seasons"). No rolling windows/calendar years/custom ranges. Postseason weeks belong to their season.
+15. Weather-era visibility stays on the backtest record: era split disclosure line renders whenever the backtest record is shown; live record has no era dimension (all archived-forecast).
+16. Graded recommendation unit = the `final_pre_kickoff` snapshot. No final snapshot → recommendation outcome explicitly unavailable (taxonomy `missing_final_snapshot`), never graded against a substitute. Decisions grade against their own stored decision snapshot + disposition.
+17. Unresolvable taxonomy, one enum, seven reasons: `missing_official_result`, `unresolved_identity`, `unsupported_stat_type`, `game_never_completed`, `contract_voided`, `missing_final_snapshot`, `source_conflict`. Counts displayed beside every population; nothing silently excluded.
+18. Suggestion grading readiness is structural (grading keys off projection/snapshot/decision identities generically; shadow projections will grade through the same machinery). No suggestion surface or placeholder ships.
+
+### SIG-51 Resolved Decisions (implementation)
+
+- Empty settlement selection → `skipped: "not_expected"` with no `PipelineRun` row: dormancy derived from stored game/outcome state (mirrors price-refresh: derived from stored data, never the calendar), and an hourly no-op row per offseason hour would be noise, not history.
+- Duplicate scheduler delivery → P2002 on `PipelineRun` create → `skipped: "coalesced"`, no Kalshi call. The `@@unique([category, invocationId])` is the idempotency mechanism, per the keepalive pattern.
+- A degraded (Kalshi outage / rate-limit) cycle is recorded as `PipelineRun.status = failed` while the HTTP answer stays a designed 200 `degraded: true` — spec §13.5 requires the health signal to reflect the last *successful* run only.
+- Kalshi `result` mapping: `"yes"`→yes, `"no"`→no, explicit `"void"`/`"voided"`→voided; empty string is Kalshi's not-settled-yet and counts `unavailable` — mapping `""` to voided would fabricate settlements for merely-unsettled markets. Unknown vocabulary → `unavailable` + verbatim string in the run's error message (spec §11).
+- "Unchanged" means unchanged `result` (spec §6 lifecycle: same result → no write); `settledAt`/`rawResult` refresh only rides along on a result change.
+- Settlement-change window (7 days) is measured from each game's own `kickoffAt` — games carry no completion timestamp and kickoff is the stored per-game clock — with `Outcome.recordedAt` as the window clock for contracts that never resolved to a game.
+- `PipelineRun.codeVersion` = `VERCEL_GIT_COMMIT_SHA` when present, else `"unknown"` (BacktestRun's documented convention: never guessed).
+- Python blocklist tokens are SQL-shaped (`from|join|into|update outcomes`, bare and quoted): plain `outcome(s)` false-positives on `RunOutcome`, threshold `outcome` fields, and prose in both packages (verified by grep). Planted-reference and false-positive self-tests added.
+
+### SIG-52 Resolved Decisions (implementation)
+
+- Grading job dormancy mirrors the ingest cycle (and SIG-51's outcome_ingest decision): an empty selection — no completed/cancelled game with an evaluative-unit projection awaiting a grade or regrade — returns `not_expected` and writes no `PipelineRun` row. Selection is derived from stored state, never the calendar; SIG-55's health derivation must treat "no pending work" as not_expected, exactly as it does for outcome_ingest.
+- `missing_official_result` rows store the `PlayerGameStat.version` they saw (NULL when no stat row existed), permitted by the `projection_grades_status_values` check (which constrains `official_value`, not provenance). This makes the spec's "revisited every cycle" comparison-driven: the unit reselects only when a line (or a corrected version) arrives, so a quiet cycle writes nothing and idempotence stays structural.
+- A stat row whose stat column is NULL grades `missing_official_result`: a null column is absence, never zero — the feature layer's rule, and the same population the backtest excludes as `no_actual_stat_line`.
+- `stated_probability` = P(value > threshold) evaluated exactly from the rehydrated stored distribution (`params`/`pmf` via `sightline_model.distributions` — no quantile interpolation is needed because rehydration is exact), using the harness's strict-inequality nudge `prob_at_least(t + 1e-9)`: a no-op for the .5-valued grids, correct for integer market thresholds where `>=` would overstate.
+- Market thresholds are deduped per (player, stat, threshold); the first listing wins contract attribution (`first_seen_at`, then id) — Kalshi relisting the same threshold under a new ticker yields one observation, not two.
+- Grade-row ids are deterministic uuid5 of the natural key (projection id, plus source+threshold for threshold rows), following `project_live`'s convention, so regrades collide with their own prior row by construction.
+- `pipeline_run_games.projected_count` carries the count of evaluative units graded for that game (the column is reused as the cycle's per-game work count, as recompute uses it).
+- Baseline errors are recomputed through `AsOfCorpus` + `features.assemble` + `baselines.compute` at the projection's own `information_cutoff` — the backtest's exact reads. The adversarial test seeds a same-Sunday London game whose line publishes (09:00 ET next day, the corpus's publication rule) after the cutoff and asserts it cannot move the stored baselines.
+
+### SIG-53 Resolved Decisions (implementation)
+
+- Backtest record availability is gated on stored headline denominators: the series renders only where the harness stored a pooled thresholds block (`aggregates.overall` for population *all*, `aggregates.contractLike` for *contract-like*, both at stat=all/season=all). Narrower scopes omit the series and the screen names the scope the record needs (design principle 2 — "says which population it needs rather than silently switching"). Summing per-bin distinct projection counts to fabricate a headline would overcount the effective sample in the flattering direction.
+- The backtest record is the most recent `status = completed` run, regardless of the live version selector; the run's own label/model version and season range travel in the series label ("expose which run"). Never re-filtered by the live version — records are separate.
+- Era disclosure quotes the reanalysis-era **model MAE** from `aggregates.byEra.reanalysis` — the era breakout stores point-estimate error, not Brier, and Brier is not recoverable from stored bins. The qualitative disclosure line still renders when the figure is absent.
+- Season and version params validate against values-with-graded-data, falling back to that control's default (spec §11 governs over the preview mock's `?season=2027` example URL). Designed empty states remain reachable via stat/population/version scopes with no graded rows.
+- Live bucketing mirrors the harness exactly: `[low, high)` with the top bucket closed, via `least(floor(p*10), 9)` in SQL; `belowFloor` derived at the same 1,000-obs floor the stored bins use (stored flag preferred where present).
+- `gradingDelayed` = completed games hold ungraded eligible (evaluative-unit) projections AND the last successful `grading` run is older than 26h. The 26h constant lives in `src/lib/accuracy/config.ts` (`GRADING_DELAYED_AFTER_HOURS`), deliberately local — `src/lib/health/*` untouched; the health-side grading signal is SIG-55's scope.
+- Exclusions are counted within the stat/season/version scope where attributable; settlement-side exclusions that carry no attribution (unresolved-identity outcomes, voided outcomes on contracts without stat/game) are always counted — an unattributable exclusion belongs to no narrower scope and dropping it would hide it everywhere. Population filters never apply to exclusions (they are excluded from every population).
+- Market panel: model and market Brier are computed on the snapshot's executable side; the midpoint secondary uses the linked price observation's same-side book and contributes only where both sides exist (`midpointEdgePoints: null` when none) — never zero-filled. The 95% CI is a normal approximation (mean ± 1.96·sd/√n) and collapses onto the mean at zero variance rather than vanishing.
+- Error panel population = grade rows where model and both baselines all produced values, mirroring the harness's `comparisonCount` semantics; RMSE = `sqrt(avg(power(abs_error, 2)))` from the stored absolute errors (exactly RMSE for per-row errors).
+- `overridesEntry.decisionCount` counts distinct contracts with any decision (the acted-on unit), unscoped — it is a doorway count, not a metric.
+- The slate empty state has no "View accuracy" affordance today, so none was invented; the accuracy page's own empty state carries the "View backtest record" action instead. The admin overrides entry row links to `/accuracy/overrides`, which SIG-54 ships next in the same stack.
+- Panel headings use the theme's `label` variant (h3–h6 are disabled in the theme); the reliability curve draws per-pair `Line` segments so dashing is per-segment (any segment touching a provisional bucket is dashed), with hollow dots carried by a theme-fed custom dot renderer.
+
+### SIG-54 Resolved Decisions (implementation)
+
+- Snapshot `modelProbability` is **P(yes)** on every write path (`readSlate`, `snapshotForDecision`, `final-snapshot.ts`), matching SIG-53's market comparison — so side-oriented probability is `side === "yes" ? p : 1 − p`, and the timing derivation for a differing side uses the final snapshot's stored P(yes) plus its linked observation's side ask (the ticket's "modelProbability is for ITS side" paraphrase was corrected against the codebase's actual write convention).
+- The decision's side (design decision 10, "fades oriented to preferred side"): took/skipped orient to `snapshotSide`; faded orients to the opposite — so a fade's decision-time edge is DERIVED from the decision's linked price observation (opposite-side ask + 1 − P(yes)), not the stored `snapshotEdgePoints`.
+- Skips sit outside the timing denominator entirely (`total` = took + faded, matching the design mock's 45-of-66): a skip has no acted-on moment to cost. Its edges remain displayable row context; `timingCostPoints` and the reason are both null (not-applicable, distinct from unavailable).
+- Timing reason precedence: `voided` → `missing_final_snapshot` → `side_unavailable` (spec §13.4 requires voided decisions to read `voided` even when other data is also missing). `side_unavailable` also covers a sideless decision snapshot and a missing decision-time edge — the taxonomy has exactly three reasons and those are missing-side-data cases.
+- A took/faded decision whose snapshot has no side but whose contract settled grades descriptively (`settled_yes`/`settled_no` — values already in the row union): counted `settled` in its tile but neither won nor lost. Fabricating a grade without a position side would be dishonest; the difference stays visible.
+- Decisions with no final snapshot are EXCLUDED from the agreement table (there is no final pre-kickoff state to place them against) and surface in the timing panel's `missing_final_snapshot` count instead; tiles still count them.
+- `sourcesDisagree` uses the contract's own market `ThresholdGrade.outcome` (official value > threshold, computed by the Python grading job for exactly this contract's threshold) as the official-truth side — equivalent to re-deriving from `projection_grades.officialValue` vs threshold, without duplicating the comparison rule in TypeScript.
+- Outcome block's official value comes from the current `PlayerGameStat` line (the world, with the latest `correction_known_at` shown), falling back to the grade's stored `officialValue`; the grade line prefers the displayed projection's grade, else the latest. When graded but no market threshold row exists yet for the contract, `hit` derives from officialValue > threshold and `statedProbability` stays null (honest absence) rather than rehydrating the distribution in the app.
+- The outcome block's shared read lives in `src/lib/slate/outcome-block.ts` with NO decision query (source-asserted in `edge.test.ts`); the admin decision line is attached inside `readContractDetail`'s existing admin branch, keeping the read.ts structural counts (2 decision queries, 3 admin gates) intact. The detail's decision query now filters `supersededBy: { is: null }` (acted-on head) explicitly.
+- `OverridesDto` implemented exactly per spec §12; the season control's options (seasons holding decisions) travel as a separate `decisionSeasons()` read passed to the screen as a prop, since the DTO deliberately has no `availableSeasons` field.
+- Viewer deep-link 403 coverage added by extending the existing `e2e/authenticated.spec.ts` role-enforcement loop (runs in both `desktop` and `mobile` projects) with `/accuracy/overrides`, plus a shell assertion that the viewer nav never advertises the route.
+
+### SIG-55 Resolved Decisions (implementation)
+
+- Late bounds (`src/lib/health/config.ts`): `OUTCOME_INGEST_LATE_AFTER_HOURS = 3` — hourly cadence × 3, the tolerant multiple that absorbs GitHub Actions' no-SLA scheduling slop without letting a stuck hourly job hide for a day; `GRADING_LATE_AFTER_HOURS = 26` — nightly + 2h, the same bound as ingest.
+- Expectedness for both new signals is **pending-work-derived, not kickoff-derived**, honouring SIG-51/SIG-52's dormancy decisions: both jobs record no `PipelineRun` row on an empty selection, so a kickoff-judged signal would read `late` on every quiet settled-out or fully-graded mid-week day. Outcome ingest counts the ingest route's own candidate selection (`candidateContractWhere`, now exported from `src/lib/pipeline/outcome-ingest.ts` so signal and job can never disagree); grading mirrors the Python job's `_ELIGIBLE_SQL` full selection (ungraded + cancelled-non-terminal + version-trailing regrades) in one raw query. A failed cycle stays visible precisely because failure leaves its work pending.
+- Two grading figures, deliberately different: `pendingUnits` (the job's full selection) drives expectedness; `awaitingGrades` (completed games where a grade row is entirely absent — the spec's definition) is the disclosed count. A regrade-only backlog therefore shows a live signal with a zero count, tested explicitly.
+- `awaitingGrades` always travels on the grading signal (a number, never on other signals); zero renders nothing per the surface's absence-is-healthy convention; the sub-line is neutral normally and `warning.main` only when the signal itself is late/failed (design doc Screen 3).
+- Accuracy's local `GRADING_DELAYED_AFTER_HOURS` (SIG-53's deliberately-local constant) is superseded: `src/lib/accuracy/read.ts` now imports `GRADING_LATE_AFTER_HOURS` from health config — a config-to-config dependency only, accuracy never touches health's read — and `read.test.ts` asserts the shared payload exposes exactly `gradedThroughWeek` + `lastGradingCycleAt` + `gradingDelayed`, never signal states or the awaiting count.
+- e2e: viewer 403 on `/accuracy/overrides` was already covered by SIG-54's role-enforcement loop — verified, not duplicated. Added: accuracy renders admin + viewer (both Playwright projects = desktop + mobile), viewer markup carries neither the Overrides doorway nor the route, 320px no-horizontal-scroll on `/accuracy` (both roles) and `/accuracy/overrides` (admin), and the health surface asserts five signals (extended `pipeline.spec.ts` + `authenticated.spec.ts`, no new spec files).
+
+## Tickets
+
+Milestone: **Outcome Scoring & Accuracy Surface** (id `a084a6ae-8980-40f5-a335-53103c2d7653`) in project Sightline V1, team Sightline.
+Chained SIG-51 ← SIG-52 ← SIG-53 ← SIG-54 ← SIG-55 (each blockedBy its predecessor). Work in this order.
+
+| # | ID | Title | Status |
+|---|----|-------|--------|
+| 1 | SIG-51 | Outcome schema & Kalshi settlement ingest | In Progress — PR #51 attached (review convention) |
+| 2 | SIG-52 | Python grading job: projection & threshold grades | Done — In Progress + [PR #52](https://github.com/troyrhodes02/sightline/pull/52) attached (review convention) |
+| 3 | SIG-53 | Accuracy surface: shared calibration, error & market panels | Done — In Progress + [PR #53](https://github.com/troyrhodes02/sightline/pull/53) attached (review convention) |
+| 4 | SIG-54 | Overrides surface & contract detail outcome block | Done — In Progress + [PR #54](https://github.com/troyrhodes02/sightline/pull/54) attached (review convention) |
+| 5 | SIG-55 | Grading health signals, freshness & e2e closure | Done — In Progress + [PR #55](https://github.com/troyrhodes02/sightline/pull/55) attached (review convention) |
+
+Note: Linear team has no "In Review" state — convention is In Progress + PR attached.
+
+## Branches / PRs
+
+Feature branch: `pitch/outcome-scoring-and-accuracy-surface` — pushed; **feature PR #50** into main: https://github.com/troyrhodes02/sightline/pull/50 (planning artefacts committed as `c4028e2`).
+Ticket branches: stacked — first off the feature branch, each subsequent off the last. Ticket PRs use base = `pitch/outcome-scoring-and-accuracy-surface`; squash-merge in order at step 10 (identical stacked changes auto-resolve).
+
+| Ticket | Branch | PR |
+|--------|--------|----|
+| SIG-51 | wtrhodesdev/sig-51-outcome-schema-kalshi-settlement-ingest | [#51](https://github.com/troyrhodes02/sightline/pull/51) |
+| SIG-52 | wtrhodesdev/sig-52-python-grading-job-projection-threshold-grades | [#52](https://github.com/troyrhodes02/sightline/pull/52) |
+| SIG-53 | wtrhodesdev/sig-53-accuracy-surface-shared-calibration-error-market-panels | [#53](https://github.com/troyrhodes02/sightline/pull/53) |
+| SIG-54 | wtrhodesdev/sig-54-overrides-surface-contract-detail-outcome-block | [#54](https://github.com/troyrhodes02/sightline/pull/54) |
+| SIG-55 | wtrhodesdev/sig-55-grading-health-signals-freshness-e2e-closure | [#55](https://github.com/troyrhodes02/sightline/pull/55) |
+
+## Deferred
+
+(none yet)

@@ -84,6 +84,12 @@ def main(argv: list[str] | None = None) -> int:
         from .cycle import main as cycle_main
 
         return cycle_main(argv[1:])
+    if argv and argv[0] == "grade":
+        # The scheduled grading cycle (Outcome Scoring): grades completed
+        # games' projections against the official corrected line.
+        from .grade_job import main as grade_main
+
+        return grade_main(argv[1:])
 
     parser = _build_parser()
     args = parser.parse_args(argv)

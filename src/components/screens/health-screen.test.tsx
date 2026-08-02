@@ -31,17 +31,36 @@ function dto(overrides: Partial<HealthDto>): HealthDto {
       signal({}),
       signal({ key: "recompute", label: "Projection recomputation" }),
       signal({ key: "price_refresh", label: "Price refresh" }),
+      signal({ key: "outcome_ingest", label: "Outcome ingest" }),
+      signal({ key: "grading", label: "Grading", awaitingGrades: 0 }),
     ],
     offseason: null,
     ...overrides,
   };
 }
 
+/** The five-signal list with the grading signal overridden. */
+function gradingSignals(grading: Partial<HealthSignalDto>): HealthSignalDto[] {
+  return [
+    signal({}),
+    signal({ key: "recompute", label: "Projection recomputation" }),
+    signal({ key: "price_refresh", label: "Price refresh" }),
+    signal({ key: "outcome_ingest", label: "Outcome ingest" }),
+    signal({ key: "grading", label: "Grading", ...grading }),
+  ];
+}
+
 describe("Health screen", () => {
-  it("renders the three signal blocks in fixed order with no chip when healthy", () => {
+  it("renders the five signal blocks in fixed order with no chip when healthy", () => {
     const { container } = renderThemed(<Health health={dto({})} />);
 
-    const labels = ["Ingest", "Projection recomputation", "Price refresh"];
+    const labels = [
+      "Ingest",
+      "Projection recomputation",
+      "Price refresh",
+      "Outcome ingest",
+      "Grading",
+    ];
     const positions = labels.map((l) =>
       (container.textContent ?? "").indexOf(l),
     );
@@ -184,6 +203,43 @@ describe("Health screen", () => {
     expect(screen.getByText("CIN @ BAL")).toBeInTheDocument();
     expect(screen.getByText("not recomputed this cycle")).toBeInTheDocument();
     expect(screen.getByText("failed this cycle")).toBeInTheDocument();
+  });
+
+  it("renders no awaiting-grades sub-line at zero — absence is the healthy state", () => {
+    renderThemed(<Health health={dto({})} />);
+    expect(screen.queryByText(/awaiting grades/)).toBeNull();
+  });
+
+  it("renders a non-zero awaiting count neutrally while the grading signal is healthy", () => {
+    renderThemed(
+      <Health
+        health={dto({ signals: gradingSignals({ awaitingGrades: 3 }) })}
+      />,
+    );
+    const caption = screen.getByText("completed games awaiting grades");
+    expect(screen.getByText("3")).toBeInTheDocument();
+    // MUI 9 resolves palette tokens to CSS variables at render.
+    expect(caption).toHaveStyle({
+      color: "var(--mui-palette-text-secondary)",
+    });
+  });
+
+  it("turns the awaiting count amber only when the grading signal is late or failed", () => {
+    renderThemed(
+      <Health
+        health={dto({
+          signals: gradingSignals({
+            state: "late",
+            awaitingGrades: 1,
+          }),
+        })}
+      />,
+    );
+    // Singular copy for a single game.
+    const caption = screen.getByText("completed game awaiting grades");
+    expect(caption).toHaveStyle({
+      color: "var(--mui-palette-warning-main)",
+    });
   });
 
   it("renders the offseason as dormant copy plus a neutral readiness block", () => {
