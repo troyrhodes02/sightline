@@ -6,7 +6,7 @@ Mode: Autonomous Pipeline Policy (CLAUDE.md)
 
 ## Current step
 
-**Step 8 — ticket work** (steps 1–7 complete). SIG-54 done; SIG-55 next. (SIG-51 done: PR #51; SIG-52 done: PR #52; SIG-53 done: PR #53; SIG-54 done: PR #54 — all checks green.)
+**Step 8 complete — all five tickets done; step 9 runbook next.** (SIG-51 done: PR #51; SIG-52 done: PR #52; SIG-53 done: PR #53; SIG-54 done: PR #54; SIG-55 done: PR #55 — full suite green on the closing ticket: lint, typecheck, format, jest 474, test:schema, prisma:validate, build, pytest 358, e2e 44 passed / 36 skipped locally without seeded-account creds — authenticated suites run in CI.)
 
 Key ground truth established (from planning-doc + codebase research):
 - Final pre-kickoff snapshot EXISTS and is wired: `RecommendationSnapshot.trigger = final_pre_kickoff`, captured by `src/lib/pipeline/final-snapshot.ts` via `/api/pipeline/price-refresh` on the 15-min cron, 45-min window, partial unique index one-per-contract. Postponed-game re-capture semantics deliberately deferred to this pitch.
@@ -27,7 +27,7 @@ Key ground truth established (from planning-doc + codebase research):
 - [x] 5. Resolve remaining open questions as Resolved Decisions (all 18: 1–11 pre-resolved by instruction, 12–18 in design doc; spec restates; three inherited postures noted non-blocking in spec §16)
 - [x] 6. Milestone + Linear issues, chained blockedBy, IDs captured here
 - [x] 7. Feature PR into main (#50)
-- [ ] 8. Work every ticket in order (branch chain), PR each
+- [x] 8. Work every ticket in order (branch chain), PR each
 - [ ] 9. Runbook
 - [ ] 10. Squash-merge ticket PRs into feature branch in order
 - [ ] 11. Full verification suite on feature branch
@@ -119,6 +119,15 @@ Design-doc decisions 12–18 (see "Decisions settled for this document" in the d
 - `OverridesDto` implemented exactly per spec §12; the season control's options (seasons holding decisions) travel as a separate `decisionSeasons()` read passed to the screen as a prop, since the DTO deliberately has no `availableSeasons` field.
 - Viewer deep-link 403 coverage added by extending the existing `e2e/authenticated.spec.ts` role-enforcement loop (runs in both `desktop` and `mobile` projects) with `/accuracy/overrides`, plus a shell assertion that the viewer nav never advertises the route.
 
+### SIG-55 Resolved Decisions (implementation)
+
+- Late bounds (`src/lib/health/config.ts`): `OUTCOME_INGEST_LATE_AFTER_HOURS = 3` — hourly cadence × 3, the tolerant multiple that absorbs GitHub Actions' no-SLA scheduling slop without letting a stuck hourly job hide for a day; `GRADING_LATE_AFTER_HOURS = 26` — nightly + 2h, the same bound as ingest.
+- Expectedness for both new signals is **pending-work-derived, not kickoff-derived**, honouring SIG-51/SIG-52's dormancy decisions: both jobs record no `PipelineRun` row on an empty selection, so a kickoff-judged signal would read `late` on every quiet settled-out or fully-graded mid-week day. Outcome ingest counts the ingest route's own candidate selection (`candidateContractWhere`, now exported from `src/lib/pipeline/outcome-ingest.ts` so signal and job can never disagree); grading mirrors the Python job's `_ELIGIBLE_SQL` full selection (ungraded + cancelled-non-terminal + version-trailing regrades) in one raw query. A failed cycle stays visible precisely because failure leaves its work pending.
+- Two grading figures, deliberately different: `pendingUnits` (the job's full selection) drives expectedness; `awaitingGrades` (completed games where a grade row is entirely absent — the spec's definition) is the disclosed count. A regrade-only backlog therefore shows a live signal with a zero count, tested explicitly.
+- `awaitingGrades` always travels on the grading signal (a number, never on other signals); zero renders nothing per the surface's absence-is-healthy convention; the sub-line is neutral normally and `warning.main` only when the signal itself is late/failed (design doc Screen 3).
+- Accuracy's local `GRADING_DELAYED_AFTER_HOURS` (SIG-53's deliberately-local constant) is superseded: `src/lib/accuracy/read.ts` now imports `GRADING_LATE_AFTER_HOURS` from health config — a config-to-config dependency only, accuracy never touches health's read — and `read.test.ts` asserts the shared payload exposes exactly `gradedThroughWeek` + `lastGradingCycleAt` + `gradingDelayed`, never signal states or the awaiting count.
+- e2e: viewer 403 on `/accuracy/overrides` was already covered by SIG-54's role-enforcement loop — verified, not duplicated. Added: accuracy renders admin + viewer (both Playwright projects = desktop + mobile), viewer markup carries neither the Overrides doorway nor the route, 320px no-horizontal-scroll on `/accuracy` (both roles) and `/accuracy/overrides` (admin), and the health surface asserts five signals (extended `pipeline.spec.ts` + `authenticated.spec.ts`, no new spec files).
+
 ## Tickets
 
 Milestone: **Outcome Scoring & Accuracy Surface** (id `a084a6ae-8980-40f5-a335-53103c2d7653`) in project Sightline V1, team Sightline.
@@ -130,7 +139,7 @@ Chained SIG-51 ← SIG-52 ← SIG-53 ← SIG-54 ← SIG-55 (each blockedBy its p
 | 2 | SIG-52 | Python grading job: projection & threshold grades | Done — In Progress + [PR #52](https://github.com/troyrhodes02/sightline/pull/52) attached (review convention) |
 | 3 | SIG-53 | Accuracy surface: shared calibration, error & market panels | Done — In Progress + [PR #53](https://github.com/troyrhodes02/sightline/pull/53) attached (review convention) |
 | 4 | SIG-54 | Overrides surface & contract detail outcome block | Done — In Progress + [PR #54](https://github.com/troyrhodes02/sightline/pull/54) attached (review convention) |
-| 5 | SIG-55 | Grading health signals, freshness & e2e closure | Todo |
+| 5 | SIG-55 | Grading health signals, freshness & e2e closure | Done — In Progress + [PR #55](https://github.com/troyrhodes02/sightline/pull/55) attached (review convention) |
 
 Note: Linear team has no "In Review" state — convention is In Progress + PR attached.
 
@@ -145,7 +154,7 @@ Ticket branches: stacked — first off the feature branch, each subsequent off t
 | SIG-52 | wtrhodesdev/sig-52-python-grading-job-projection-threshold-grades | [#52](https://github.com/troyrhodes02/sightline/pull/52) |
 | SIG-53 | wtrhodesdev/sig-53-accuracy-surface-shared-calibration-error-market-panels | [#53](https://github.com/troyrhodes02/sightline/pull/53) |
 | SIG-54 | wtrhodesdev/sig-54-overrides-surface-contract-detail-outcome-block | [#54](https://github.com/troyrhodes02/sightline/pull/54) |
-| SIG-55 | wtrhodesdev/sig-55-grading-health-signals-freshness-e2e-closure | (pending) |
+| SIG-55 | wtrhodesdev/sig-55-grading-health-signals-freshness-e2e-closure | [#55](https://github.com/troyrhodes02/sightline/pull/55) |
 
 ## Deferred
 
