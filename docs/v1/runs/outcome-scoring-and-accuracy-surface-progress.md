@@ -6,7 +6,7 @@ Mode: Autonomous Pipeline Policy (CLAUDE.md)
 
 ## Current step
 
-**Step 8 — ticket work** (steps 1–7 complete). SIG-53 done; SIG-54 next. (SIG-51 done: PR #51; SIG-52 done: PR #52; SIG-53 done: PR #53 — all checks green.)
+**Step 8 — ticket work** (steps 1–7 complete). SIG-54 done; SIG-55 next. (SIG-51 done: PR #51; SIG-52 done: PR #52; SIG-53 done: PR #53; SIG-54 done: PR #54 — all checks green.)
 
 Key ground truth established (from planning-doc + codebase research):
 - Final pre-kickoff snapshot EXISTS and is wired: `RecommendationSnapshot.trigger = final_pre_kickoff`, captured by `src/lib/pipeline/final-snapshot.ts` via `/api/pipeline/price-refresh` on the 15-min cron, 45-min window, partial unique index one-per-contract. Postponed-game re-capture semantics deliberately deferred to this pitch.
@@ -105,6 +105,20 @@ Design-doc decisions 12–18 (see "Decisions settled for this document" in the d
 - The slate empty state has no "View accuracy" affordance today, so none was invented; the accuracy page's own empty state carries the "View backtest record" action instead. The admin overrides entry row links to `/accuracy/overrides`, which SIG-54 ships next in the same stack.
 - Panel headings use the theme's `label` variant (h3–h6 are disabled in the theme); the reliability curve draws per-pair `Line` segments so dashing is per-segment (any segment touching a provisional bucket is dashed), with hollow dots carried by a theme-fed custom dot renderer.
 
+### SIG-54 Resolved Decisions (implementation)
+
+- Snapshot `modelProbability` is **P(yes)** on every write path (`readSlate`, `snapshotForDecision`, `final-snapshot.ts`), matching SIG-53's market comparison — so side-oriented probability is `side === "yes" ? p : 1 − p`, and the timing derivation for a differing side uses the final snapshot's stored P(yes) plus its linked observation's side ask (the ticket's "modelProbability is for ITS side" paraphrase was corrected against the codebase's actual write convention).
+- The decision's side (design decision 10, "fades oriented to preferred side"): took/skipped orient to `snapshotSide`; faded orients to the opposite — so a fade's decision-time edge is DERIVED from the decision's linked price observation (opposite-side ask + 1 − P(yes)), not the stored `snapshotEdgePoints`.
+- Skips sit outside the timing denominator entirely (`total` = took + faded, matching the design mock's 45-of-66): a skip has no acted-on moment to cost. Its edges remain displayable row context; `timingCostPoints` and the reason are both null (not-applicable, distinct from unavailable).
+- Timing reason precedence: `voided` → `missing_final_snapshot` → `side_unavailable` (spec §13.4 requires voided decisions to read `voided` even when other data is also missing). `side_unavailable` also covers a sideless decision snapshot and a missing decision-time edge — the taxonomy has exactly three reasons and those are missing-side-data cases.
+- A took/faded decision whose snapshot has no side but whose contract settled grades descriptively (`settled_yes`/`settled_no` — values already in the row union): counted `settled` in its tile but neither won nor lost. Fabricating a grade without a position side would be dishonest; the difference stays visible.
+- Decisions with no final snapshot are EXCLUDED from the agreement table (there is no final pre-kickoff state to place them against) and surface in the timing panel's `missing_final_snapshot` count instead; tiles still count them.
+- `sourcesDisagree` uses the contract's own market `ThresholdGrade.outcome` (official value > threshold, computed by the Python grading job for exactly this contract's threshold) as the official-truth side — equivalent to re-deriving from `projection_grades.officialValue` vs threshold, without duplicating the comparison rule in TypeScript.
+- Outcome block's official value comes from the current `PlayerGameStat` line (the world, with the latest `correction_known_at` shown), falling back to the grade's stored `officialValue`; the grade line prefers the displayed projection's grade, else the latest. When graded but no market threshold row exists yet for the contract, `hit` derives from officialValue > threshold and `statedProbability` stays null (honest absence) rather than rehydrating the distribution in the app.
+- The outcome block's shared read lives in `src/lib/slate/outcome-block.ts` with NO decision query (source-asserted in `edge.test.ts`); the admin decision line is attached inside `readContractDetail`'s existing admin branch, keeping the read.ts structural counts (2 decision queries, 3 admin gates) intact. The detail's decision query now filters `supersededBy: { is: null }` (acted-on head) explicitly.
+- `OverridesDto` implemented exactly per spec §12; the season control's options (seasons holding decisions) travel as a separate `decisionSeasons()` read passed to the screen as a prop, since the DTO deliberately has no `availableSeasons` field.
+- Viewer deep-link 403 coverage added by extending the existing `e2e/authenticated.spec.ts` role-enforcement loop (runs in both `desktop` and `mobile` projects) with `/accuracy/overrides`, plus a shell assertion that the viewer nav never advertises the route.
+
 ## Tickets
 
 Milestone: **Outcome Scoring & Accuracy Surface** (id `a084a6ae-8980-40f5-a335-53103c2d7653`) in project Sightline V1, team Sightline.
@@ -115,7 +129,7 @@ Chained SIG-51 ← SIG-52 ← SIG-53 ← SIG-54 ← SIG-55 (each blockedBy its p
 | 1 | SIG-51 | Outcome schema & Kalshi settlement ingest | In Progress — PR #51 attached (review convention) |
 | 2 | SIG-52 | Python grading job: projection & threshold grades | Done — In Progress + [PR #52](https://github.com/troyrhodes02/sightline/pull/52) attached (review convention) |
 | 3 | SIG-53 | Accuracy surface: shared calibration, error & market panels | Done — In Progress + [PR #53](https://github.com/troyrhodes02/sightline/pull/53) attached (review convention) |
-| 4 | SIG-54 | Overrides surface & contract detail outcome block | Todo |
+| 4 | SIG-54 | Overrides surface & contract detail outcome block | Done — In Progress + [PR #54](https://github.com/troyrhodes02/sightline/pull/54) attached (review convention) |
 | 5 | SIG-55 | Grading health signals, freshness & e2e closure | Todo |
 
 Note: Linear team has no "In Review" state — convention is In Progress + PR attached.
@@ -130,7 +144,7 @@ Ticket branches: stacked — first off the feature branch, each subsequent off t
 | SIG-51 | wtrhodesdev/sig-51-outcome-schema-kalshi-settlement-ingest | [#51](https://github.com/troyrhodes02/sightline/pull/51) |
 | SIG-52 | wtrhodesdev/sig-52-python-grading-job-projection-threshold-grades | [#52](https://github.com/troyrhodes02/sightline/pull/52) |
 | SIG-53 | wtrhodesdev/sig-53-accuracy-surface-shared-calibration-error-market-panels | [#53](https://github.com/troyrhodes02/sightline/pull/53) |
-| SIG-54 | wtrhodesdev/sig-54-overrides-surface-contract-detail-outcome-block | (pending) |
+| SIG-54 | wtrhodesdev/sig-54-overrides-surface-contract-detail-outcome-block | [#54](https://github.com/troyrhodes02/sightline/pull/54) |
 | SIG-55 | wtrhodesdev/sig-55-grading-health-signals-freshness-e2e-closure | (pending) |
 
 ## Deferred
