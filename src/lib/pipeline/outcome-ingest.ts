@@ -93,59 +93,68 @@ type CandidateContract = {
 };
 
 /**
- * Selects the contracts this cycle checks: those whose game completed (or
+ * The contracts a settlement cycle checks: those whose game completed (or
  * whose close time passed) still lacking an outcome, plus — inside the
  * settlement-change window — those that already have one, so a changed
  * settlement is caught rather than frozen at first ingest.
+ *
+ * Exported for the health surface, whose `outcome_ingest` expectedness must
+ * mirror this exact selection: the cycle records no run row when it is empty,
+ * so a signal judged by any other calendar would read `late` on every quiet
+ * settled-out day.
  */
-async function selectCandidateContracts(
-  now: Date,
-): Promise<CandidateContract[]> {
+export function candidateContractWhere(now: Date): Prisma.ContractWhereInput {
   const windowStart = new Date(
     now.getTime() - SETTLEMENT_CHANGE_WINDOW_DAYS * 24 * 60 * 60 * 1000,
   );
 
+  return {
+    OR: [
+      // Awaiting a first settlement. No resolution filter: settlement is
+      // retained for unresolved and never-projected contracts alike.
+      {
+        AND: [
+          { outcome: null },
+          {
+            OR: [
+              { game: { is: { status: "completed" } } },
+              { closeTime: { lt: now } },
+            ],
+          },
+        ],
+      },
+      // Settlement-change window: already settled, game recent.
+      {
+        AND: [
+          { outcome: { isNot: null } },
+          {
+            OR: [
+              {
+                game: {
+                  is: { status: "completed", kickoffAt: { gt: windowStart } },
+                },
+              },
+              // A contract that never resolved to a game still gets its
+              // change window, measured from when its outcome was recorded.
+              {
+                AND: [
+                  { game: null },
+                  { outcome: { is: { recordedAt: { gt: windowStart } } } },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+}
+
+async function selectCandidateContracts(
+  now: Date,
+): Promise<CandidateContract[]> {
   return prisma.contract.findMany({
-    where: {
-      OR: [
-        // Awaiting a first settlement. No resolution filter: settlement is
-        // retained for unresolved and never-projected contracts alike.
-        {
-          AND: [
-            { outcome: null },
-            {
-              OR: [
-                { game: { is: { status: "completed" } } },
-                { closeTime: { lt: now } },
-              ],
-            },
-          ],
-        },
-        // Settlement-change window: already settled, game recent.
-        {
-          AND: [
-            { outcome: { isNot: null } },
-            {
-              OR: [
-                {
-                  game: {
-                    is: { status: "completed", kickoffAt: { gt: windowStart } },
-                  },
-                },
-                // A contract that never resolved to a game still gets its
-                // change window, measured from when its outcome was recorded.
-                {
-                  AND: [
-                    { game: null },
-                    { outcome: { is: { recordedAt: { gt: windowStart } } } },
-                  ],
-                },
-              ],
-            },
-          ],
-        },
-      ],
-    },
+    where: candidateContractWhere(now),
     select: {
       id: true,
       kalshiTicker: true,

@@ -376,6 +376,37 @@ describe("readAccuracy — freshness and exclusions", () => {
     expect(dto.lastGradingCycleAt).toBeNull();
   });
 
+  it("exposes freshness as exactly the three shared fields — never signal states or the awaiting count", async () => {
+    // SIG-55: the health surface derives grading/outcome-ingest signal states
+    // and an awaiting-grades count, all admin-only. The shared accuracy
+    // payload carries graded-through, the last cycle timestamp, and the
+    // delayed flag — and structurally nothing of the health vocabulary.
+    emptyDb({
+      gradedThrough: [{ season: 2026, week: 15 }],
+      awaiting: [{ games: 3 }],
+    });
+    const dto = await readAccuracy(scope(), "viewer");
+
+    expect(Object.keys(dto).sort()).toEqual([
+      "availableSeasons",
+      "availableVersions",
+      "calibration",
+      "errorPanel",
+      "exclusions",
+      "gradedThroughWeek",
+      "gradingDelayed",
+      "lastGradingCycleAt",
+      "market",
+      "scope",
+    ]);
+
+    const serialized = JSON.stringify(dto);
+    expect(serialized).not.toContain("awaiting");
+    expect(serialized).not.toContain("signal");
+    expect(serialized).not.toContain("not_expected");
+    expect(serialized).not.toContain("never_run");
+  });
+
   it("counts exclusions by taxonomy reason and drops zero counts", async () => {
     emptyDb({
       exclusionStatuses: [{ reason: "missing_official_result", count: 14 }],

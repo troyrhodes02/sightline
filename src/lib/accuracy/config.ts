@@ -26,12 +26,9 @@ export const CALIBRATION_BINS = 10;
  */
 export const MARKET_MIN_GRADED_OBSERVATIONS = 30;
 
-/**
- * The freshness line discloses "results may trail recent games" when completed
- * games hold ungraded eligible projections AND the last successful grading
- * cycle is older than this. Follows the nightly-cadence convention of
- * `INGEST_LATE_AFTER_HOURS` in `src/lib/health/config.ts` (24h cadence + 2h
- * scheduler allowance) — kept LOCAL deliberately: the health surface's grading
- * signal is SIG-55's scope and `src/lib/health/*` is not touched here.
- */
-export const GRADING_DELAYED_AFTER_HOURS = 26;
+// The freshness line's delayed-grading bound is NOT defined here: it is
+// `GRADING_LATE_AFTER_HOURS` in `src/lib/health/config.ts`, imported by the
+// accuracy read so the shared "results may trail recent games" disclosure and
+// the admin health signal can never disagree about what "delayed" means. The
+// dependency is config-to-config only — the accuracy read never touches the
+// health read or its signal states.

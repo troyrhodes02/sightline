@@ -90,20 +90,25 @@ test.describe("currency on the shared slate", () => {
 test.describe("pipeline health surface", () => {
   test.skip(!PROVISIONED, "Requires seeded accounts.");
 
-  test("the admin sees the three pipeline signals, honestly labelled", async ({
+  test("the admin sees the five pipeline signals, honestly labelled", async ({
     page,
   }) => {
     await signIn(page, ADMIN_EMAIL!, ADMIN_PASSWORD!);
     await page.goto("/health");
 
-    // The three signal blocks, in their fixed order.
+    // The five signal blocks, in their fixed order — the grading pair
+    // (outcome ingest, grading) rendering after the schedule-driven three.
     const text = (await page.textContent("body")) ?? "";
     const ingest = text.indexOf("Ingest");
     const recompute = text.indexOf("Projection recomputation");
     const prices = text.indexOf("Price refresh");
+    const outcomes = text.indexOf("Outcome ingest");
+    const grading = text.indexOf("Grading");
     expect(ingest).toBeGreaterThanOrEqual(0);
     expect(recompute).toBeGreaterThan(ingest);
     expect(prices).toBeGreaterThan(recompute);
+    expect(outcomes).toBeGreaterThan(prices);
+    expect(grading).toBeGreaterThan(outcomes);
 
     // The retired pre-pipeline placeholder state never renders again, and
     // the surface reports without operating: no retry or run-now controls.
