@@ -191,7 +191,7 @@ test.describe("accessibility", () => {
 });
 
 test.describe("health honesty", () => {
-  test("derives the three signals from run records, fabricating nothing", async ({
+  test("derives the five signals from run records, fabricating nothing", async ({
     page,
   }) => {
     await signIn(page, ADMIN_EMAIL!, ADMIN_PASSWORD!);
@@ -201,6 +201,8 @@ test.describe("health honesty", () => {
       "Ingest",
       "Projection recomputation",
       "Price refresh",
+      "Outcome ingest",
+      "Grading",
     ]) {
       await expect(page.getByText(label, { exact: true })).toBeVisible();
     }
@@ -212,5 +214,69 @@ test.describe("health honesty", () => {
     // No fabricated timestamp anywhere on the surface — a signal with no
     // completed successful run behind it shows an em dash, never a date.
     expect(body).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+  });
+});
+
+test.describe("accuracy surface", () => {
+  // 320px, matching `responsive.spec.ts` — the width the responsive criteria
+  // are stated at, not a device preset.
+  const NARROW = { width: 320, height: 720 };
+
+  async function overflows(page: import("@playwright/test").Page) {
+    return page.evaluate(() => {
+      const doc = document.scrollingElement ?? document.documentElement;
+      return doc.scrollWidth > doc.clientWidth;
+    });
+  }
+
+  test("renders for the admin with the overrides doorway", async ({ page }) => {
+    await signIn(page, ADMIN_EMAIL!, ADMIN_PASSWORD!);
+    await page.goto("/accuracy");
+
+    await expect(page.getByRole("heading", { name: "Accuracy" })).toBeVisible();
+    // The admin's doorway to the private overrides surface.
+    await expect(page.getByText("Overrides", { exact: true })).toBeVisible();
+  });
+
+  test("renders for a viewer with no overrides entry anywhere in the markup", async ({
+    page,
+  }) => {
+    await signIn(page, VIEWER_EMAIL!, VIEWER_PASSWORD!);
+    await page.goto("/accuracy");
+
+    await expect(page.getByRole("heading", { name: "Accuracy" })).toBeVisible();
+
+    // Absent, not hidden: the served markup carries neither the doorway nor
+    // the route it leads to.
+    const html = await page.content();
+    expect(html).not.toContain("Overrides");
+    expect(html).not.toContain("/accuracy/overrides");
+
+    // The freshness line is deliberately shared; the awaiting-grades count
+    // and signal vocabulary stay on /health.
+    const body = (await page.textContent("body")) ?? "";
+    expect(body).not.toMatch(/awaiting grades/i);
+  });
+
+  test("accuracy and overrides do not scroll horizontally at 320px for the admin", async ({
+    page,
+  }) => {
+    await signIn(page, ADMIN_EMAIL!, ADMIN_PASSWORD!);
+    await page.setViewportSize(NARROW);
+
+    for (const route of ["/accuracy", "/accuracy/overrides"]) {
+      await page.goto(route);
+      expect(await overflows(page), `${route} overflows at 320px`).toBe(false);
+    }
+  });
+
+  test("accuracy does not scroll horizontally at 320px for a viewer", async ({
+    page,
+  }) => {
+    await signIn(page, VIEWER_EMAIL!, VIEWER_PASSWORD!);
+    await page.setViewportSize(NARROW);
+
+    await page.goto("/accuracy");
+    expect(await overflows(page)).toBe(false);
   });
 });

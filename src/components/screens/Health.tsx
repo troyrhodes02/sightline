@@ -115,7 +115,47 @@ function SignalBlock({
 
       {signal.sources ? <SourceDetail sources={signal.sources} /> : null}
       {signal.games ? <GameCompleteness games={signal.games} /> : null}
+      {signal.awaitingGrades ? (
+        <AwaitingGrades count={signal.awaitingGrades} state={signal.state} />
+      ) : null}
     </ListItem>
+  );
+}
+
+/**
+ * The grading signal's sub-line: completed games not yet fully graded. Zero
+ * renders nothing — absence is the healthy state, per the surface's
+ * convention. Non-zero is neutral (a backlog the nightly cycle will clear);
+ * it turns amber only when the signal itself says the cycle is late or
+ * failed, because only then is the backlog evidence of a problem.
+ */
+function AwaitingGrades({
+  count,
+  state,
+}: {
+  count: number;
+  state: HealthSignalDto["state"];
+}) {
+  const caution = state === "late" || state === "failed";
+  return (
+    <Stack
+      direction="row"
+      spacing={0.75}
+      sx={{ alignItems: "baseline", mt: 0.5 }}
+    >
+      <NumericText
+        size="sm"
+        sx={caution ? { color: "warning.main" } : undefined}
+      >
+        {count}
+      </NumericText>
+      <Typography
+        variant="caption"
+        sx={{ color: caution ? "warning.main" : "text.secondary" }}
+      >
+        completed {count === 1 ? "game" : "games"} awaiting grades
+      </Typography>
+    </Stack>
   );
 }
 

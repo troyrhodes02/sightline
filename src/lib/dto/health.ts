@@ -32,7 +32,7 @@ export type HealthGameDetailDto = {
 };
 
 export type HealthSignalDto = {
-  key: "ingest" | "recompute" | "price_refresh";
+  key: "ingest" | "recompute" | "price_refresh" | "outcome_ingest" | "grading";
   label: string;
   state: HealthSignalState;
   /** Absolute ET display string. Null when no successful run exists. */
@@ -48,6 +48,12 @@ export type HealthSignalDto = {
   sources?: HealthSourceDetailDto[];
   /** Recompute only; present when the latest cycle left games behind. */
   games?: HealthGameDetailDto;
+  /**
+   * Grading only: completed games holding eligible ungraded projections.
+   * Zero renders nothing — absence is the healthy state. Admin-only by the
+   * surface's existing gate; the shared accuracy payload never carries it.
+   */
+  awaitingGrades?: number;
 };
 
 export type HealthKeepaliveDto = {

@@ -15,7 +15,7 @@ import {
   marketComparison,
   type MarketObservationInput,
 } from "./compute";
-import { GRADING_DELAYED_AFTER_HOURS } from "./config";
+import { GRADING_LATE_AFTER_HOURS } from "@/lib/health/config";
 import type { AccuracyScopeRequest } from "./scope";
 
 /**
@@ -532,7 +532,7 @@ async function readFreshness(now: Date): Promise<Freshness> {
   const stale =
     lastSuccessAt === null ||
     now.getTime() - lastSuccessAt.getTime() >
-      GRADING_DELAYED_AFTER_HOURS * 60 * 60 * 1000;
+      GRADING_LATE_AFTER_HOURS * 60 * 60 * 1000;
 
   return {
     gradedThroughWeek: gradedThrough[0] ?? null,
