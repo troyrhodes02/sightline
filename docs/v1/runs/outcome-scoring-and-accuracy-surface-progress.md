@@ -6,7 +6,7 @@ Mode: Autonomous Pipeline Policy (CLAUDE.md)
 
 ## Current step
 
-**Step 3 — UI preview** (steps 1–2 complete).
+**Step 8 — ticket work** (steps 1–7 complete). SIG-52 done; SIG-53 next. (SIG-51 done: PR #51; SIG-52 done: PR #52 — all checks green on both.)
 
 Key ground truth established (from planning-doc + codebase research):
 - Final pre-kickoff snapshot EXISTS and is wired: `RecommendationSnapshot.trigger = final_pre_kickoff`, captured by `src/lib/pipeline/final-snapshot.ts` via `/api/pipeline/price-refresh` on the 15-min cron, 45-min window, partial unique index one-per-contract. Postponed-game re-capture semantics deliberately deferred to this pitch.
@@ -79,6 +79,17 @@ Design-doc decisions 12–18 (see "Decisions settled for this document" in the d
 - `PipelineRun.codeVersion` = `VERCEL_GIT_COMMIT_SHA` when present, else `"unknown"` (BacktestRun's documented convention: never guessed).
 - Python blocklist tokens are SQL-shaped (`from|join|into|update outcomes`, bare and quoted): plain `outcome(s)` false-positives on `RunOutcome`, threshold `outcome` fields, and prose in both packages (verified by grep). Planted-reference and false-positive self-tests added.
 
+### SIG-52 Resolved Decisions (implementation)
+
+- Grading job dormancy mirrors the ingest cycle (and SIG-51's outcome_ingest decision): an empty selection — no completed/cancelled game with an evaluative-unit projection awaiting a grade or regrade — returns `not_expected` and writes no `PipelineRun` row. Selection is derived from stored state, never the calendar; SIG-55's health derivation must treat "no pending work" as not_expected, exactly as it does for outcome_ingest.
+- `missing_official_result` rows store the `PlayerGameStat.version` they saw (NULL when no stat row existed), permitted by the `projection_grades_status_values` check (which constrains `official_value`, not provenance). This makes the spec's "revisited every cycle" comparison-driven: the unit reselects only when a line (or a corrected version) arrives, so a quiet cycle writes nothing and idempotence stays structural.
+- A stat row whose stat column is NULL grades `missing_official_result`: a null column is absence, never zero — the feature layer's rule, and the same population the backtest excludes as `no_actual_stat_line`.
+- `stated_probability` = P(value > threshold) evaluated exactly from the rehydrated stored distribution (`params`/`pmf` via `sightline_model.distributions` — no quantile interpolation is needed because rehydration is exact), using the harness's strict-inequality nudge `prob_at_least(t + 1e-9)`: a no-op for the .5-valued grids, correct for integer market thresholds where `>=` would overstate.
+- Market thresholds are deduped per (player, stat, threshold); the first listing wins contract attribution (`first_seen_at`, then id) — Kalshi relisting the same threshold under a new ticker yields one observation, not two.
+- Grade-row ids are deterministic uuid5 of the natural key (projection id, plus source+threshold for threshold rows), following `project_live`'s convention, so regrades collide with their own prior row by construction.
+- `pipeline_run_games.projected_count` carries the count of evaluative units graded for that game (the column is reused as the cycle's per-game work count, as recompute uses it).
+- Baseline errors are recomputed through `AsOfCorpus` + `features.assemble` + `baselines.compute` at the projection's own `information_cutoff` — the backtest's exact reads. The adversarial test seeds a same-Sunday London game whose line publishes (09:00 ET next day, the corpus's publication rule) after the cutoff and asserts it cannot move the stored baselines.
+
 ## Tickets
 
 Milestone: **Outcome Scoring & Accuracy Surface** (id `a084a6ae-8980-40f5-a335-53103c2d7653`) in project Sightline V1, team Sightline.
@@ -87,7 +98,7 @@ Chained SIG-51 ← SIG-52 ← SIG-53 ← SIG-54 ← SIG-55 (each blockedBy its p
 | # | ID | Title | Status |
 |---|----|-------|--------|
 | 1 | SIG-51 | Outcome schema & Kalshi settlement ingest | In Progress — PR #51 attached (review convention) |
-| 2 | SIG-52 | Python grading job: projection & threshold grades | Todo |
+| 2 | SIG-52 | Python grading job: projection & threshold grades | Done — In Progress + [PR #52](https://github.com/troyrhodes02/sightline/pull/52) attached (review convention) |
 | 3 | SIG-53 | Accuracy surface: shared calibration, error & market panels | Todo |
 | 4 | SIG-54 | Overrides surface & contract detail outcome block | Todo |
 | 5 | SIG-55 | Grading health signals, freshness & e2e closure | Todo |
@@ -102,7 +113,7 @@ Ticket branches: stacked — first off the feature branch, each subsequent off t
 | Ticket | Branch | PR |
 |--------|--------|----|
 | SIG-51 | wtrhodesdev/sig-51-outcome-schema-kalshi-settlement-ingest | [#51](https://github.com/troyrhodes02/sightline/pull/51) |
-| SIG-52 | wtrhodesdev/sig-52-python-grading-job-projection-threshold-grades | (pending) |
+| SIG-52 | wtrhodesdev/sig-52-python-grading-job-projection-threshold-grades | [#52](https://github.com/troyrhodes02/sightline/pull/52) |
 | SIG-53 | wtrhodesdev/sig-53-accuracy-surface-shared-calibration-error-market-panels | (pending) |
 | SIG-54 | wtrhodesdev/sig-54-overrides-surface-contract-detail-outcome-block | (pending) |
 | SIG-55 | wtrhodesdev/sig-55-grading-health-signals-freshness-e2e-closure | (pending) |
