@@ -94,6 +94,7 @@ describe("authorization", () => {
 
   it("guards every admin route", () => {
     const adminRoutes = [
+      join(SRC, "app", "(app)", "accuracy", "overrides", "page.tsx"),
       join(SRC, "app", "(app)", "health", "page.tsx"),
       join(SRC, "app", "(app)", "users", "page.tsx"),
       join(SRC, "app", "api", "users", "[id]", "decision", "route.ts"),

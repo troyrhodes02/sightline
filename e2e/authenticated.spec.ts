@@ -56,8 +56,9 @@ test.describe("role enforcement", () => {
     const shell = (await page.content()) ?? "";
     expect(shell).not.toContain("/health");
     expect(shell).not.toContain("/users");
+    expect(shell).not.toContain("/accuracy/overrides");
 
-    for (const route of ["/health", "/users"]) {
+    for (const route of ["/health", "/users", "/accuracy/overrides"]) {
       const response = await page.goto(route);
       expect(response?.status()).toBe(403);
 

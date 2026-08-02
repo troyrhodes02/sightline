@@ -76,6 +76,67 @@ export type MarketComparisonDto =
       midpointEdgePoints: number | null;
     };
 
+export type OverrideDecisionRowDto = {
+  contractId: string;
+  decidedAt: string;
+  playerName: string;
+  statType: StatType;
+  threshold: number;
+  disposition: "took" | "faded" | "skipped";
+  /** Oriented to the decision's side — for a fade, the side he preferred. */
+  edgeAtDecision: number | null;
+  edgeAtFinal: number | null;
+  /** Final minus decision edge; positive = waiting would have been better. */
+  timingCostPoints: number | null;
+  timingUnavailableReason:
+    "missing_final_snapshot" | "voided" | "side_unavailable" | null;
+  /** Skips carry NO win/loss language — settlement shown descriptively. */
+  outcome: "won" | "lost" | "voided" | "pending" | "settled_yes" | "settled_no";
+  sourcesDisagree: boolean;
+};
+
+export type OverridesDto = {
+  scope: { statType: StatType | "all"; season: number | "all" };
+  tiles: {
+    took: {
+      total: number;
+      settled: number;
+      won: number;
+      lost: number;
+      voided: number;
+      pending: number;
+    };
+    faded: {
+      total: number;
+      settled: number;
+      won: number;
+      lost: number;
+      voided: number;
+      pending: number;
+    };
+    skipped: {
+      total: number;
+      settledYes: number;
+      settledNo: number;
+      voided: number;
+      pending: number;
+    };
+  };
+  agreement: {
+    disposition: "took" | "faded" | "skipped";
+    recommended: { count: number; won: number | null };
+    notRecommended: { count: number; won: number | null };
+  }[];
+  timing: {
+    medianPoints: number | null;
+    meanPoints: number | null;
+    measurable: number;
+    total: number;
+    unavailable: { reason: string; count: number }[];
+  };
+  decisions: OverrideDecisionRowDto[];
+};
+
 export type AccuracyDto = {
   scope: AccuracyScope;
   gradedThroughWeek: { season: number; week: number } | null;
