@@ -50,3 +50,12 @@ jobs:
           uv run sightline-model project
           --invocation-id "gh:${{ github.run_id }}:${{ github.run_attempt }}"
         working-directory: python
+
+      # Grade completed games after ingest (fresh stats and corrections) and
+      # recompute. The job self-selects from stored state: no completed game
+      # awaiting grades means nothing runs and nothing is recorded.
+      - name: Grade completed games
+        run: >
+          uv run sightline-ingest grade
+          --invocation-id "gh:${{ github.run_id }}:${{ github.run_attempt }}"
+        working-directory: python
