@@ -114,7 +114,7 @@ Chained SIG-51 ← SIG-52 ← SIG-53 ← SIG-54 ← SIG-55 (each blockedBy its p
 |---|----|-------|--------|
 | 1 | SIG-51 | Outcome schema & Kalshi settlement ingest | In Progress — PR #51 attached (review convention) |
 | 2 | SIG-52 | Python grading job: projection & threshold grades | Done — In Progress + [PR #52](https://github.com/troyrhodes02/sightline/pull/52) attached (review convention) |
-| 3 | SIG-53 | Accuracy surface: shared calibration, error & market panels | Todo |
+| 3 | SIG-53 | Accuracy surface: shared calibration, error & market panels | Done — In Progress + [PR #53](https://github.com/troyrhodes02/sightline/pull/53) attached (review convention) |
 | 4 | SIG-54 | Overrides surface & contract detail outcome block | Todo |
 | 5 | SIG-55 | Grading health signals, freshness & e2e closure | Todo |
 
@@ -129,7 +129,7 @@ Ticket branches: stacked — first off the feature branch, each subsequent off t
 |--------|--------|----|
 | SIG-51 | wtrhodesdev/sig-51-outcome-schema-kalshi-settlement-ingest | [#51](https://github.com/troyrhodes02/sightline/pull/51) |
 | SIG-52 | wtrhodesdev/sig-52-python-grading-job-projection-threshold-grades | [#52](https://github.com/troyrhodes02/sightline/pull/52) |
-| SIG-53 | wtrhodesdev/sig-53-accuracy-surface-shared-calibration-error-market-panels | (pending) |
+| SIG-53 | wtrhodesdev/sig-53-accuracy-surface-shared-calibration-error-market-panels | [#53](https://github.com/troyrhodes02/sightline/pull/53) |
 | SIG-54 | wtrhodesdev/sig-54-overrides-surface-contract-detail-outcome-block | (pending) |
 | SIG-55 | wtrhodesdev/sig-55-grading-health-signals-freshness-e2e-closure | (pending) |
 
