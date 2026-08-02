@@ -6,7 +6,7 @@ Mode: Autonomous Pipeline Policy (CLAUDE.md)
 
 ## Current step
 
-**Step 8 — ticket work** (steps 1–7 complete). SIG-52 done; SIG-53 next. (SIG-51 done: PR #51; SIG-52 done: PR #52 — all checks green on both.)
+**Step 8 — ticket work** (steps 1–7 complete). SIG-53 done; SIG-54 next. (SIG-51 done: PR #51; SIG-52 done: PR #52; SIG-53 done: PR #53 — all checks green.)
 
 Key ground truth established (from planning-doc + codebase research):
 - Final pre-kickoff snapshot EXISTS and is wired: `RecommendationSnapshot.trigger = final_pre_kickoff`, captured by `src/lib/pipeline/final-snapshot.ts` via `/api/pipeline/price-refresh` on the 15-min cron, 45-min window, partial unique index one-per-contract. Postponed-game re-capture semantics deliberately deferred to this pitch.
@@ -90,6 +90,21 @@ Design-doc decisions 12–18 (see "Decisions settled for this document" in the d
 - `pipeline_run_games.projected_count` carries the count of evaluative units graded for that game (the column is reused as the cycle's per-game work count, as recompute uses it).
 - Baseline errors are recomputed through `AsOfCorpus` + `features.assemble` + `baselines.compute` at the projection's own `information_cutoff` — the backtest's exact reads. The adversarial test seeds a same-Sunday London game whose line publishes (09:00 ET next day, the corpus's publication rule) after the cutoff and asserts it cannot move the stored baselines.
 
+### SIG-53 Resolved Decisions (implementation)
+
+- Backtest record availability is gated on stored headline denominators: the series renders only where the harness stored a pooled thresholds block (`aggregates.overall` for population *all*, `aggregates.contractLike` for *contract-like*, both at stat=all/season=all). Narrower scopes omit the series and the screen names the scope the record needs (design principle 2 — "says which population it needs rather than silently switching"). Summing per-bin distinct projection counts to fabricate a headline would overcount the effective sample in the flattering direction.
+- The backtest record is the most recent `status = completed` run, regardless of the live version selector; the run's own label/model version and season range travel in the series label ("expose which run"). Never re-filtered by the live version — records are separate.
+- Era disclosure quotes the reanalysis-era **model MAE** from `aggregates.byEra.reanalysis` — the era breakout stores point-estimate error, not Brier, and Brier is not recoverable from stored bins. The qualitative disclosure line still renders when the figure is absent.
+- Season and version params validate against values-with-graded-data, falling back to that control's default (spec §11 governs over the preview mock's `?season=2027` example URL). Designed empty states remain reachable via stat/population/version scopes with no graded rows.
+- Live bucketing mirrors the harness exactly: `[low, high)` with the top bucket closed, via `least(floor(p*10), 9)` in SQL; `belowFloor` derived at the same 1,000-obs floor the stored bins use (stored flag preferred where present).
+- `gradingDelayed` = completed games hold ungraded eligible (evaluative-unit) projections AND the last successful `grading` run is older than 26h. The 26h constant lives in `src/lib/accuracy/config.ts` (`GRADING_DELAYED_AFTER_HOURS`), deliberately local — `src/lib/health/*` untouched; the health-side grading signal is SIG-55's scope.
+- Exclusions are counted within the stat/season/version scope where attributable; settlement-side exclusions that carry no attribution (unresolved-identity outcomes, voided outcomes on contracts without stat/game) are always counted — an unattributable exclusion belongs to no narrower scope and dropping it would hide it everywhere. Population filters never apply to exclusions (they are excluded from every population).
+- Market panel: model and market Brier are computed on the snapshot's executable side; the midpoint secondary uses the linked price observation's same-side book and contributes only where both sides exist (`midpointEdgePoints: null` when none) — never zero-filled. The 95% CI is a normal approximation (mean ± 1.96·sd/√n) and collapses onto the mean at zero variance rather than vanishing.
+- Error panel population = grade rows where model and both baselines all produced values, mirroring the harness's `comparisonCount` semantics; RMSE = `sqrt(avg(power(abs_error, 2)))` from the stored absolute errors (exactly RMSE for per-row errors).
+- `overridesEntry.decisionCount` counts distinct contracts with any decision (the acted-on unit), unscoped — it is a doorway count, not a metric.
+- The slate empty state has no "View accuracy" affordance today, so none was invented; the accuracy page's own empty state carries the "View backtest record" action instead. The admin overrides entry row links to `/accuracy/overrides`, which SIG-54 ships next in the same stack.
+- Panel headings use the theme's `label` variant (h3–h6 are disabled in the theme); the reliability curve draws per-pair `Line` segments so dashing is per-segment (any segment touching a provisional bucket is dashed), with hollow dots carried by a theme-fed custom dot renderer.
+
 ## Tickets
 
 Milestone: **Outcome Scoring & Accuracy Surface** (id `a084a6ae-8980-40f5-a335-53103c2d7653`) in project Sightline V1, team Sightline.
@@ -99,7 +114,7 @@ Chained SIG-51 ← SIG-52 ← SIG-53 ← SIG-54 ← SIG-55 (each blockedBy its p
 |---|----|-------|--------|
 | 1 | SIG-51 | Outcome schema & Kalshi settlement ingest | In Progress — PR #51 attached (review convention) |
 | 2 | SIG-52 | Python grading job: projection & threshold grades | Done — In Progress + [PR #52](https://github.com/troyrhodes02/sightline/pull/52) attached (review convention) |
-| 3 | SIG-53 | Accuracy surface: shared calibration, error & market panels | Todo |
+| 3 | SIG-53 | Accuracy surface: shared calibration, error & market panels | Done — In Progress + [PR #53](https://github.com/troyrhodes02/sightline/pull/53) attached (review convention) |
 | 4 | SIG-54 | Overrides surface & contract detail outcome block | Todo |
 | 5 | SIG-55 | Grading health signals, freshness & e2e closure | Todo |
 
@@ -114,7 +129,7 @@ Ticket branches: stacked — first off the feature branch, each subsequent off t
 |--------|--------|----|
 | SIG-51 | wtrhodesdev/sig-51-outcome-schema-kalshi-settlement-ingest | [#51](https://github.com/troyrhodes02/sightline/pull/51) |
 | SIG-52 | wtrhodesdev/sig-52-python-grading-job-projection-threshold-grades | [#52](https://github.com/troyrhodes02/sightline/pull/52) |
-| SIG-53 | wtrhodesdev/sig-53-accuracy-surface-shared-calibration-error-market-panels | (pending) |
+| SIG-53 | wtrhodesdev/sig-53-accuracy-surface-shared-calibration-error-market-panels | [#53](https://github.com/troyrhodes02/sightline/pull/53) |
 | SIG-54 | wtrhodesdev/sig-54-overrides-surface-contract-detail-outcome-block | (pending) |
 | SIG-55 | wtrhodesdev/sig-55-grading-health-signals-freshness-e2e-closure | (pending) |
 
