@@ -15,7 +15,18 @@ const priceRefreshCode = readCode(
 const keepaliveCode = readCode(
   join(process.cwd(), "src", "app", "api", "pipeline", "keepalive", "route.ts"),
 );
-const bothRoutes = [priceRefreshCode, keepaliveCode];
+const outcomeIngestCode = readCode(
+  join(
+    process.cwd(),
+    "src",
+    "app",
+    "api",
+    "pipeline",
+    "outcome-ingest",
+    "route.ts",
+  ),
+);
+const allRoutes = [priceRefreshCode, keepaliveCode, outcomeIngestCode];
 
 /**
  * The `/api/pipeline/*` namespace (RD-20): machine-authenticated, and the
@@ -24,10 +35,16 @@ const bothRoutes = [priceRefreshCode, keepaliveCode];
  * and the boundaries the routes must not cross.
  */
 describe("pipeline routes: scheduler auth", () => {
-  it.each([["price-refresh"], ["keepalive"]])(
+  const byName: Record<string, string> = {
+    "price-refresh": priceRefreshCode,
+    keepalive: keepaliveCode,
+    "outcome-ingest": outcomeIngestCode,
+  };
+
+  it.each([["price-refresh"], ["keepalive"], ["outcome-ingest"]])(
     "%s verifies the bearer token and never a user session",
     (name) => {
-      const code = name === "price-refresh" ? priceRefreshCode : keepaliveCode;
+      const code = byName[name];
       expect(code).toContain("verifyPipelineToken");
       expect(code).not.toContain("requireSession");
       expect(code).not.toContain("requireAdmin");
@@ -35,7 +52,7 @@ describe("pipeline routes: scheduler auth", () => {
   );
 
   it("answers 401 for bad credentials and 503 for an unset token", () => {
-    for (const code of bothRoutes) {
+    for (const code of allRoutes) {
       expect(code).toMatch(/"unauthorized"[\s\S]{0,200}unauthorized/);
       expect(code).toContain('"unconfigured"');
       expect(code).toContain("upstream_unavailable");
@@ -43,14 +60,14 @@ describe("pipeline routes: scheduler auth", () => {
   });
 
   it("accepts no user identifier anywhere", () => {
-    for (const code of bothRoutes) {
+    for (const code of allRoutes) {
       expect(code).not.toMatch(/userId/);
       expect(code).not.toMatch(/session/i);
     }
   });
 
   it("is never statically rendered", () => {
-    for (const code of bothRoutes) {
+    for (const code of allRoutes) {
       expect(code).toContain('dynamic = "force-dynamic"');
     }
   });
@@ -89,5 +106,26 @@ describe("keepalive route: validation", () => {
     expect(keepaliveCode).toContain("keepaliveInputSchema.safeParse");
     expect(keepaliveCode).toContain("actedAtIsPlausible");
     expect(keepaliveCode).toContain("validation_error");
+  });
+});
+
+describe("outcome-ingest route: settlement ingest", () => {
+  it("validates the scheduler report", () => {
+    expect(outcomeIngestCode).toContain("outcomeIngestInputSchema.safeParse");
+    expect(outcomeIngestCode).toContain("validation_error");
+  });
+
+  it("delegates to the ingest — no second Kalshi client, no inline queries", () => {
+    expect(outcomeIngestCode).toContain("runOutcomeIngest");
+    expect(outcomeIngestCode).not.toContain("fetch(");
+    expect(outcomeIngestCode).not.toContain("listOpenMarkets");
+    expect(outcomeIngestCode).not.toContain("prisma.");
+  });
+
+  it("keeps a Kalshi outage a designed 200, with internal_error for the unexpected only", () => {
+    // The degraded flag travels inside the 200 body from runOutcomeIngest;
+    // the catch block is for genuinely unexpected failures.
+    expect(outcomeIngestCode).toContain("internal_error");
+    expect(outcomeIngestCode).not.toContain("KalshiUnavailableError");
   });
 });

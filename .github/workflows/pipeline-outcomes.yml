@@ -1,0 +1,39 @@
+name: Pipeline outcomes
+
+# Scheduled Kalshi settlement ingest. The cron calls the application's
+# scheduler route unconditionally every hour; the ROUTE decides server-side —
+# from stored game and outcome state, never the calendar — whether Kalshi is
+# actually contacted. The Kalshi integration, credential, and rate-limit
+# budget all stay inside the application.
+#
+# The invocation id makes a re-delivered cron a structural no-op: the route
+# records one PipelineRun per [category, invocationId] and answers the
+# duplicate with `skipped: "coalesced"`.
+#
+# `curl --fail` makes any non-2xx fail the job, so a misconfigured token
+# (503) or broken deploy is a red run in the Actions history rather than a
+# silent skip.
+
+on:
+  schedule:
+    - cron: "30 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: pipeline-outcomes
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call the outcome-ingest route
+        env:
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
+          PIPELINE_SCHEDULER_TOKEN: ${{ secrets.PIPELINE_SCHEDULER_TOKEN }}
+        run: |
+          curl --fail --silent --show-error --max-time 300 \
+            -X POST "${APP_BASE_URL%/}/api/pipeline/outcome-ingest" \
+            -H "Authorization: Bearer ${PIPELINE_SCHEDULER_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"invocationId\":\"gh:${{ github.run_id }}:${{ github.run_attempt }}\"}"
