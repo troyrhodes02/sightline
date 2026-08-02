@@ -4,6 +4,7 @@ import type {
   Disposition,
   MarketSide,
   MarketSyncStatus,
+  ProjectionGradeStatus,
   StatType,
 } from "../../../generated/prisma/enums";
 
@@ -94,6 +95,42 @@ export type SlateDto = {
   nextKickoffAt: string | null;
 };
 
+/**
+ * The contract's outcome block (spec §12) — present on the detail payload only
+ * once the game is completed (or cancelled, showing the taxonomy state), and
+ * absent entirely pre-completion.
+ *
+ * Settlement and the official line are two facts and may disagree;
+ * `sourcesDisagree` flags the conflict with both values preserved, never
+ * reconciled. **The `decision` key is added by the admin serializer and never
+ * nulled for viewers** — absent, not null, so the viewer payload is
+ * structurally decision-free.
+ */
+export type OutcomeBlockDto = {
+  officialValue: number | null;
+  /** Latest correction date, when any corrections exist. */
+  officialCorrectedAt: string | null;
+  settlement: {
+    result: "yes" | "no" | "voided";
+    settledAt: string | null;
+  } | null;
+  projectionGrade: {
+    status: ProjectionGradeStatus;
+    hit: boolean | null;
+    statedProbability: number | null;
+  } | null;
+  recommendationGrade:
+    | "correct"
+    | "incorrect"
+    | "voided"
+    | "missing_final_snapshot"
+    | "pending"
+    | null;
+  sourcesDisagree: boolean;
+  /** ADMIN SERIALIZER ONLY — key absent for viewers. */
+  decision?: { disposition: string; outcome: string };
+};
+
 export type ContractDetailDto = SlateRowDto & {
   /** Admin-only diagnostics for the unresolved variant; absent for viewers. */
   resolutionNote?: string;
@@ -108,4 +145,7 @@ export type ContractDetailDto = SlateRowDto & {
   modelVersion: string | null;
   midCents: number | null;
   status: ContractStatus;
+
+  /** Present only once the contract's game is completed or cancelled. */
+  outcomeBlock?: OutcomeBlockDto;
 };

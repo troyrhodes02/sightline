@@ -24,7 +24,7 @@ import {
   PriceValue,
   ProbabilityValue,
 } from "@/components/slate/values";
-import type { ContractDetailDto } from "@/lib/dto/slate";
+import type { ContractDetailDto, OutcomeBlockDto } from "@/lib/dto/slate";
 
 const STAT_SENTENCE: Record<ContractDetailDto["statType"], string> = {
   passing_yards: "passing yards",
@@ -292,6 +292,16 @@ export function ContractDetail({
         </Section>
       ) : null}
 
+      {detail.outcomeBlock ? (
+        <Section title="Outcome">
+          <OutcomeSection
+            block={detail.outcomeBlock}
+            threshold={detail.threshold}
+            statSentence={statSentence}
+          />
+        </Section>
+      ) : null}
+
       {decisionSlot ? (
         <Section title="Decision">
           {decisionSlot}
@@ -307,6 +317,196 @@ export function ContractDetail({
           ) : null}
         </Section>
       ) : null}
+    </Stack>
+  );
+}
+
+const GRADE_STATUS_LABELS: Record<string, string> = {
+  missing_official_result: "no official result",
+  game_never_completed: "game not completed",
+  unsupported_stat_type: "unsupported stat",
+};
+
+/**
+ * The outcome block — rendered only once the game completed (or cancelled):
+ * absence is the pre-outcome state. The official line is neutral text (the
+ * world, not either source's claim); the settlement is market mint; each
+ * grade line names its truth source; and a disagreement between the two
+ * truths is displayed with both values preserved, never reconciled. Absent
+ * grades render their taxonomy chip, never a blank. The decision line exists
+ * only when the admin payload carries it.
+ */
+function OutcomeSection({
+  block,
+  threshold,
+  statSentence,
+}: {
+  block: OutcomeBlockDto;
+  threshold: number;
+  statSentence: string;
+}) {
+  return (
+    <Stack spacing={1}>
+      <OutcomeLine label="official result">
+        {block.officialValue === null ? (
+          <NumericText size="md" muted>
+            —
+          </NumericText>
+        ) : (
+          <Stack spacing={0.25}>
+            <NumericText size="md" sx={{ color: "text.primary" }}>
+              {block.officialValue} {statSentence} (final)
+            </NumericText>
+            {block.officialCorrectedAt ? (
+              <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                corrected {formatEt(block.officialCorrectedAt)} ET
+              </Typography>
+            ) : null}
+          </Stack>
+        )}
+      </OutcomeLine>
+
+      <OutcomeLine label="settlement">
+        {block.settlement === null ? (
+          <StatusChip label="pending" tone="neutral" />
+        ) : block.settlement.result === "voided" ? (
+          <StatusChip label="voided" tone="neutral" />
+        ) : (
+          <NumericText size="md" sx={{ color: "market.main" }}>
+            {block.settlement.result}
+            {block.settlement.settledAt
+              ? ` · settled ${formatEt(block.settlement.settledAt)} ET`
+              : ""}
+          </NumericText>
+        )}
+      </OutcomeLine>
+
+      <OutcomeLine label="projection grade">
+        {block.projectionGrade === null ? (
+          <StatusChip label="pending" tone="neutral" />
+        ) : block.projectionGrade.status !== "graded" ? (
+          <StatusChip
+            label={
+              GRADE_STATUS_LABELS[block.projectionGrade.status] ??
+              block.projectionGrade.status
+            }
+            tone="neutral"
+          />
+        ) : (
+          <Typography variant="body2" component="span">
+            over {threshold}:{" "}
+            {block.projectionGrade.hit === null
+              ? "—"
+              : block.projectionGrade.hit
+                ? "hit ✓"
+                : "miss ✗"}
+            {block.projectionGrade.statedProbability !== null
+              ? ` (p ${(block.projectionGrade.statedProbability * 100).toFixed(1)}%)`
+              : ""}{" "}
+            <Typography
+              variant="caption"
+              component="span"
+              sx={{ color: "text.secondary" }}
+            >
+              vs official result
+            </Typography>
+          </Typography>
+        )}
+      </OutcomeLine>
+
+      <OutcomeLine label="recommendation">
+        {block.recommendationGrade === null ? (
+          <NumericText size="sm" muted>
+            —
+          </NumericText>
+        ) : block.recommendationGrade === "correct" ||
+          block.recommendationGrade === "incorrect" ? (
+          <Typography variant="body2" component="span">
+            {block.recommendationGrade === "correct"
+              ? "correct ✓"
+              : "incorrect ✗"}{" "}
+            <Typography
+              variant="caption"
+              component="span"
+              sx={{ color: "text.secondary" }}
+            >
+              by settlement, per the final pre-kickoff snapshot
+            </Typography>
+          </Typography>
+        ) : (
+          <StatusChip
+            label={
+              block.recommendationGrade === "missing_final_snapshot"
+                ? "no final snapshot"
+                : block.recommendationGrade
+            }
+            tone="neutral"
+          />
+        )}
+      </OutcomeLine>
+
+      {block.sourcesDisagree ? (
+        <Stack
+          direction="row"
+          spacing={1}
+          useFlexGap
+          sx={{ alignItems: "center", flexWrap: "wrap" }}
+        >
+          <StatusChip label="sources disagree" tone="caution" icon />
+          <Typography variant="caption" sx={{ color: "text.secondary" }}>
+            official {block.officialValue ?? "—"}, market settled{" "}
+            {block.settlement?.result ?? "—"} · both retained
+          </Typography>
+        </Stack>
+      ) : null}
+
+      {block.decision ? (
+        <OutcomeLine label="decision">
+          <Stack
+            direction="row"
+            spacing={1}
+            useFlexGap
+            sx={{ alignItems: "center", flexWrap: "wrap" }}
+          >
+            <DispositionChip
+              disposition={
+                block.decision.disposition as Parameters<
+                  typeof DispositionChip
+                >[0]["disposition"]
+              }
+            />
+            <NumericText size="sm" muted>
+              {block.decision.outcome.replace("_", " ")}
+            </NumericText>
+          </Stack>
+        </OutcomeLine>
+      ) : null}
+    </Stack>
+  );
+}
+
+/** One outcome row: label + value, stacking label-over-value at xs. */
+function OutcomeLine({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Stack
+      direction={{ xs: "column", sm: "row" }}
+      spacing={{ xs: 0.25, sm: 0.75 }}
+      sx={{ alignItems: { sm: "baseline" } }}
+    >
+      <Typography
+        variant="body2"
+        component="span"
+        sx={{ color: "text.secondary", minWidth: { sm: 140 } }}
+      >
+        {label}
+      </Typography>
+      {children}
     </Stack>
   );
 }

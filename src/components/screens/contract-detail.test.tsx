@@ -243,6 +243,162 @@ describe("ContractDetail — variants", () => {
   });
 });
 
+describe("ContractDetail — outcome block", () => {
+  const settled = (
+    overrides: Partial<NonNullable<ContractDetailDto["outcomeBlock"]>> = {},
+  ): NonNullable<ContractDetailDto["outcomeBlock"]> => ({
+    officialValue: 87,
+    officialCorrectedAt: null,
+    settlement: { result: "yes", settledAt: "2026-11-09T06:04:00.000Z" },
+    projectionGrade: { status: "graded", hit: true, statedProbability: 0.614 },
+    recommendationGrade: "correct",
+    sourcesDisagree: false,
+    ...overrides,
+  });
+
+  it("is absent entirely before the game completes", () => {
+    renderThemed(
+      <ContractDetail detail={detail()} isAdmin isUnresolved={false} />,
+    );
+    expect(screen.queryByText("Outcome")).not.toBeInTheDocument();
+    expect(screen.queryByText("official result")).not.toBeInTheDocument();
+  });
+
+  it("agree: official line neutral, settlement, grade lines with sources named", () => {
+    renderThemed(
+      <ContractDetail
+        detail={detail({ outcomeBlock: settled() })}
+        isAdmin={false}
+        isUnresolved={false}
+      />,
+    );
+    expect(screen.getByText("Outcome")).toBeInTheDocument();
+    expect(
+      screen.getByText(/87 receiving yards \(final\)/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/settled Sun|settled Mon/)).toBeInTheDocument();
+    expect(screen.getByText(/over 74\.5:/)).toBeInTheDocument();
+    expect(screen.getByText(/hit ✓/)).toBeInTheDocument();
+    expect(screen.getByText(/\(p 61\.4%\)/)).toBeInTheDocument();
+    expect(screen.getByText(/correct ✓/)).toBeInTheDocument();
+    expect(screen.queryByText("sources disagree")).not.toBeInTheDocument();
+  });
+
+  it("disagree: the notice renders with BOTH values preserved", () => {
+    renderThemed(
+      <ContractDetail
+        detail={detail({
+          outcomeBlock: settled({
+            settlement: { result: "no", settledAt: null },
+            recommendationGrade: "incorrect",
+            sourcesDisagree: true,
+          }),
+        })}
+        isAdmin={false}
+        isUnresolved={false}
+      />,
+    );
+    expect(screen.getByText("sources disagree")).toBeInTheDocument();
+    expect(
+      screen.getByText(/official 87, market settled no · both retained/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/incorrect ✗/)).toBeInTheDocument();
+  });
+
+  it("pending: taxonomy chips, never blanks or zeros", () => {
+    renderThemed(
+      <ContractDetail
+        detail={detail({
+          outcomeBlock: settled({
+            officialValue: null,
+            settlement: null,
+            projectionGrade: null,
+            recommendationGrade: "pending",
+          }),
+        })}
+        isAdmin={false}
+        isUnresolved={false}
+      />,
+    );
+    expect(screen.getAllByText("pending").length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText(/hit ✓|miss ✗/)).not.toBeInTheDocument();
+  });
+
+  it("voided: its own state on settlement and recommendation", () => {
+    renderThemed(
+      <ContractDetail
+        detail={detail({
+          outcomeBlock: settled({
+            settlement: { result: "voided", settledAt: null },
+            recommendationGrade: "voided",
+          }),
+        })}
+        isAdmin={false}
+        isUnresolved={false}
+      />,
+    );
+    expect(screen.getAllByText("voided").length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("a missing final snapshot renders its taxonomy chip", () => {
+    renderThemed(
+      <ContractDetail
+        detail={detail({
+          outcomeBlock: settled({
+            recommendationGrade: "missing_final_snapshot",
+          }),
+        })}
+        isAdmin={false}
+        isUnresolved={false}
+      />,
+    );
+    expect(screen.getByText("no final snapshot")).toBeInTheDocument();
+  });
+
+  it("shows the correction date beside the official line when one exists", () => {
+    renderThemed(
+      <ContractDetail
+        detail={detail({
+          outcomeBlock: settled({
+            officialCorrectedAt: "2026-11-11T18:10:00.000Z",
+          }),
+        })}
+        isAdmin={false}
+        isUnresolved={false}
+      />,
+    );
+    expect(screen.getByText(/corrected .* ET/)).toBeInTheDocument();
+  });
+
+  it("renders the decision line ONLY when the payload carries it", () => {
+    const { unmount } = renderThemed(
+      <ContractDetail
+        detail={detail({
+          outcomeBlock: settled({
+            decision: { disposition: "took", outcome: "won" },
+          }),
+        })}
+        isAdmin
+        isUnresolved={false}
+      />,
+    );
+    expect(screen.getByText("took")).toBeInTheDocument();
+    expect(screen.getByText("won")).toBeInTheDocument();
+    unmount();
+
+    // A viewer payload has no decision key — the line does not exist.
+    renderThemed(
+      <ContractDetail
+        detail={detail({ outcomeBlock: settled() })}
+        isAdmin={false}
+        isUnresolved={false}
+      />,
+    );
+    expect(screen.queryByText("decision")).not.toBeInTheDocument();
+    expect(screen.queryByText("won")).not.toBeInTheDocument();
+  });
+});
+
 describe("ContractDetail — unresolved", () => {
   const unresolved = detail({
     playerName: "J. Smith-Njigba receiving yards above 74.5",
