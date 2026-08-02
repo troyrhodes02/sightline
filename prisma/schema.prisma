@@ -115,6 +115,8 @@ enum PipelineJobCategory {
   ingest
   recompute
   keepalive
+  outcome_ingest // TS settlement ingest (Outcome Scoring & Accuracy Surface)
+  grading // Python grading job (Outcome Scoring & Accuracy Surface)
 }
 
 enum PipelineRunStatus {
@@ -234,13 +236,13 @@ model Game {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  homeTeam    Team                   @relation("HomeTeam", fields: [homeTeamId], references: [id])
-  awayTeam    Team                   @relation("AwayTeam", fields: [awayTeamId], references: [id])
-  plays       PlayByPlay[]
-  playerStats PlayerGameStat[]
-  contexts    PlayerGameContext[]
-  weather     GameWeather?
-  revisions   GameScheduleRevision[]
+  homeTeam         Team                   @relation("HomeTeam", fields: [homeTeamId], references: [id])
+  awayTeam         Team                   @relation("AwayTeam", fields: [awayTeamId], references: [id])
+  plays            PlayByPlay[]
+  playerStats      PlayerGameStat[]
+  contexts         PlayerGameContext[]
+  weather          GameWeather?
+  revisions        GameScheduleRevision[]
   contracts        Contract[]
   projections      Projection[]
   pipelineRunGames PipelineRunGame[]
@@ -778,6 +780,8 @@ model Contract {
   priceObservations PriceObservation[]
   snapshots         RecommendationSnapshot[]
   decisions         Decision[]
+  outcome           Outcome?
+  thresholdGrades   ThresholdGrade[]
 
   @@index([status, resolutionStatus])
   @@index([gameId])
@@ -858,6 +862,9 @@ model Projection {
 
   snapshots RecommendationSnapshot[]
   decisions Decision[]
+
+  grade           ProjectionGrade?
+  thresholdGrades ThresholdGrade[]
 
   // Idempotent persist: same inputs, same row. A new cutoff is a new row;
   // the freshest (max computedAt) is what the slate reads.
@@ -949,4 +956,111 @@ model Decision {
   @@index([contractId, decidedAt(sort: Desc)])
   @@index([userId, decidedAt(sort: Desc)])
   @@map("decisions")
+}
+
+// ---------------------------------------------------------------------------
+// Settlement and grading (Outcome Scoring & Accuracy Surface — SIG-51)
+//
+// Two truths, two graders, split along the runtime seam: Kalshi settlement
+// (Outcome, written by the TS ingest route) grades everything contract-facing
+// AT READ TIME; the official corrected line grades the model through durable
+// ProjectionGrade/ThresholdGrade rows written ONLY by the Python grading job.
+// Settlement and the official stat line are two facts and may disagree — they
+// are stored separately and never reconciled into one number.
+//
+// NONE of these are bitemporal fact tables. They are measurement records like
+// backtest_runs: no validAt/knownAt, no ingest_run_id, and nothing here may
+// ever feed a projection. `outcomes` is market-derived and sits on the Python
+// import-graph blocklist alongside price_observations.
+// ---------------------------------------------------------------------------
+
+enum OutcomeResult {
+  yes
+  no
+  voided
+}
+
+enum ProjectionGradeStatus {
+  graded
+  missing_official_result // game complete, no trustworthy PlayerGameStat row for this player-game
+  game_never_completed // game reached cancelled status; terminal
+  unsupported_stat_type // defensive: projection stat outside the gradeable set
+}
+
+enum ThresholdSource {
+  policy
+  market
+}
+
+/// Kalshi settlement for one contract. Market-derived: on the Python import
+/// blocklist. Not a bitemporal fact table — it is a measurement record like
+/// backtest_runs, and it must never feed a projection, so it carries no
+/// validAt/knownAt by design. One per contract, updated in place on a changed
+/// settlement with supersession provenance retained.
+model Outcome {
+  id                 String         @id @default(uuid())
+  contractId         String         @unique @map("contract_id")
+  result             OutcomeResult
+  settledAt          DateTime?      @map("settled_at") // as reported by Kalshi; null when not supplied
+  recordedAt         DateTime       @map("recorded_at") // when Sightline ingested it
+  rawResult          String         @map("raw_result") // Kalshi's verbatim result string, for audit
+  supersededCount    Int            @default(0) @map("superseded_count")
+  previousResult     OutcomeResult? @map("previous_result")
+  previousRecordedAt DateTime?      @map("previous_recorded_at")
+  createdAt          DateTime       @default(now()) @map("created_at")
+  updatedAt          DateTime       @updatedAt @map("updated_at")
+
+  contract Contract @relation(fields: [contractId], references: [id])
+
+  @@index([recordedAt])
+  @@map("outcomes")
+}
+
+/// Grade for one projection against the official corrected line. Written only
+/// by the Python grading job. Derived data: recomputable, updated in place on
+/// correction — `gradedStatVersion` is provenance, not a cache.
+model ProjectionGrade {
+  id                   String                @id @default(uuid())
+  projectionId         String                @unique @map("projection_id")
+  status               ProjectionGradeStatus
+  officialValue        Decimal?              @map("official_value") @db.Decimal(8, 3)
+  gradedStatVersion    Int?                  @map("graded_stat_version")
+  absErrorMean         Decimal?              @map("abs_error_mean") @db.Decimal(8, 3)
+  absErrorMedian       Decimal?              @map("abs_error_median") @db.Decimal(8, 3)
+  seasonAvgAbsError    Decimal?              @map("season_avg_abs_error") @db.Decimal(8, 3)
+  trailingFiveAbsError Decimal?              @map("trailing_five_abs_error") @db.Decimal(8, 3)
+  contractLike         Boolean               @map("contract_like")
+  gradedAt             DateTime              @map("graded_at")
+  createdAt            DateTime              @default(now()) @map("created_at")
+  updatedAt            DateTime              @updatedAt @map("updated_at")
+
+  projection Projection @relation(fields: [projectionId], references: [id])
+
+  @@index([status])
+  @@index([contractLike])
+  @@map("projection_grades")
+}
+
+/// One binary threshold observation. Several per projection; correlated by
+/// construction, which is why every aggregate reports both denominators.
+model ThresholdGrade {
+  id                String          @id @default(uuid())
+  projectionId      String          @map("projection_id")
+  contractId        String?         @map("contract_id")
+  thresholdSource   ThresholdSource @map("threshold_source")
+  threshold         Decimal         @map("threshold") @db.Decimal(6, 1)
+  statedProbability Decimal         @map("stated_probability") @db.Decimal(6, 5)
+  outcome           Boolean
+  contractLike      Boolean         @map("contract_like")
+  gradedStatVersion Int             @map("graded_stat_version")
+  gradedAt          DateTime        @map("graded_at")
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+
+  projection Projection @relation(fields: [projectionId], references: [id])
+  contract   Contract?  @relation(fields: [contractId], references: [id])
+
+  @@unique([projectionId, thresholdSource, threshold])
+  @@index([contractId])
+  @@map("threshold_grades")
 }

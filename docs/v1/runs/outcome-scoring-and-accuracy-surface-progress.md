@@ -25,8 +25,8 @@ Key ground truth established (from planning-doc + codebase research):
 - [x] 3. UI preview → `docs/v1/ui/outcome-scoring-and-accuracy-surface-ui-preview.html`
 - [x] 4. Spec → `docs/v1/specs/outcome-scoring-and-accuracy-surface-spec.md`
 - [x] 5. Resolve remaining open questions as Resolved Decisions (all 18: 1–11 pre-resolved by instruction, 12–18 in design doc; spec restates; three inherited postures noted non-blocking in spec §16)
-- [ ] 6. Milestone + Linear issues, chained blockedBy, IDs captured here
-- [ ] 7. Feature PR into main
+- [x] 6. Milestone + Linear issues, chained blockedBy, IDs captured here
+- [x] 7. Feature PR into main (#50)
 - [ ] 8. Work every ticket in order (branch chain), PR each
 - [ ] 9. Runbook
 - [ ] 10. Squash-merge ticket PRs into feature branch in order
@@ -68,6 +68,17 @@ Design-doc decisions 12–18 (see "Decisions settled for this document" in the d
 17. Unresolvable taxonomy, one enum, seven reasons: `missing_official_result`, `unresolved_identity`, `unsupported_stat_type`, `game_never_completed`, `contract_voided`, `missing_final_snapshot`, `source_conflict`. Counts displayed beside every population; nothing silently excluded.
 18. Suggestion grading readiness is structural (grading keys off projection/snapshot/decision identities generically; shadow projections will grade through the same machinery). No suggestion surface or placeholder ships.
 
+### SIG-51 Resolved Decisions (implementation)
+
+- Empty settlement selection → `skipped: "not_expected"` with no `PipelineRun` row: dormancy derived from stored game/outcome state (mirrors price-refresh: derived from stored data, never the calendar), and an hourly no-op row per offseason hour would be noise, not history.
+- Duplicate scheduler delivery → P2002 on `PipelineRun` create → `skipped: "coalesced"`, no Kalshi call. The `@@unique([category, invocationId])` is the idempotency mechanism, per the keepalive pattern.
+- A degraded (Kalshi outage / rate-limit) cycle is recorded as `PipelineRun.status = failed` while the HTTP answer stays a designed 200 `degraded: true` — spec §13.5 requires the health signal to reflect the last *successful* run only.
+- Kalshi `result` mapping: `"yes"`→yes, `"no"`→no, explicit `"void"`/`"voided"`→voided; empty string is Kalshi's not-settled-yet and counts `unavailable` — mapping `""` to voided would fabricate settlements for merely-unsettled markets. Unknown vocabulary → `unavailable` + verbatim string in the run's error message (spec §11).
+- "Unchanged" means unchanged `result` (spec §6 lifecycle: same result → no write); `settledAt`/`rawResult` refresh only rides along on a result change.
+- Settlement-change window (7 days) is measured from each game's own `kickoffAt` — games carry no completion timestamp and kickoff is the stored per-game clock — with `Outcome.recordedAt` as the window clock for contracts that never resolved to a game.
+- `PipelineRun.codeVersion` = `VERCEL_GIT_COMMIT_SHA` when present, else `"unknown"` (BacktestRun's documented convention: never guessed).
+- Python blocklist tokens are SQL-shaped (`from|join|into|update outcomes`, bare and quoted): plain `outcome(s)` false-positives on `RunOutcome`, threshold `outcome` fields, and prose in both packages (verified by grep). Planted-reference and false-positive self-tests added.
+
 ## Tickets
 
 Milestone: **Outcome Scoring & Accuracy Surface** (id `a084a6ae-8980-40f5-a335-53103c2d7653`) in project Sightline V1, team Sightline.
@@ -85,10 +96,16 @@ Note: Linear team has no "In Review" state — convention is In Progress + PR at
 
 ## Branches / PRs
 
-Feature branch: `pitch/outcome-scoring-and-accuracy-surface` (planned; CI triggers on `pitch/**`).
-Ticket branches: first off the feature branch, each subsequent off the last; squash-merge each into the feature branch in order (step 10).
+Feature branch: `pitch/outcome-scoring-and-accuracy-surface` — pushed; **feature PR #50** into main: https://github.com/troyrhodes02/sightline/pull/50 (planning artefacts committed as `c4028e2`).
+Ticket branches: stacked — first off the feature branch, each subsequent off the last. Ticket PRs use base = `pitch/outcome-scoring-and-accuracy-surface`; squash-merge in order at step 10 (identical stacked changes auto-resolve).
 
-(PR links recorded as they are opened)
+| Ticket | Branch | PR |
+|--------|--------|----|
+| SIG-51 | wtrhodesdev/sig-51-outcome-schema-kalshi-settlement-ingest | (pending) |
+| SIG-52 | wtrhodesdev/sig-52-python-grading-job-projection-threshold-grades | (pending) |
+| SIG-53 | wtrhodesdev/sig-53-accuracy-surface-shared-calibration-error-market-panels | (pending) |
+| SIG-54 | wtrhodesdev/sig-54-overrides-surface-contract-detail-outcome-block | (pending) |
+| SIG-55 | wtrhodesdev/sig-55-grading-health-signals-freshness-e2e-closure | (pending) |
 
 ## Deferred
 
