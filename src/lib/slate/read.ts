@@ -18,6 +18,8 @@ import {
   computeEdge,
   recommendationThresholdPoints,
 } from "./edge";
+import { decisionOutcome } from "@/lib/accuracy/derive";
+import { readOutcomeBlock } from "./outcome-block";
 import { probAtLeast } from "./probability";
 import { formatAge } from "./staleness";
 import { latestFactKnownAtByGame, stalenessForRow } from "./staleness-read";
@@ -325,6 +327,7 @@ export async function readContractDetail(
           id: true,
           kickoffAt: true,
           season: true,
+          status: true,
           homeTeamId: true,
           awayTeamId: true,
           homeTeam: { select: { nflverseAbbr: true } },
@@ -470,6 +473,25 @@ export async function readContractDetail(
     status: contract.status,
   };
 
+  // The outcome block exists only once the game is completed (or cancelled,
+  // surfacing the taxonomy state) — absence IS the pre-outcome state. The
+  // shared block carries no decision data; see outcome-block.ts.
+  if (
+    contract.game &&
+    (contract.game.status === "completed" ||
+      contract.game.status === "cancelled")
+  ) {
+    detail.outcomeBlock = await readOutcomeBlock({
+      contractId: contract.id,
+      playerId: contract.playerId,
+      gameId: contract.gameId,
+      statType: contract.statType,
+      threshold,
+      gameStatus: contract.game.status,
+      displayedProjectionId: projection?.id ?? null,
+    });
+  }
+
   if (role === "admin") {
     if (contract.resolutionNote) {
       detail.resolutionNote = contract.resolutionNote;
@@ -477,14 +499,25 @@ export async function readContractDetail(
     if (contract.kalshiPlayerName) {
       detail.kalshiPlayerName = contract.kalshiPlayerName;
     }
+    // The acted-on decision: the head of the supersession chain.
     const decision = await prisma.decision.findFirst({
-      where: { contractId: contract.id },
+      where: { contractId: contract.id, supersededBy: { is: null } },
       orderBy: { decidedAt: "desc" },
-      select: { disposition: true, decidedAt: true },
+      select: { disposition: true, decidedAt: true, snapshotSide: true },
     });
     if (decision) {
       detail.currentDisposition = decision.disposition;
       detail.decidedAt = decision.decidedAt.toISOString();
+      if (detail.outcomeBlock) {
+        detail.outcomeBlock.decision = {
+          disposition: decision.disposition,
+          outcome: decisionOutcome(
+            decision.disposition,
+            decision.snapshotSide,
+            detail.outcomeBlock.settlement?.result ?? null,
+          ),
+        };
+      }
     }
   }
 

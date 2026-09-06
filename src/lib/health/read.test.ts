@@ -8,11 +8,13 @@ import { productionFiles, readCode } from "@/lib/testing/source";
  */
 jest.mock("@/lib/prisma", () => ({
   prisma: {
+    $queryRaw: jest.fn(),
     game: { findMany: jest.fn() },
     pipelineRun: { findFirst: jest.fn() },
     marketSyncRun: { findFirst: jest.fn() },
     ingestRun: { findMany: jest.fn() },
     pipelineRunGame: { findMany: jest.fn() },
+    contract: { count: jest.fn() },
   },
 }));
 
@@ -20,11 +22,13 @@ import { prisma } from "@/lib/prisma";
 import { readHealth } from "./read";
 
 const mockPrisma = prisma as unknown as {
+  $queryRaw: jest.Mock;
   game: { findMany: jest.Mock };
   pipelineRun: { findFirst: jest.Mock };
   marketSyncRun: { findFirst: jest.Mock };
   ingestRun: { findMany: jest.Mock };
   pipelineRunGame: { findMany: jest.Mock };
+  contract: { count: jest.Mock };
 };
 
 function emptyDb() {
@@ -33,6 +37,40 @@ function emptyDb() {
   mockPrisma.marketSyncRun.findFirst.mockResolvedValue(null);
   mockPrisma.ingestRun.findMany.mockResolvedValue([]);
   mockPrisma.pipelineRunGame.findMany.mockResolvedValue([]);
+  // No settlement candidates and no grading work: the post-pipeline jobs are
+  // dormant unless a test says otherwise.
+  mockPrisma.contract.count.mockResolvedValue(0);
+  mockPrisma.$queryRaw.mockResolvedValue([
+    { awaiting_games: 0, pending_units: 0 },
+  ]);
+}
+
+/** Routes `pipelineRun.findFirst` per category/status, defaulting to null. */
+function routePipelineRuns(
+  rows: Record<
+    string,
+    { attempt?: Record<string, unknown>; success?: Record<string, unknown> }
+  >,
+) {
+  mockPrisma.pipelineRun.findFirst.mockImplementation(
+    ({ where }: { where: { category: string; status?: string } }) => {
+      const entry = rows[where.category];
+      if (!entry) return Promise.resolve(null);
+      return Promise.resolve(
+        (where.status === "succeeded" ? entry.success : entry.attempt) ?? null,
+      );
+    },
+  );
+}
+
+function run(status: string, finishedHoursAgo: number) {
+  const finishedAt = new Date(Date.now() - finishedHoursAgo * 60 * 60_000);
+  return {
+    id: `${status}-${finishedHoursAgo}`,
+    status,
+    startedAt: new Date(finishedAt.getTime() - 5 * 60_000),
+    finishedAt,
+  };
 }
 
 describe("health read", () => {
@@ -40,21 +78,25 @@ describe("health read", () => {
     emptyDb();
   });
 
-  it("reports the three signals in fixed order", async () => {
+  it("reports the five signals in fixed order", async () => {
     const { signals } = await readHealth();
     expect(signals.map((s) => s.key)).toEqual([
       "ingest",
       "recompute",
       "price_refresh",
+      "outcome_ingest",
+      "grading",
     ]);
     expect(signals.map((s) => s.label)).toEqual([
       "Ingest",
       "Projection recomputation",
       "Price refresh",
+      "Outcome ingest",
+      "Grading",
     ]);
   });
 
-  it("derives not_expected for every signal when the schedule holds no upcoming game", async () => {
+  it("derives not_expected for every signal when schedule and backlog are both empty", async () => {
     const { signals, offseason } = await readHealth();
     for (const signal of signals) {
       expect(signal.state).toBe("not_expected");
@@ -84,9 +126,14 @@ describe("health read", () => {
     ]);
     const { signals, offseason } = await readHealth();
     expect(offseason).toBeNull();
-    // Expected but nothing recorded yet: the honest state is never_run.
-    for (const signal of signals) {
+    // Expected but nothing recorded yet: the honest state is never_run for
+    // the schedule-driven signals. The post-game jobs are work-driven, and an
+    // upcoming kickoff is not pending settlement or grading work.
+    for (const signal of signals.slice(0, 3)) {
       expect(signal.state).toBe("never_run");
+    }
+    for (const signal of signals.slice(3)) {
+      expect(signal.state).toBe("not_expected");
     }
   });
 
@@ -121,6 +168,123 @@ describe("health read", () => {
     expect(ingest.state).toBe("failed");
     expect(ingest.lastSuccessAt).not.toBeNull();
     expect(ingest.lastAttemptOutcome).toBe("failed");
+  });
+});
+
+describe("outcome ingest signal — expectedness is the job's own selection", () => {
+  beforeEach(() => {
+    emptyDb();
+  });
+
+  it("is judged against its bound while settlement candidates exist", async () => {
+    mockPrisma.contract.count.mockResolvedValue(4);
+    routePipelineRuns({
+      outcome_ingest: {
+        attempt: run("succeeded", 4),
+        success: run("succeeded", 4),
+      },
+    });
+    const { signals } = await readHealth();
+    const outcome = signals.find((s) => s.key === "outcome_ingest")!;
+    // Hourly cadence, 3h bound: a 4h-old success with work pending is late.
+    expect(outcome.state).toBe("late");
+    expect(outcome.expectedWithin).toBe("3h of the last success");
+  });
+
+  it("reads ok with a fresh success while work is pending", async () => {
+    mockPrisma.contract.count.mockResolvedValue(4);
+    routePipelineRuns({
+      outcome_ingest: {
+        attempt: run("succeeded", 1),
+        success: run("succeeded", 1),
+      },
+    });
+    const { signals } = await readHealth();
+    expect(signals.find((s) => s.key === "outcome_ingest")!.state).toBe("ok");
+  });
+
+  it("goes dormant — never late — on a settled-out day with no candidates", async () => {
+    // The job records no run row for an empty selection (SIG-51), so an old
+    // success with nothing to check is dormancy, not lateness.
+    mockPrisma.contract.count.mockResolvedValue(0);
+    routePipelineRuns({
+      outcome_ingest: {
+        attempt: run("succeeded", 90),
+        success: run("succeeded", 90),
+      },
+    });
+    const { signals } = await readHealth();
+    const outcome = signals.find((s) => s.key === "outcome_ingest")!;
+    expect(outcome.state).toBe("not_expected");
+    expect(outcome.expectedWithin).toBeNull();
+    // The old success still displays — dormant hides nothing.
+    expect(outcome.lastSuccessAt).not.toBeNull();
+  });
+});
+
+describe("grading signal — expectedness is pending work, and the count is disclosed", () => {
+  beforeEach(() => {
+    emptyDb();
+  });
+
+  it("reads late with the awaiting count when work is pending past the nightly bound", async () => {
+    mockPrisma.$queryRaw.mockResolvedValue([
+      { awaiting_games: 3, pending_units: 41 },
+    ]);
+    routePipelineRuns({
+      grading: { attempt: run("succeeded", 27), success: run("succeeded", 27) },
+    });
+    const { signals } = await readHealth();
+    const grading = signals.find((s) => s.key === "grading")!;
+    expect(grading.state).toBe("late");
+    expect(grading.expectedWithin).toBe("26h of the last success");
+    expect(grading.awaitingGrades).toBe(3);
+  });
+
+  it("stays visible as failed on a regrade-only backlog with zero awaiting games", async () => {
+    // A stat correction leaves every game graded (no absent rows) yet the job
+    // still has work; a failed cycle over that work must not hide behind a
+    // zero awaiting count.
+    mockPrisma.$queryRaw.mockResolvedValue([
+      { awaiting_games: 0, pending_units: 7 },
+    ]);
+    routePipelineRuns({
+      grading: { attempt: run("failed", 2), success: run("succeeded", 20) },
+    });
+    const { signals } = await readHealth();
+    const grading = signals.find((s) => s.key === "grading")!;
+    expect(grading.state).toBe("failed");
+    expect(grading.awaitingGrades).toBe(0);
+  });
+
+  it("goes dormant when everything is graded, regardless of success age", async () => {
+    mockPrisma.$queryRaw.mockResolvedValue([
+      { awaiting_games: 0, pending_units: 0 },
+    ]);
+    routePipelineRuns({
+      grading: {
+        attempt: run("succeeded", 200),
+        success: run("succeeded", 200),
+      },
+    });
+    const { signals } = await readHealth();
+    const grading = signals.find((s) => s.key === "grading")!;
+    expect(grading.state).toBe("not_expected");
+    expect(grading.awaitingGrades).toBe(0);
+  });
+
+  it("carries the awaiting count on the grading signal and nowhere else", async () => {
+    mockPrisma.$queryRaw.mockResolvedValue([
+      { awaiting_games: 2, pending_units: 9 },
+    ]);
+    const { signals } = await readHealth();
+    for (const signal of signals) {
+      if (signal.key === "grading") {
+        expect(signal.awaitingGrades).toBe(2);
+      } else {
+        expect(signal).not.toHaveProperty("awaitingGrades");
+      }
+    }
   });
 });
 

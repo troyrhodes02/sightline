@@ -28,7 +28,10 @@ _RESET_TABLES = (
     "contracts, market_sync_runs, price_observations, "
     "projections, projection_drivers, recommendation_snapshots, decisions, "
     # Pitch 5 (SIG-46): pipeline run recording.
-    "pipeline_runs, pipeline_run_games"
+    "pipeline_runs, pipeline_run_games, "
+    # Outcome Scoring (SIG-52): grade tables. The settlement table is cleared
+    # by the contracts cascade and is never named in Python package code.
+    "projection_grades, threshold_grades"
 )
 
 

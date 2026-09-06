@@ -22,6 +22,25 @@ export const INGEST_LATE_AFTER_HOURS = 26;
  */
 export const RECOMPUTE_LATE_AFTER_HOURS = 26;
 
+/**
+ * Outcome ingest is `late` past this many hours since its last success while
+ * settlement work is pending. The job runs hourly in season; three cadences of
+ * quiet is the tolerant multiple that absorbs GitHub Actions' documented
+ * scheduling slop (no SLA, 5–30 minute delays are ordinary) without letting a
+ * genuinely stuck hourly job hide for a day.
+ */
+export const OUTCOME_INGEST_LATE_AFTER_HOURS = 3;
+
+/**
+ * Grading is `late` past this many hours since its last success while eligible
+ * ungraded work is pending. Nightly cadence + 2h scheduler allowance — the
+ * same bound as ingest, because both are once-a-night jobs judged the same
+ * way. The accuracy surface's freshness disclosure imports this constant so
+ * the shared "results may trail recent games" line and the admin health signal
+ * can never disagree about what "delayed" means.
+ */
+export const GRADING_LATE_AFTER_HOURS = 26;
+
 /** Price refresh cadence during the game week, outside any kickoff window. */
 export const PRICE_IN_WEEK_CADENCE_MINUTES = 60;
 

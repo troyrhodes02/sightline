@@ -122,3 +122,32 @@ export async function listOpenMarkets(
 
   return markets;
 }
+
+/** Tickers per settlement request — keeps the query string bounded. */
+const TICKERS_PER_REQUEST = 100;
+
+/**
+ * Reads specific markets by ticker — the settlement read for outcome ingest.
+ *
+ * Still market data only: the response carries the settlement `result`
+ * alongside the fields the listing read returns, and nothing here signs
+ * anything but a GET. Tickers Kalshi does not return are simply absent from
+ * the result — the caller treats absence as "could not report yet", never as
+ * a settlement.
+ */
+export async function getMarketsByTickers(
+  tickers: ReadonlyArray<string>,
+): Promise<KalshiMarket[]> {
+  const markets: KalshiMarket[] = [];
+
+  for (let i = 0; i < tickers.length; i += TICKERS_PER_REQUEST) {
+    const batch = tickers.slice(i, i + TICKERS_PER_REQUEST);
+    const data = await getJson<KalshiMarketsPage>("/markets", {
+      tickers: batch.join(","),
+      limit: String(TICKERS_PER_REQUEST),
+    });
+    markets.push(...(data.markets ?? []));
+  }
+
+  return markets;
+}

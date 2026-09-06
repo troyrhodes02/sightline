@@ -10,12 +10,15 @@ export type Section = {
  * The single source for navigation, feeding both the desktop tabs and the
  * mobile drawer — so the two can never disagree about what exists.
  *
- * **Only routes that exist appear here.** Accuracy, Backtests, and Decisions
- * are added by the pitches that build them; a nav item leading to a page that
- * explains itself is still a nav item implying a feature.
+ * **Only routes that exist appear here.** Backtests and Decisions are added
+ * by the pitches that build them; a nav item leading to a page that explains
+ * itself is still a nav item implying a feature. Accuracy is shared: model
+ * calibration is visible to viewers, while the overrides layer beneath it
+ * stays admin-only at the route, not in the nav.
  */
 export const SECTIONS: Section[] = [
   { label: "Slate", href: "/slate", adminOnly: false },
+  { label: "Accuracy", href: "/accuracy", adminOnly: false },
   { label: "Health", href: "/health", adminOnly: true },
   { label: "Users", href: "/users", adminOnly: true },
   { label: "Settings", href: "/settings", adminOnly: false, drawerOnly: true },

@@ -30,6 +30,8 @@ from ._version import code_version
 CATEGORY_INGEST = "ingest"
 CATEGORY_RECOMPUTE = "recompute"
 CATEGORY_KEEPALIVE = "keepalive"
+# outcome_ingest is written by the TS settlement route, never from Python.
+CATEGORY_GRADING = "grading"
 
 # PipelineRunStatus enum values.
 RUN_RUNNING = "running"

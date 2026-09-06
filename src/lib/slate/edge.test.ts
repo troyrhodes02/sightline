@@ -190,6 +190,22 @@ describe("slate read structure", () => {
     expect(firstQuery).toBeGreaterThan(firstGate);
   });
 
+  it("keeps the shared outcome block structurally decision-free", () => {
+    // The outcome block is viewer-reachable; its module must never query the
+    // private layer. The admin-only decision line is attached by read.ts
+    // INSIDE its existing admin gate, after the shared block is built.
+    const blockSource = readCode(
+      join(process.cwd(), "src", "lib", "slate", "outcome-block.ts"),
+    );
+    expect(blockSource).not.toMatch(
+      /prisma\s*\.\s*decision|tx\s*\.\s*decision/,
+    );
+
+    const lastAdminGate = readSource.lastIndexOf('if (role === "admin")');
+    const decisionKey = readSource.indexOf("outcomeBlock.decision");
+    expect(decisionKey).toBeGreaterThan(lastAdminGate);
+  });
+
   it("stores no derived state back onto contracts or projections", () => {
     expect(readSource).not.toMatch(/contract\.update/);
     expect(readSource).not.toMatch(/projection\.update/);
