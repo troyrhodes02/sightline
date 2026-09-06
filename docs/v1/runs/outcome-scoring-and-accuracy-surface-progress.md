@@ -6,7 +6,7 @@ Mode: Autonomous Pipeline Policy (CLAUDE.md)
 
 ## Current step
 
-**Steps 1-13 complete — review run, audited, and both IMPLEMENT findings fixed (`f6e8ab5`). Step 14 (merge) next.** (SIG-51 done: PR #51; SIG-52 done: PR #52; SIG-53 done: PR #53; SIG-54 done: PR #54; SIG-55 done: PR #55 — full suite green on the closing ticket: lint, typecheck, format, jest 474, test:schema, prisma:validate, build, pytest 358, e2e 44 passed / 36 skipped locally without seeded-account creds — authenticated suites run in CI.)
+**Run complete.** All 15 steps done; merged to `main` as `4a89893`; SIG-51..55 Done; four follow-ups filed as SIG-56, SIG-57, SIG-58, SIG-59. See the run report for the full account. (SIG-51 done: PR #51; SIG-52 done: PR #52; SIG-53 done: PR #53; SIG-54 done: PR #54; SIG-55 done: PR #55 — full suite green on the closing ticket: lint, typecheck, format, jest 474, test:schema, prisma:validate, build, pytest 358, e2e 44 passed / 36 skipped locally without seeded-account creds — authenticated suites run in CI.)
 
 Key ground truth established (from planning-doc + codebase research):
 - Final pre-kickoff snapshot EXISTS and is wired: `RecommendationSnapshot.trigger = final_pre_kickoff`, captured by `src/lib/pipeline/final-snapshot.ts` via `/api/pipeline/price-refresh` on the 15-min cron, 45-min window, partial unique index one-per-contract. Postponed-game re-capture semantics deliberately deferred to this pitch.
@@ -33,8 +33,8 @@ Key ground truth established (from planning-doc + codebase research):
 - [x] 11. Full suite on feature branch: lint ✓ typecheck ✓ format ✓ prisma:validate ✓ jest 474/474 ✓ schema 20/20 ✓ build ✓ pytest 358/358 ✓ e2e local 44 passed/36 skipped (authenticated suites need CI creds) + CI green on 8150c2f including credentialed e2e
 - [x] 12. /review feature branch vs main — 6 findings, posted as inline comments on #50
 - [x] 13. /sightline-review-audit — 2 IMPLEMENT, 4 DEFER, 0 skip, 0 discuss (see Review audit below)
-- [ ] 14. Re-run suite; squash-merge feature branch into main if green
-- [ ] 15. Run report → `docs/v1/runs/outcome-scoring-and-accuracy-surface-report.md`
+- [x] 14. Re-run suite (all green) and squash-merged #50 into main as `4a89893`; SIG-51..55 moved to Done
+- [x] 15. Run report → `docs/v1/runs/outcome-scoring-and-accuracy-surface-report.md`
 
 ## Pre-resolved decisions (from the run instruction — treat as approved-doc authority)
 
