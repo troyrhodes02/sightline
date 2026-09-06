@@ -6,7 +6,7 @@ Mode: Autonomous Pipeline Policy (CLAUDE.md)
 
 ## Current step
 
-**Steps 1-11 complete — all five tickets implemented, merged to the feature branch, runbook written. Step 12 (review) in progress.** (SIG-51 done: PR #51; SIG-52 done: PR #52; SIG-53 done: PR #53; SIG-54 done: PR #54; SIG-55 done: PR #55 — full suite green on the closing ticket: lint, typecheck, format, jest 474, test:schema, prisma:validate, build, pytest 358, e2e 44 passed / 36 skipped locally without seeded-account creds — authenticated suites run in CI.)
+**Steps 1-13 complete — review run, audited, and both IMPLEMENT findings fixed (`f6e8ab5`). Step 14 (merge) next.** (SIG-51 done: PR #51; SIG-52 done: PR #52; SIG-53 done: PR #53; SIG-54 done: PR #54; SIG-55 done: PR #55 — full suite green on the closing ticket: lint, typecheck, format, jest 474, test:schema, prisma:validate, build, pytest 358, e2e 44 passed / 36 skipped locally without seeded-account creds — authenticated suites run in CI.)
 
 Key ground truth established (from planning-doc + codebase research):
 - Final pre-kickoff snapshot EXISTS and is wired: `RecommendationSnapshot.trigger = final_pre_kickoff`, captured by `src/lib/pipeline/final-snapshot.ts` via `/api/pipeline/price-refresh` on the 15-min cron, 45-min window, partial unique index one-per-contract. Postponed-game re-capture semantics deliberately deferred to this pitch.
@@ -31,8 +31,8 @@ Key ground truth established (from planning-doc + codebase research):
 - [x] 9. Runbook → `docs/v1/runbooks/outcome-scoring-and-grading.md` (commit c84fc20)
 - [x] 10. Squash-merged #51→#55 into feature branch in order (tip 8150c2f; stacked-PR conflicts resolved by taking ticket-branch supersets)
 - [x] 11. Full suite on feature branch: lint ✓ typecheck ✓ format ✓ prisma:validate ✓ jest 474/474 ✓ schema 20/20 ✓ build ✓ pytest 358/358 ✓ e2e local 44 passed/36 skipped (authenticated suites need CI creds) + CI green on 8150c2f including credentialed e2e
-- [ ] 12. /review feature branch vs main, findings as inline comments on feature PR
-- [ ] 13. /sightline-review-audit those comments; disposition each
+- [x] 12. /review feature branch vs main — 6 findings, posted as inline comments on #50
+- [x] 13. /sightline-review-audit — 2 IMPLEMENT, 4 DEFER, 0 skip, 0 discuss (see Review audit below)
 - [ ] 14. Re-run suite; squash-merge feature branch into main if green
 - [ ] 15. Run report → `docs/v1/runs/outcome-scoring-and-accuracy-surface-report.md`
 
@@ -156,6 +156,45 @@ Ticket branches: stacked — first off the feature branch, each subsequent off t
 | SIG-54 | wtrhodesdev/sig-54-overrides-surface-contract-detail-outcome-block | [#54](https://github.com/troyrhodes02/sightline/pull/54) |
 | SIG-55 | wtrhodesdev/sig-55-grading-health-signals-freshness-e2e-closure | [#55](https://github.com/troyrhodes02/sightline/pull/55) |
 
+## Review audit (steps 12-13)
+
+High-effort review of the feature branch vs `main`; six findings posted as
+inline comments on #50, each audited against its ticket's acceptance criteria.
+
+### Fixed before merge (commit `f6e8ab5`)
+
+1. **`src/lib/pipeline/outcome-ingest.ts` — unbounded re-selection.** The
+   awaiting-settlement branch had no lower time bound while both unavailable
+   paths deliberately write no `Outcome` row, so a contract Kalshi never
+   reports stayed a candidate forever. Defeated SIG-51's dormancy decision and
+   made SIG-55's `offseason` health state permanently unreachable. Fixed with
+   a `SETTLEMENT_ABANDON_AFTER_DAYS = 30` floor on both arms.
+2. **`python/src/sightline_ingest/grade_job.py` — regrades never deleted
+   superseded threshold rows.** A unit leaving `graded` kept stale
+   `threshold_grades` rows that continue feeding the live reliability curve and
+   Brier score. Fixed with a scoped delete inside the per-game transaction;
+   both new pytest cases verified to fail without it.
+
+### Deferred — follow-up tickets to file
+
+3. **Terminal grade statuses are never reselected** (`_ELIGIBLE_SQL`). Valid,
+   but SIG-52's acceptance criteria call `game_never_completed` terminal
+   explicitly, and `postponed` is its own `GameStatus`, so the ordinary
+   reschedule path is unaffected. Reversing it is a spec change.
+4. **`decisionCount` counts distinct contracts; the overrides table dedupes per
+   (contract, user).** Valid but latent: SIG-53's Resolved Decision defines the
+   field as a doorway count, and divergence needs a second decision-writing
+   account, which the roadmap defers.
+5. **React key collision in `Overrides.tsx`** (`key={row.contractId}` on
+   per-(contract, user) rows, lines 419 and 458). Same latent condition as 4;
+   needs a DTO change to carry the user id. File with 4.
+6. **Five files committed with CRLF.** Three were already CRLF on `main`; this
+   pitch flipped exactly one, `python/tests/test_import_graph.py` — reviewed
+   under `--ignore-cr-at-eol` and its content verified sound. The durable fix
+   is a repo-wide `.gitattributes` plus renormalisation; `.prettierignore`
+   exempts `python/`, `prisma/` and `docs/`, so Prettier structurally cannot
+   catch it.
+
 ## Out-of-band fixes on the feature branch
 
 ### Prisma 7 config datasource (commit: see `prisma.config.ts`)
@@ -191,5 +230,15 @@ is out of its scope. Logged for a follow-up ticket.
 
 ## Deferred
 
+Four follow-up tickets to file (three from the review audit, one from the
+suite run):
+
+- Follow-up ticket: regrade units stranded in terminal grade statuses
+  (`game_never_completed`, `unsupported_stat_type`); `readGradingWork` mirrors
+  the same predicate, so they are invisible in the awaiting-grades count too.
+- Follow-up ticket: correct per-(contract, user) identity on the overrides
+  surface — `decisionCount` and the React keys both assume one decision-writer.
+- Follow-up ticket: add `.gitattributes` (`* text=auto eol=lf`) and renormalise
+  line endings repo-wide.
 - Follow-up ticket: make `verifyPipelineToken`'s unset-token test independent of
   the developer's `.env` (see above). Not this pitch's scope.
