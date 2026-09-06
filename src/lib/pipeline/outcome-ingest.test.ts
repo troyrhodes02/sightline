@@ -28,6 +28,9 @@ import {
 } from "@/lib/kalshi/client";
 import { Prisma } from "../../../generated/prisma/client";
 import {
+  SETTLEMENT_ABANDON_AFTER_DAYS,
+  SETTLEMENT_CHANGE_WINDOW_DAYS,
+  candidateContractWhere,
   mapKalshiResult,
   outcomeIngestInputSchema,
   runOutcomeIngest,
@@ -275,6 +278,44 @@ describe("runOutcomeIngest", () => {
   });
 });
 
+describe("candidateContractWhere", () => {
+  const orBranches = (where: Prisma.ContractWhereInput) =>
+    (where.OR ?? []) as Prisma.ContractWhereInput[];
+  const andBranches = (where: Prisma.ContractWhereInput) =>
+    (where.AND ?? []) as Prisma.ContractWhereInput[];
+
+  it("floors the awaiting-settlement arm so an unreportable contract stops being a candidate", () => {
+    // Kalshi stops serving delisted tickers, and an unmappable result counts
+    // `unavailable` without writing a row — both leave `outcome` null for
+    // good. Unbounded, those contracts accumulate and are re-asked hourly
+    // forever: the selection can never go empty, so the cycle never goes
+    // dormant, a Kalshi call happens every hour through the offseason, and
+    // health's `offseason` state — which needs every signal `not_expected` —
+    // can never render again.
+    const abandonStart = new Date(
+      NOW.getTime() - SETTLEMENT_ABANDON_AFTER_DAYS * 24 * 60 * 60 * 1000,
+    );
+    const awaiting = orBranches(candidateContractWhere(NOW))[0];
+    const arms = orBranches(andBranches(awaiting)[1]);
+
+    expect(andBranches(awaiting)[0]).toEqual({ outcome: null });
+    expect(arms).toHaveLength(2);
+    expect(arms[0].game).toEqual({
+      is: { status: "completed", kickoffAt: { gt: abandonStart } },
+    });
+    expect(arms[1].closeTime).toEqual({ lt: NOW, gt: abandonStart });
+  });
+
+  it("keeps the change window narrower than the abandonment floor", () => {
+    // A settled contract is re-checked for 7 days; an unsettled one is chased
+    // for 30. Inverting these would abandon contracts still inside their own
+    // change window.
+    expect(SETTLEMENT_ABANDON_AFTER_DAYS).toBeGreaterThan(
+      SETTLEMENT_CHANGE_WINDOW_DAYS,
+    );
+  });
+});
+
 describe("outcome-ingest structure", () => {
   const code = readCode(
     join(process.cwd(), "src", "lib", "pipeline", "outcome-ingest.ts"),
@@ -293,5 +334,10 @@ describe("outcome-ingest structure", () => {
   it("measures the change window from stored state, never the calendar", () => {
     expect(code).toContain("SETTLEMENT_CHANGE_WINDOW_DAYS");
     expect(code).toContain("kickoffAt");
+  });
+
+  it("bounds the awaiting-settlement selection from below", () => {
+    expect(code).toContain("SETTLEMENT_ABANDON_AFTER_DAYS");
+    expect(code).toContain("abandonStart");
   });
 });

@@ -487,6 +487,83 @@ def test_correction_regrades_only_the_affected_game(connect, clean_db) -> None:
 
 
 @pytest.mark.db
+def test_correction_to_null_deletes_superseded_threshold_rows(
+    connect, clean_db
+) -> None:
+    """A unit leaving ``graded`` must lose the thresholds it no longer claims.
+
+    Threshold observations feed the live reliability curve and Brier score, so
+    a row left behind carrying its old ``outcome`` and old
+    ``graded_stat_version`` is a stale answer to the one question the accuracy
+    surface exists to answer. Overwriting the rows a regrade still claims is
+    not enough — the ones it stops claiming have to go.
+    """
+    _seed_base(connect)
+    _seed_g2(connect)
+    run_grade(connect, invocation_id="gh-grade-null-1", now=NOW)
+
+    assert _grade_for(connect, "proj-g1")["status"] == "graded"
+    assert _thresholds_for(connect, "proj-g1"), "precondition: thresholds exist"
+    g2_thresholds_before = _thresholds_for(connect, "proj-g2")
+
+    # The correction retracts the stat rather than restating it. A null column
+    # is absence, never zero — the same rule the feature layer follows — so the
+    # unit regrades to missing_official_result and has nothing to state a
+    # probability about.
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "update player_game_stats set receiving_yards = null, version = 2,"
+            " known_at = %s, updated_at = now() where id = %s",
+            (NOW + timedelta(days=1), _uid("stat-g1")),
+        )
+        conn.commit()
+
+    later = NOW + timedelta(days=1, hours=2)
+    assert (
+        run_grade(connect, invocation_id="gh-grade-null-2", now=later) == "succeeded"
+    )
+
+    grade = _grade_for(connect, "proj-g1")
+    assert grade["status"] == "missing_official_result"
+    assert grade["official_value"] is None
+    assert grade["graded_stat_version"] == 2
+    assert _thresholds_for(connect, "proj-g1") == [], (
+        "a regrade out of `graded` deletes the threshold rows it no longer "
+        "claims, rather than leaving stale observations in the live curve"
+    )
+
+    # Scoped to the regraded projection: an untouched unit keeps every row.
+    assert _thresholds_for(connect, "proj-g2") == g2_thresholds_before
+
+
+@pytest.mark.db
+def test_cancelled_regrade_deletes_threshold_rows(connect, clean_db) -> None:
+    """The same deletion path for the other way out of ``graded``."""
+    _seed_base(connect)
+    _seed_g2(connect)
+    run_grade(connect, invocation_id="gh-grade-cancel-1", now=NOW)
+    assert _thresholds_for(connect, "proj-g1"), "precondition: thresholds exist"
+
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "update games set status = 'cancelled', updated_at = now()"
+            " where id = %s",
+            (_uid("g1"),),
+        )
+        conn.commit()
+
+    later = NOW + timedelta(hours=2)
+    assert (
+        run_grade(connect, invocation_id="gh-grade-cancel-2", now=later)
+        == "succeeded"
+    )
+
+    grade = _grade_for(connect, "proj-g1")
+    assert grade["status"] == "game_never_completed"
+    assert _thresholds_for(connect, "proj-g1") == []
+
+
+@pytest.mark.db
 def test_missing_official_result_upgrades_when_the_line_arrives(
     connect, clean_db
 ) -> None:

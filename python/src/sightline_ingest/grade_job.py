@@ -188,6 +188,25 @@ _UPSERT_THRESHOLD_SQL = """
            is distinct from excluded.graded_stat_version
 """
 
+# A regrade must REMOVE the threshold rows its new intent no longer claims,
+# not merely overwrite the ones it still does. Every non-graded status
+# (`game_never_completed`, `unsupported_stat_type`, `missing_official_result`)
+# carries an empty threshold tuple, so a unit moving out of `graded` — a stat
+# correction nulling the stat column, a game reclassified cancelled — would
+# otherwise leave its old rows behind with a stale `outcome` and a stale
+# `graded_stat_version`, and those stale observations keep feeding the live
+# reliability curve and Brier score. The same gap orphans a threshold that
+# simply stops being generated: a policy-version change, or a market threshold
+# whose contract is no longer listed.
+#
+# An empty `keep` makes `id <> all('{}')` true for every row, so the
+# no-thresholds case needs no separate statement.
+_DELETE_SUPERSEDED_THRESHOLDS_SQL = """
+    delete from threshold_grades
+     where projection_id = %(projection_id)s
+       and id <> all(%(keep)s)
+"""
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
@@ -392,13 +411,14 @@ def _write_intent(cur, intent: GradeIntent, *, graded_at: datetime) -> None:
             "graded_at": graded_at,
         },
     )
+    keep: list[str] = []
     for row in intent.thresholds:
+        row_id = _threshold_row_id(intent.projection_id, row.source, row.threshold)
+        keep.append(row_id)
         cur.execute(
             _UPSERT_THRESHOLD_SQL,
             {
-                "id": _threshold_row_id(
-                    intent.projection_id, row.source, row.threshold
-                ),
+                "id": row_id,
                 "projection_id": intent.projection_id,
                 "contract_id": row.contract_id,
                 "threshold_source": row.source,
@@ -410,6 +430,13 @@ def _write_intent(cur, intent: GradeIntent, *, graded_at: datetime) -> None:
                 "graded_at": graded_at,
             },
         )
+
+    # Inside the caller's per-game transaction: a grade row and its thresholds
+    # commit as one, so a regrade is never visible half-applied.
+    cur.execute(
+        _DELETE_SUPERSEDED_THRESHOLDS_SQL,
+        {"projection_id": intent.projection_id, "keep": keep},
+    )
 
 
 def _eligible_units(connect: ConnectionFactory) -> list[dict]:

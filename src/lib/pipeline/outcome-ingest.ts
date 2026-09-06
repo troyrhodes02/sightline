@@ -53,6 +53,26 @@ export type PipelineOutcomeIngestResult = {
  */
 export const SETTLEMENT_CHANGE_WINDOW_DAYS = 7;
 
+/**
+ * How long a contract keeps being asked about before the cycle gives up.
+ *
+ * A settlement that has not arrived a month after the game is not coming.
+ * Kalshi stops serving delisted tickers, and a `result` outside the mapped
+ * vocabulary counts `unavailable` without writing a row (spec §11) — both
+ * leave `outcome` null forever. Without a floor the selection would re-ask
+ * about those same contracts every hour for the life of the database, an
+ * accumulating set that never shrinks.
+ *
+ * That is not merely wasted work. This cycle records no run row only when its
+ * selection is EMPTY, and the health surface derives `outcome_ingest`
+ * expectedness from this same selection — so a permanently non-empty
+ * selection means an hourly Kalshi call straight through the offseason, and an
+ * `offseason` health state that can never render again.
+ *
+ * The contracts are retained, never deleted; they simply stop being polled.
+ */
+export const SETTLEMENT_ABANDON_AFTER_DAYS = 30;
+
 /** One settlement request and one write transaction per page of contracts. */
 const CONTRACTS_PER_PAGE = 100;
 
@@ -98,6 +118,10 @@ type CandidateContract = {
  * settlement-change window — those that already have one, so a changed
  * settlement is caught rather than frozen at first ingest.
  *
+ * Both arms are floored at `SETTLEMENT_ABANDON_AFTER_DAYS`, without which a
+ * contract Kalshi never reports would stay a candidate forever and the
+ * selection could never go empty again.
+ *
  * Exported for the health surface, whose `outcome_ingest` expectedness must
  * mirror this exact selection: the cycle records no run row when it is empty,
  * so a signal judged by any other calendar would read `late` on every quiet
@@ -107,18 +131,28 @@ export function candidateContractWhere(now: Date): Prisma.ContractWhereInput {
   const windowStart = new Date(
     now.getTime() - SETTLEMENT_CHANGE_WINDOW_DAYS * 24 * 60 * 60 * 1000,
   );
+  const abandonStart = new Date(
+    now.getTime() - SETTLEMENT_ABANDON_AFTER_DAYS * 24 * 60 * 60 * 1000,
+  );
 
   return {
     OR: [
-      // Awaiting a first settlement. No resolution filter: settlement is
-      // retained for unresolved and never-projected contracts alike.
+      // Awaiting a first settlement, and recent enough that one may still
+      // arrive. No resolution filter: settlement is retained for unresolved
+      // and never-projected contracts alike. Both arms carry the abandonment
+      // floor, so a contract Kalshi will never report stops being a candidate
+      // instead of being re-asked hourly forever.
       {
         AND: [
           { outcome: null },
           {
             OR: [
-              { game: { is: { status: "completed" } } },
-              { closeTime: { lt: now } },
+              {
+                game: {
+                  is: { status: "completed", kickoffAt: { gt: abandonStart } },
+                },
+              },
+              { closeTime: { lt: now, gt: abandonStart } },
             ],
           },
         ],
