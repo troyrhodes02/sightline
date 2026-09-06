@@ -6,7 +6,7 @@ Mode: Autonomous Pipeline Policy (CLAUDE.md)
 
 ## Current step
 
-**Step 8 complete — all five tickets done; step 9 runbook next.** (SIG-51 done: PR #51; SIG-52 done: PR #52; SIG-53 done: PR #53; SIG-54 done: PR #54; SIG-55 done: PR #55 — full suite green on the closing ticket: lint, typecheck, format, jest 474, test:schema, prisma:validate, build, pytest 358, e2e 44 passed / 36 skipped locally without seeded-account creds — authenticated suites run in CI.)
+**Steps 1-11 complete — all five tickets implemented, merged to the feature branch, runbook written. Step 12 (review) in progress.** (SIG-51 done: PR #51; SIG-52 done: PR #52; SIG-53 done: PR #53; SIG-54 done: PR #54; SIG-55 done: PR #55 — full suite green on the closing ticket: lint, typecheck, format, jest 474, test:schema, prisma:validate, build, pytest 358, e2e 44 passed / 36 skipped locally without seeded-account creds — authenticated suites run in CI.)
 
 Key ground truth established (from planning-doc + codebase research):
 - Final pre-kickoff snapshot EXISTS and is wired: `RecommendationSnapshot.trigger = final_pre_kickoff`, captured by `src/lib/pipeline/final-snapshot.ts` via `/api/pipeline/price-refresh` on the 15-min cron, 45-min window, partial unique index one-per-contract. Postponed-game re-capture semantics deliberately deferred to this pitch.
@@ -27,10 +27,10 @@ Key ground truth established (from planning-doc + codebase research):
 - [x] 5. Resolve remaining open questions as Resolved Decisions (all 18: 1–11 pre-resolved by instruction, 12–18 in design doc; spec restates; three inherited postures noted non-blocking in spec §16)
 - [x] 6. Milestone + Linear issues, chained blockedBy, IDs captured here
 - [x] 7. Feature PR into main (#50)
-- [x] 8. Work every ticket in order (branch chain), PR each
-- [ ] 9. Runbook
-- [ ] 10. Squash-merge ticket PRs into feature branch in order
-- [ ] 11. Full verification suite on feature branch
+- [x] 8. Work every ticket in order (branch chain), PR each — SIG-51 #51, SIG-52 #52, SIG-53 #53, SIG-54 #54, SIG-55 #55
+- [x] 9. Runbook → `docs/v1/runbooks/outcome-scoring-and-grading.md` (commit c84fc20)
+- [x] 10. Squash-merged #51→#55 into feature branch in order (tip 8150c2f; stacked-PR conflicts resolved by taking ticket-branch supersets)
+- [x] 11. Full suite on feature branch: lint ✓ typecheck ✓ format ✓ prisma:validate ✓ jest 474/474 ✓ schema 20/20 ✓ build ✓ pytest 358/358 ✓ e2e local 44 passed/36 skipped (authenticated suites need CI creds) + CI green on 8150c2f including credentialed e2e
 - [ ] 12. /review feature branch vs main, findings as inline comments on feature PR
 - [ ] 13. /sightline-review-audit those comments; disposition each
 - [ ] 14. Re-run suite; squash-merge feature branch into main if green
@@ -156,6 +156,40 @@ Ticket branches: stacked — first off the feature branch, each subsequent off t
 | SIG-54 | wtrhodesdev/sig-54-overrides-surface-contract-detail-outcome-block | [#54](https://github.com/troyrhodes02/sightline/pull/54) |
 | SIG-55 | wtrhodesdev/sig-55-grading-health-signals-freshness-e2e-closure | [#55](https://github.com/troyrhodes02/sightline/pull/55) |
 
+## Out-of-band fixes on the feature branch
+
+### Prisma 7 config datasource (commit: see `prisma.config.ts`)
+
+Not a ticket deliverable — found while running the suite at step 12 and fixed on
+the feature branch because it silently breaks every migration on this repo.
+
+Prisma 7's `defineConfig` datasource block accepts `url` and `shadowDatabaseUrl`
+only. `directUrl` was Prisma 6's *schema*-level field and is not recognised here;
+an unknown key is dropped without warning. The previous config therefore pointed
+Migrate's `url` at the transaction pooler, where Migrate's session-scoped
+advisory lock can never resolve — `prisma migrate` hangs indefinitely with no
+error message. The datasource in `prisma.config.ts` is consumed by the CLI only;
+the application client builds its own pooled connection from `DATABASE_URL` in
+`src/lib/prisma.ts`, so pointing this at `DIRECT_URL` restores the documented
+split (CLI direct, app pooled) rather than changing it.
+
+`tsconfig.json` gains `prisma.config.ts` in `include` so the file is typechecked
+at all — it was outside the project graph, which is why the wrong key never
+surfaced as a type error.
+
+## Known environment-dependent test (pre-existing, not this pitch)
+
+`src/lib/pipeline/auth.test.ts` → "reports an unset server token as unconfigured,
+not unauthorized" fails on any machine whose `.env` sets
+`PIPELINE_SCHEDULER_TOKEN`. `verifyPipelineToken`'s second parameter defaults to
+`serverEnv().PIPELINE_SCHEDULER_TOKEN`, and JS applies a default parameter when
+the argument is explicitly `undefined` — so the test's `undefined` reads the
+developer's real env instead of exercising the unset case. Verified green with
+the key absent (5/5), and both `auth.ts` and `auth.test.ts` are byte-identical to
+`origin/main` (`git diff origin/main...HEAD` empty) — this predates the pitch and
+is out of its scope. Logged for a follow-up ticket.
+
 ## Deferred
 
-(none yet)
+- Follow-up ticket: make `verifyPipelineToken`'s unset-token test independent of
+  the developer's `.env` (see above). Not this pitch's scope.
