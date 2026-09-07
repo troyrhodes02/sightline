@@ -634,7 +634,8 @@ describe("duplicate prevention", () => {
     expect(c.verdict).toBe("refused");
     expect(c.filledContracts).toBe(0);
     expect(c.intendedContracts).toBe(0);
-    expect(c.boundByDetail).toContain("better side is now yes");
+    expect(c.boundBy).toBe("opposite_side_held");
+    expect(c.boundByDetail).toContain("no");
     expect(plan.stakedCents).toBe(0);
   });
 

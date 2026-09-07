@@ -240,7 +240,7 @@ Linear note: this team has no "In Review" state — the convention is **In Progr
 
 ## Resolved Decisions — where they live
 
-The authoritative table is **spec §21**, forty rows.
+The authoritative table is **spec §21**, forty-one rows (the forty-first, `opposite_side_held`, was added during the review audit).
 
 - **1–12** — from the run instruction, treated as approved-doc authority. Restated verbatim above.
 - **13–25** — settled in the design doc §20 (route namespace, readiness copy, review periods, confidence reuse, money colour, shared candidate card, `bound by:` as a closed required set, Force Override as a route, drawdown unavailability, permanent override records, Health neutrality for `disabled`, shared surfaces untouched, no reset control).

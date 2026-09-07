@@ -14,7 +14,7 @@ CREATE TYPE "PaperCycleOutcome" AS ENUM ('ok', 'partial_fill', 'no_candidate', '
 CREATE TYPE "CandidateVerdict" AS ENUM ('filled', 'partial', 'no_stake', 'refused', 'blocked');
 
 -- CreateEnum
-CREATE TYPE "BindingConstraint" AS ENUM ('none', 'top_of_book_size', 'per_game_cap', 'per_slate_cap', 'available_bankroll', 'probability_ceiling', 'no_edge_after_fees', 'stale_projection', 'price_unavailable', 'pre_kickoff_cutoff', 'breaker', 'no_active_recalibration');
+CREATE TYPE "BindingConstraint" AS ENUM ('none', 'top_of_book_size', 'per_game_cap', 'per_slate_cap', 'available_bankroll', 'probability_ceiling', 'no_edge_after_fees', 'stale_projection', 'price_unavailable', 'pre_kickoff_cutoff', 'breaker', 'no_active_recalibration', 'opposite_side_held');
 
 -- CreateEnum
 CREATE TYPE "PaperPositionStatus" AS ENUM ('open', 'settled_won', 'settled_lost', 'voided');

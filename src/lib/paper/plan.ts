@@ -611,8 +611,8 @@ function priceCandidate(
   const openPosition = input.heldByContractId[candidate.contractId];
   if (openPosition !== undefined && openPosition.side !== best.side) {
     planned.verdict = "refused";
-    planned.boundBy = "none";
-    planned.boundByDetail = `holds ${openPosition.contracts} ${openPosition.side}; better side is now ${best.side}`;
+    planned.boundBy = "opposite_side_held";
+    planned.boundByDetail = `holds ${openPosition.contracts} ${openPosition.side}`;
     return planned;
   }
 

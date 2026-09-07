@@ -164,6 +164,7 @@ enum BindingConstraint {
   pre_kickoff_cutoff
   breaker
   no_active_recalibration
+  opposite_side_held
 }
 
 enum PaperPositionStatus {
@@ -183,7 +184,7 @@ enum PaperLedgerEntryKind {
 }
 ```
 
-`BindingConstraint` gains `no_active_recalibration` beyond the design doc's eleven values. The design doc enumerated the constraints a *priced* candidate can hit; a campaign with no fitted recalibration cannot size anything at all, and that refusal needs its own name rather than borrowing another's.
+`BindingConstraint` gains two values beyond the design doc's eleven. The design doc enumerated the constraints a *priced* candidate can hit; both additions are refusals that happen outside that frame and need their own name rather than borrowing another's. `no_active_recalibration` — a campaign with no fitted recalibration cannot size anything at all. `opposite_side_held` — the candidate is priceable and has an edge, but the position already open on that contract is on the other side (see decision 41).
 
 ### Autonomy status transitions
 
@@ -1842,6 +1843,7 @@ Decisions 1–12 come from the run instruction and carry approved-doc authority;
 | 38 | A campaign with no active recalibration refuses to size, with `boundBy = no_active_recalibration` | Sizing from a raw probability is a No-Go; refusing is the only other option |
 | 39 | Mark-to-market unavailable causes the cycle to create nothing (`failed`, `mark_to_market_unavailable`) | Refusing to stake while a safety check cannot run is the conservative direction |
 | 40 | New Kalshi client method `getOrderbookTop` — a public market-data GET; the write-endpoint invariant is unchanged | The pitch requires executable liquidity information "without creating a second market client" |
+| 41 | A candidate whose better side has flipped away from the open position is **refused**, with `boundBy = opposite_side_held` | A paper position holds one side, so an increment on the other side is not an increment. The only alternatives are closing the existing side to open the new one — the bot trading out of a position on its own initiative, which this pitch does not scope — or letting the executor's guard throw, which aborts the whole cycle run. Refusing leaves the existing position to settle and records why. *(Added during the review audit; see the run report.)* |
 
 ## 22. Open questions
 

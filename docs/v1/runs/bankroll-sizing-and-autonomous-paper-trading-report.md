@@ -57,7 +57,7 @@ All six **complete**, each squash-merged into the feature branch in order.
 
 ### Scale
 
-93 files, ~23,500 insertions. 14 new tables, 8 new enums, 9 new admin surfaces, 9 new routes, 1 new workflow.
+96 files, 24,639 insertions against 9 deletions. 14 new tables, 8 new enums, 9 new admin surfaces, 9 new routes, 1 new workflow.
 
 ---
 

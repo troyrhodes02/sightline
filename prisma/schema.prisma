@@ -1157,6 +1157,7 @@ enum BindingConstraint {
   pre_kickoff_cutoff
   breaker
   no_active_recalibration
+  opposite_side_held
 }
 
 enum PaperPositionStatus {

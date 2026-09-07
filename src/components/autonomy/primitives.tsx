@@ -225,6 +225,7 @@ const BOUND_BY_COPY: Record<BindingConstraint, string> = {
   pre_kickoff_cutoff: "10-minute cutoff",
   breaker: "breaker",
   no_active_recalibration: "no active recalibration",
+  opposite_side_held: "opposite side held",
 };
 
 /**
