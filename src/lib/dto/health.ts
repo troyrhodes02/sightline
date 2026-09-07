@@ -32,7 +32,14 @@ export type HealthGameDetailDto = {
 };
 
 export type HealthSignalDto = {
-  key: "ingest" | "recompute" | "price_refresh" | "outcome_ingest" | "grading";
+  key:
+    | "ingest"
+    | "recompute"
+    | "price_refresh"
+    | "outcome_ingest"
+    | "grading"
+    | "paper_cycle"
+    | "paper_settlement";
   label: string;
   state: HealthSignalState;
   /** Absolute ET display string. Null when no successful run exists. */
@@ -54,6 +61,17 @@ export type HealthSignalDto = {
    * surface's existing gate; the shared accuracy payload never carries it.
    */
   awaitingGrades?: number;
+  /**
+   * Autonomy only: the derived campaign state, shown beside the cycle signal.
+   *
+   * `disabled` renders NEUTRAL, not amber. Health reports failures, and
+   * choosing not to run the bot is a decision rather than a fault — an amber
+   * "disabled" would train the operator to ignore the colour.
+   */
+  autonomyState?: {
+    status: "disabled" | "active" | "halted" | "killed";
+    activeBreaches: number;
+  };
 };
 
 export type HealthKeepaliveDto = {

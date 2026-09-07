@@ -98,6 +98,16 @@ describe("authorization", () => {
       join(SRC, "app", "(app)", "health", "page.tsx"),
       join(SRC, "app", "(app)", "users", "page.tsx"),
       join(SRC, "app", "api", "users", "[id]", "decision", "route.ts"),
+      // Autonomy (SIG-64). Every surface in this section is private: a viewer
+      // must not be able to infer that a bankroll, a position, or a bot
+      // exists. The nav hides them, but the nav is a courtesy — these guards
+      // are the boundary.
+      join(SRC, "app", "(app)", "autonomy", "page.tsx"),
+      join(SRC, "app", "(app)", "autonomy", "cycles", "page.tsx"),
+      join(SRC, "app", "(app)", "autonomy", "cycles", "[cycleId]", "page.tsx"),
+      join(SRC, "app", "(app)", "autonomy", "positions", "page.tsx"),
+      join(SRC, "app", "(app)", "autonomy", "configuration", "page.tsx"),
+      join(SRC, "app", "(app)", "autonomy", "override", "page.tsx"),
     ];
 
     for (const route of adminRoutes) {
