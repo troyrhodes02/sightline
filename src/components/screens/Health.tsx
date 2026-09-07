@@ -118,6 +118,9 @@ function SignalBlock({
       {signal.awaitingGrades ? (
         <AwaitingGrades count={signal.awaitingGrades} state={signal.state} />
       ) : null}
+      {signal.autonomyState ? (
+        <AutonomyState state={signal.autonomyState} />
+      ) : null}
     </ListItem>
   );
 }
@@ -337,5 +340,36 @@ function Row({
         ) : null}
       </Stack>
     </Stack>
+  );
+}
+
+/**
+ * The autonomy state, beside the cycle signal.
+ *
+ * `disabled` renders NEUTRAL, never amber. Health reports failures, and
+ * choosing not to run the bot is a decision rather than a fault — an amber
+ * "disabled" through a whole offseason would train the reader to ignore the
+ * colour on the one morning it matters.
+ *
+ * The status word is always present, so the encoding survives greyscale and
+ * does not depend on the tint alone.
+ */
+function AutonomyState({
+  state,
+}: {
+  state: NonNullable<HealthSignalDto["autonomyState"]>;
+}) {
+  const tone =
+    state.status === "halted" || state.status === "killed"
+      ? "error.main"
+      : "text.secondary";
+
+  return (
+    <Typography variant="body2" sx={{ color: tone, mt: 0.5 }}>
+      Autonomy {state.status}
+      {state.activeBreaches > 0
+        ? ` — ${state.activeBreaches} active ${state.activeBreaches === 1 ? "breach" : "breaches"}`
+        : ""}
+    </Typography>
   );
 }

@@ -15,10 +15,16 @@ export type Section = {
  * itself is still a nav item implying a feature. Accuracy is shared: model
  * calibration is visible to viewers, while the overrides layer beneath it
  * stays admin-only at the route, not in the nav.
+ *
+ * Autonomy is ONE entry covering seven surfaces, which are reached by a
+ * secondary tab row inside the section. The shell names the parts of the
+ * product a person moves between; autonomy is one of them, and its internals
+ * are a section rather than seven peers of the slate.
  */
 export const SECTIONS: Section[] = [
   { label: "Slate", href: "/slate", adminOnly: false },
   { label: "Accuracy", href: "/accuracy", adminOnly: false },
+  { label: "Autonomy", href: "/autonomy", adminOnly: true },
   { label: "Health", href: "/health", adminOnly: true },
   { label: "Users", href: "/users", adminOnly: true },
   { label: "Settings", href: "/settings", adminOnly: false, drawerOnly: true },
