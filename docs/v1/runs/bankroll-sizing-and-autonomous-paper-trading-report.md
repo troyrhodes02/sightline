@@ -63,7 +63,7 @@ All six **complete**, each squash-merged into the feature branch in order.
 
 ## Decisions made on your behalf
 
-Forty resolved decisions in total. **1–12 came from the run instruction** and were treated as approved-doc authority; they are restated in the spec but are yours, not mine. **13–40 are the ones I made** and are the ones worth your attention. The authoritative table is spec §21.
+Forty-one resolved decisions in total. **1–12 came from the run instruction** and were treated as approved-doc authority; they are restated in the spec but are yours, not mine. **13–41 are the ones I made** and are the ones worth your attention. The authoritative table is spec §21.
 
 ### The ones most worth arguing with
 
@@ -80,6 +80,7 @@ Forty resolved decisions in total. **1–12 came from the run instruction** and 
 | 36 | Three allocation passes; a size-capped candidate is **liquidity-exhausted** for the cycle | Prevents the partial-fill reallocation loop the pitch names as a rabbit hole. |
 | 37 | Recalibration is `pava_piecewise_linear/v1` with per-bin shrinkage `K = 200` | Monotone by construction, degenerates to the backtest prior with no live data, assumes no distribution. `K` is the one number here with no external justification — it is a judgment about how fast live evidence should earn trust. |
 | 40 | New Kalshi client method `getOrderbookTop` | The pitch requires executable liquidity "without creating a second market client". It is a public market-data GET; the write-endpoint invariant is unchanged. **Its bid/ask inversion is worth checking independently** — if it is backwards, every fill in the campaign is priced and sized against the wrong side and nothing else would notice. |
+| 41 | A candidate whose better side has flipped away from the open position is **refused**, with its own `boundBy = opposite_side_held` | A paper position holds one side, so an increment on the other side is not an increment. The alternatives were closing the existing side to open the new one — the bot trading out of a position on its own initiative, which this pitch does not scope — or letting the executor's guard throw and abort the cycle run. Added during the review audit, as finding 1's fix. |
 
 ### Deliberate departures worth naming
 
@@ -135,6 +136,27 @@ counterfactual diverging from the run it claims to be a counterfactual of,
 always in the direction that flatters it. Fixed with it: game exposure is carried
 across cycles exactly as the live path carries `gameExposureCents`, and positions
 are counted as distinct contracts.
+
+### Two refinements to the fixes themselves
+
+Both are about what the record says rather than what the bot does, and both were
+made after re-reading the first pass:
+
+- The side-flip refusal originally recorded `boundBy: none` with the reason in
+  free text. `BoundByLabel`'s own docstring says an empty or unnamed constraint
+  reads as "we did not check", which is the one thing the audit trail must never
+  say — so `BindingConstraint` gained `opposite_side_held`, the way
+  `no_active_recalibration` has its own name. It is spec decision 41.
+- That check also ran **ahead** of the probability ceiling, the
+  no-edge-after-fees test and the unreadable-depth test, so a candidate failing
+  one of those *and* sitting opposite an open position was recorded as
+  `opposite_side_held`. Same outcome, wrong reason: a portfolio fact was masking
+  a reason that would have applied with no position at all. It now runs last
+  among the refusals, so the value means precisely "this was otherwise a live
+  opportunity, declined only because of what is already held".
+- The replay's final settlement sweep now counts toward drawdown like every
+  intermediate balance. The final settled balance usually rises, so this can only
+  add a trough the alternative history really reached, never hide one.
 
 ### Tests added with the fixes
 
