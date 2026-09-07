@@ -65,3 +65,27 @@ export type ParsedMarket = {
   closeTime: Date | null;
   marketStatus: string;
 };
+
+/**
+ * `GET /markets/{ticker}/orderbook`. Both arrays are resting **bids** on that
+ * side, as `[price_cents, size_contracts]` pairs — not offers. Buying YES
+ * crosses the `no` array; buying NO crosses the `yes` array.
+ */
+export type KalshiOrderbookResponse = {
+  orderbook?: {
+    yes?: Array<[number, number]> | null;
+    no?: Array<[number, number]> | null;
+  } | null;
+};
+
+/**
+ * The executable top of book, already inverted into the prices and sizes a
+ * buyer would actually get. Nulls mean "no resting liquidity on the side that
+ * would fill this" — never zero, and never an invitation to assume depth.
+ */
+export type OrderbookTop = {
+  yesAskCents: number | null;
+  yesAskSizeContracts: number | null;
+  noAskCents: number | null;
+  noAskSizeContracts: number | null;
+};
