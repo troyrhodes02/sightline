@@ -59,3 +59,20 @@ jobs:
           uv run sightline-ingest grade
           --invocation-id "gh:${{ github.run_id }}:${{ github.run_attempt }}"
         working-directory: python
+
+      # Refit the probability correction from the freshly graded observations.
+      # TypeScript-side by design: the correction is read by the sizing path,
+      # and keeping it on this side of the runtime seam means the modelling
+      # runtime never acquires a reason to know a bankroll exists. The route
+      # decides server-side whether anything is fittable; a night with no new
+      # grades writes no new version.
+      - name: Refit probability recalibration
+        env:
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
+          PIPELINE_SCHEDULER_TOKEN: ${{ secrets.PIPELINE_SCHEDULER_TOKEN }}
+        run: |
+          curl --fail --silent --show-error --max-time 300 \
+            -X POST "${APP_BASE_URL%/}/api/pipeline/recalibration-fit" \
+            -H "Authorization: Bearer ${PIPELINE_SCHEDULER_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"invocationId\":\"gh:${{ github.run_id }}:${{ github.run_attempt }}\"}"
