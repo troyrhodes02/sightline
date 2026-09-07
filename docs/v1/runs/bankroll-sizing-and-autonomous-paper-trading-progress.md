@@ -12,7 +12,27 @@ reviewed, audited, green, and its PR left open for human review.
 **Step 8 — working tickets.** Steps 1–7 complete. Feature branch
 `feat/bankroll-sizing-and-autonomous-paper-trading`, feature PR
 [#56](https://github.com/troyrhodes02/sightline/pull/56) open against `main`.
-Next: SIG-60 via `/sightline-ticket-worker`, branching off the feature branch.
+
+- **SIG-60 done** — branch `feat/SIG-60-paper-ledger-schema`, PR
+  [#57](https://github.com/troyrhodes02/sightline/pull/57) into the feature branch.
+  Schema (14 models, 8 enums, hand-written constraints), `src/lib/paper/{config,fees,kelly}.ts`,
+  extended Python blocklist, paper/live non-aggregability schema invariant.
+  Verified: jest 522, test:schema 29, lint, typecheck, format, prisma:validate,
+  build, migrate deploy on a clean DB, pytest **363 passed** with `TEST_DATABASE_URL`.
+- **SIG-61 done** — branch `feat/SIG-61-probability-recalibration` (off SIG-60), PR
+  [#58](https://github.com/troyrhodes02/sightline/pull/58). PAVA + per-bin shrinkage
+  fit, versioned storage, nightly refit route and workflow step, and the
+  import-graph boundary guard (allowlist of five Prisma delegates).
+  Verified: jest 580, test:schema 29, lint, typecheck, format, build.
+- **Next: SIG-62**, branching off `feat/SIG-61-probability-recalibration`.
+
+**Known pre-existing failure, local only:** `src/lib/pipeline/auth.test.ts ›
+reports an unset server token as unconfigured`. Reproduced on a clean tree by
+stashing — `next/jest` loads the repo `.env`, which defines
+`PIPELINE_SCHEDULER_TOKEN`, so the default parameter resolves where the test
+expects nothing. CI has no `.env` and passes. Deliberately not fixed inside this
+pitch's branches: it belongs to another pitch and a drive-by edit would make a
+stacked branch harder to review. Recorded in the run report as a follow-up.
 
 ## Pipeline checklist
 

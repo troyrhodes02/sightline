@@ -2,7 +2,12 @@ import "server-only";
 
 import { createSign, constants as cryptoConstants } from "node:crypto";
 import { serverEnv } from "@/env";
-import type { KalshiMarket, KalshiMarketsPage } from "./types";
+import type {
+  KalshiMarket,
+  KalshiMarketsPage,
+  KalshiOrderbookResponse,
+  OrderbookTop,
+} from "./types";
 
 /**
  * Kalshi trade-api v2 client — **market-data reads only.**
@@ -150,4 +155,85 @@ export async function getMarketsByTickers(
   }
 
   return markets;
+}
+
+/**
+ * Top of the executable book for one market — **market data only.**
+ *
+ * Autonomous paper execution needs the size available at the price it would
+ * pay, because a fill is capped at the size actually displayed and depth is
+ * never inferred. The listing read supplies prices but no sizes, so this is the
+ * one additional endpoint the feature requires. It is a public GET, it signs
+ * nothing but a GET, and it adds no order, portfolio, balance, or fill path —
+ * the build invariant asserting the client contains none of those still holds.
+ *
+ * **The inversion is the trap worth naming.** Kalshi's orderbook returns
+ * resting BIDS on each side, not asks. To buy YES you match against resting NO
+ * bids: the price you pay is `100 − bestNoBid`, and the size you can buy is
+ * that NO bid's size. Reading the `yes` array as "the yes offers" would take
+ * the wrong price AND the wrong size — and would do so plausibly, because both
+ * numbers look like prices and sizes.
+ *
+ * Returns null when Kalshi reports no book at all. A side with no resting
+ * liquidity on the opposite book yields nulls for that side, which the planner
+ * treats as "cannot price this" — never as unlimited depth.
+ */
+export async function getOrderbookTop(
+  ticker: string,
+): Promise<OrderbookTop | null> {
+  const data = await getJson<KalshiOrderbookResponse>(
+    `/markets/${encodeURIComponent(ticker)}/orderbook`,
+    { depth: "1" },
+  );
+
+  const book = data.orderbook;
+  if (!book) return null;
+
+  // Best bid on each side is the highest price anyone is resting at.
+  const bestYesBid = bestLevel(book.yes);
+  const bestNoBid = bestLevel(book.no);
+
+  return {
+    // Buying YES crosses the NO book.
+    yesAskCents: bestNoBid ? 100 - bestNoBid.priceCents : null,
+    yesAskSizeContracts: bestNoBid ? bestNoBid.sizeContracts : null,
+    // Buying NO crosses the YES book.
+    noAskCents: bestYesBid ? 100 - bestYesBid.priceCents : null,
+    noAskSizeContracts: bestYesBid ? bestYesBid.sizeContracts : null,
+  };
+}
+
+/**
+ * The highest resting price on one side, with its size.
+ *
+ * Levels with a non-positive size are discarded rather than treated as
+ * available: a zero-size level is not liquidity, and rounding it up to
+ * "something" is exactly the favourable assumption paper trading must not make.
+ */
+function bestLevel(
+  levels: Array<[number, number]> | null | undefined,
+): { priceCents: number; sizeContracts: number } | null {
+  if (!Array.isArray(levels) || levels.length === 0) return null;
+
+  let best: { priceCents: number; sizeContracts: number } | null = null;
+  for (const level of levels) {
+    if (!Array.isArray(level) || level.length < 2) continue;
+    const [priceCents, sizeContracts] = level;
+    if (
+      !Number.isFinite(priceCents) ||
+      !Number.isFinite(sizeContracts) ||
+      priceCents < 1 ||
+      priceCents > 99 ||
+      sizeContracts <= 0
+    ) {
+      continue;
+    }
+    if (best === null || priceCents > best.priceCents) {
+      best = {
+        priceCents: Math.trunc(priceCents),
+        sizeContracts: Math.trunc(sizeContracts),
+      };
+    }
+  }
+  return best;
 }
