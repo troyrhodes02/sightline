@@ -1,0 +1,1506 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sightline · Bankroll, Sizing &amp; Autonomous Paper Trading — UI preview</title>
+
+<!--
+  SIGHTLINE UI PREVIEW SCAFFOLD
+  =============================
+  Copy this file to docs/v1/ui/[feature-slug]-ui-preview.html and replace the example
+  frames with the real screens. Everything above the "EXAMPLE FRAMES" comment is
+  fixed scaffolding: do not restyle it per feature.
+
+  Two token layers, deliberately separate:
+    --pv-*   PREVIEW CHROME. Achromatic. Never Sightline's palette. Colour in this
+             product means provenance, so the studio around the mocks has none.
+    --sl-*   PRODUCT TOKENS. Scoped to .sl, flipped by .sl[data-sl="dark"]. These
+             are the design doc's theme values and must match it exactly.
+
+  The theme toggle sets data-sl on every .js-sl element at once, so all product
+  surfaces flip together while the chrome stays put.
+
+  Font and asset paths are relative to docs/v1/ui/. If the preview is written
+  anywhere else, fix the ../../../ prefixes.
+-->
+
+<style>
+/* ============================================================
+   FONTS — real Space Grotesk, self-hosted. One variable file,
+   weights 300-700, covering the whole type scale.
+   ============================================================ */
+@font-face{
+  font-family:'Space Grotesk';
+  src:url('../../../src/assets/fonts/space-grotesk/SpaceGrotesk-Variable.woff2') format('woff2');
+  font-weight:300 700;font-style:normal;font-display:swap;
+}
+
+/* ============================================================
+   PREVIEW CHROME — achromatic studio scaffolding.
+   Uppercase, letter-spacing, and pill shapes are permitted HERE
+   and nowhere inside .sl. This is not the product.
+   ============================================================ */
+:root{
+  --pv-bg:#EDEEF1; --pv-panel:#FFFFFF; --pv-frame:#E3E4E9;
+  --pv-ink:#16171A; --pv-muted:#5B5D66; --pv-line:#DBDCE1; --pv-accent:#3A3B42;
+  --pv-sans:'Space Grotesk',ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --pv-mono:'Space Grotesk',ui-sans-serif,system-ui,sans-serif;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --pv-bg:#0E0E10; --pv-panel:#161618; --pv-frame:#111113;
+    --pv-ink:#E9E9EC; --pv-muted:#8B8B93; --pv-line:#242428; --pv-accent:#B4B4BD;
+  }
+}
+:root[data-pv="dark"]{
+  --pv-bg:#0E0E10; --pv-panel:#161618; --pv-frame:#111113;
+  --pv-ink:#E9E9EC; --pv-muted:#8B8B93; --pv-line:#242428; --pv-accent:#B4B4BD;
+}
+:root[data-pv="light"]{
+  --pv-bg:#EDEEF1; --pv-panel:#FFFFFF; --pv-frame:#E3E4E9;
+  --pv-ink:#16171A; --pv-muted:#5B5D66; --pv-line:#DBDCE1; --pv-accent:#3A3B42;
+}
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--pv-bg);color:var(--pv-ink);font-family:var(--pv-sans);line-height:1.5;-webkit-font-smoothing:antialiased}
+:focus-visible{outline:2px solid var(--pv-accent);outline-offset:2px;border-radius:4px}
+
+.pv-head{position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--pv-bg) 90%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--pv-line)}
+.pv-head-in{max-width:1240px;margin:0 auto;padding:14px 24px;display:flex;align-items:center;gap:20px;flex-wrap:wrap}
+.pv-brand{display:flex;align-items:center;gap:11px;margin-right:auto}
+.pv-brand h1{font-size:15px;margin:0;font-weight:600;letter-spacing:-.01em}
+.pv-brand p{font-size:11.5px;margin:0;color:var(--pv-muted)}
+.pv-jump{display:flex;gap:2px;flex-wrap:wrap}
+.pv-jump a{font-size:12px;color:var(--pv-muted);text-decoration:none;padding:5px 9px;border-radius:6px;font-weight:500}
+.pv-jump a:hover{color:var(--pv-ink);background:var(--pv-frame)}
+.pv-toggle{display:flex;align-items:center;gap:9px}
+.pv-toggle .lbl{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--pv-muted);font-weight:600}
+.pv-seg{display:inline-flex;background:var(--pv-frame);border:1px solid var(--pv-line);border-radius:999px;padding:3px}
+.pv-seg button{font-family:inherit;border:0;background:transparent;color:var(--pv-muted);font-size:12.5px;font-weight:600;padding:5px 14px;border-radius:999px;cursor:pointer;display:flex;align-items:center;gap:6px}
+.pv-seg button.on{background:var(--pv-panel);color:var(--pv-ink)}
+.pv-seg svg{width:14px;height:14px}
+
+.pv-wrap{max-width:1240px;margin:0 auto;padding:36px 24px 96px}
+.pv-eyebrow{font-size:11px;letter-spacing:.14em;text-transform:uppercase;font-weight:600;color:var(--pv-muted)}
+.pv-lead{max-width:760px}
+.pv-lead h2{font-size:26px;letter-spacing:-.02em;font-weight:600;margin:10px 0 8px;text-wrap:balance}
+.pv-lead p{color:var(--pv-muted);font-size:14.5px;margin:0}
+.pv-note{display:inline-flex;align-items:flex-start;gap:8px;margin-top:16px;font-size:12px;color:var(--pv-muted);background:var(--pv-panel);border:1px solid var(--pv-line);padding:7px 13px;border-radius:999px}
+.pv-note b{color:var(--pv-ink);font-weight:600}
+
+.pv-section{margin-top:56px}
+.pv-sec-head{display:flex;align-items:baseline;gap:14px;margin-bottom:18px;flex-wrap:wrap}
+.pv-sec-head h3{font-size:18px;font-weight:600;letter-spacing:-.01em;margin:0}
+.pv-sec-head .desc{font-size:13px;color:var(--pv-muted);max-width:640px}
+.pv-num{font-family:var(--pv-mono);font-variant-numeric:tabular-nums;font-size:12px;font-weight:500;color:var(--pv-accent);border:1px solid var(--pv-line);border-radius:6px;padding:2px 7px}
+
+.pv-frame{background:var(--pv-frame);border:1px solid var(--pv-line);border-radius:16px;padding:12px;margin-bottom:20px;overflow-x:auto}
+.pv-cap{display:flex;align-items:center;gap:10px;padding:2px 6px 11px;flex-wrap:wrap}
+.pv-cap .name{font-size:12.5px;font-weight:600}
+.pv-cap .route{font-size:11.5px;color:var(--pv-muted);font-family:var(--pv-mono);background:var(--pv-panel);border:1px solid var(--pv-line);padding:2px 8px;border-radius:5px}
+.pv-cap .tag{font-size:11px;color:var(--pv-muted);margin-left:auto}
+.pv-grid2{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.pv-grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+@media(max-width:1000px){.pv-grid2,.pv-grid3{grid-template-columns:1fr}}
+.pv-row{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start}
+
+.pv-legend{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+@media(max-width:900px){.pv-legend{grid-template-columns:1fr}}
+.pv-card{background:var(--pv-panel);border:1px solid var(--pv-line);border-radius:14px;padding:18px 20px}
+.pv-card h4{margin:0 0 12px;font-size:13px;font-weight:600}
+.pv-rules{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:10px}
+.pv-rules li{display:flex;gap:10px;font-size:12.5px;color:var(--pv-muted);line-height:1.5}
+.pv-rules li svg{width:15px;height:15px;flex:none;margin-top:2px;color:var(--pv-accent)}
+.pv-rules b{color:var(--pv-ink);font-weight:600}
+.pv-foot{margin-top:70px;padding-top:22px;border-top:1px solid var(--pv-line);color:var(--pv-muted);font-size:12.5px;display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+
+/* ============================================================
+   PRODUCT TOKENS — the design doc's theme. Keep in sync with
+   docs/v1/design-docs/*-design-doc.md §"Visual language".
+   ============================================================ */
+.sl{
+  --sl-bg:#FAFAFA; --sl-paper:#FFFFFF; --sl-elev:#FFFFFF; --sl-hover:#F4F4F6;
+  --sl-line:#E4E4E7; --sl-line-strong:#C9C9CF;
+  --sl-ink:#131316; --sl-ink2:#5C5C66; --sl-ink3:#8A8A93;
+  --sl-model:#5B51E8; --sl-model-hover:#4A40D6; --sl-model-press:#3F35C4; --sl-model-soft:#EFEDFF;
+  --sl-market:#0F9C6E; --sl-market-fill:#4DE4B2; --sl-market-soft:#E6FAF3;
+  --sl-caution:#B57414; --sl-caution-soft:#FDF3E2;
+  --sl-negative:#C4425F; --sl-negative-soft:#FCEBEF;
+  --sl-radius:6px; --sl-radius-chip:4px;
+  /* Shadows exist only where MUI ships them: menus and dialogs. Nothing else. */
+  --sl-shadow-pop:0 12px 32px -8px rgba(16,24,40,.24);
+  font-family:'Space Grotesk',ui-sans-serif,system-ui,sans-serif;
+  color:var(--sl-ink);
+}
+.sl[data-sl="dark"]{
+  --sl-bg:#0A0A0B; --sl-paper:#131315; --sl-elev:#1A1A1D; --sl-hover:#1F1F23;
+  --sl-line:#26262A; --sl-line-strong:#35353B;
+  --sl-ink:#ECECEE; --sl-ink2:#9B9BA3; --sl-ink3:#6B6B73;
+  --sl-model:#7C74FF; --sl-model-hover:#8F88FF; --sl-model-press:#6A61F0; --sl-model-soft:#1E1C3A;
+  --sl-market:#4DE4B2; --sl-market-fill:#4DE4B2; --sl-market-soft:#12332A;
+  --sl-caution:#E8A33D; --sl-caution-soft:#33260F;
+  --sl-negative:#E06C8A; --sl-negative-soft:#3A1C25;
+  --sl-shadow-pop:0 16px 40px -10px rgba(0,0,0,.7);
+}
+
+/* --- product type scale --- */
+.sl .t-h1{font-size:22px;line-height:30px;font-weight:600;letter-spacing:-.01em;margin:0}
+.sl .t-h2{font-size:18px;line-height:26px;font-weight:500;margin:0}
+.sl .t-body{font-size:15px;line-height:22px;font-weight:400;margin:0}
+.sl .t-body2{font-size:14px;line-height:20px;font-weight:400;margin:0}
+.sl .t-label{font-size:13px;line-height:18px;font-weight:500}
+.sl .t-caption{font-size:13px;line-height:18px;font-weight:400;color:var(--sl-ink3)}
+/* Every computed or displayed number. Never bold. `tabular-nums` is the ONLY
+   thing keeping columns aligned — Space Grotesk's default figures have nine
+   different advance widths. */
+.sl .num{font-variant-numeric:tabular-nums;font-weight:400}
+.sl .num-lg{font-size:22px;line-height:30px}
+.sl .num-md{font-size:15px;line-height:22px}
+.sl .num-sm{font-size:13px;line-height:18px}
+.sl .ink2{color:var(--sl-ink2)} .sl .ink3{color:var(--sl-ink3)}
+
+/* --- mock frames --- */
+.mock{background:var(--sl-bg);border:1px solid var(--sl-line);border-radius:10px;overflow:hidden}
+.mock--shell{min-width:900px}       /* desktop shell; the .pv-frame scrolls */
+.mock--pane{min-width:560px}        /* a single panel, no shell */
+.mock--phone{width:375px;min-width:375px;flex:none}  /* phone-first surfaces MUST appear */
+.mock--tablet{width:768px;min-width:768px;flex:none}
+
+/* --- app shell: top bar + tabs (Sightline is not a sidebar product) --- */
+.sl-shell{display:flex;flex-direction:column;min-height:520px}
+.sl-appbar{display:flex;align-items:center;gap:16px;height:60px;padding:0 32px;background:var(--sl-paper);border-bottom:1px solid var(--sl-line)}
+.mock--phone .sl-appbar{padding:0 16px;gap:12px}
+.sl-lockup{display:flex;align-items:center}
+.sl-lockup img{height:20px;display:block}
+.sl .sl-lockup .dark{display:none}
+.sl[data-sl="dark"] .sl-lockup .light{display:none}
+.sl[data-sl="dark"] .sl-lockup .dark{display:block}
+.sl-mark{width:20px;height:20px;color:var(--sl-ink);display:block}
+.sl-tabs{display:flex;align-items:stretch;height:60px;margin-left:8px}
+.sl-tab{display:flex;align-items:center;padding:0 12px;font-size:14px;font-weight:500;color:var(--sl-ink2);border-bottom:2px solid transparent;cursor:pointer}
+.sl-tab.on{color:var(--sl-model);border-bottom-color:var(--sl-model)}
+.sl-spacer{margin-left:auto}
+.sl-avatar{width:28px;height:28px;border-radius:50%;background:var(--sl-model-soft);color:var(--sl-model);display:grid;place-items:center;font-size:12px;font-weight:500;cursor:pointer}
+.sl-burger{width:24px;height:24px;color:var(--sl-ink);cursor:pointer}
+.sl-content{padding:32px;flex:1}
+.mock--phone .sl-content{padding:24px 16px}
+.sl-progress{height:2px;background:var(--sl-model);width:38%}
+
+/* --- surfaces: bordered, never floated --- */
+.sl-paper{background:var(--sl-paper);border:1px solid var(--sl-line);border-radius:var(--sl-radius)}
+.sl-stack{display:flex;flex-direction:column}
+.sl-row{display:flex;align-items:center;gap:8px}
+.sl-between{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.sl-divider{border-bottom:1px solid var(--sl-line)}
+
+/* --- chips: 4px radius. No pills anywhere in the product. --- */
+.sl-chip{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 8px;border-radius:var(--sl-radius-chip);font-size:12px;font-weight:500;border:1px solid;white-space:nowrap}
+.sl-chip svg{width:14px;height:14px}
+.sl-chip--neutral{color:var(--sl-ink2);border-color:var(--sl-line);background:transparent}
+.sl-chip--model{color:var(--sl-model);border-color:var(--sl-model);background:transparent}
+.sl-chip--caution{color:var(--sl-caution);border-color:var(--sl-caution);background:transparent}
+.sl-chip--caution-fill{color:var(--sl-caution);border-color:var(--sl-caution);background:var(--sl-caution-soft)}
+.sl-chip--market{color:var(--sl-market);border-color:var(--sl-market);background:transparent}
+
+/* --- buttons --- */
+.sl-btn{font-family:inherit;font-size:14px;font-weight:500;line-height:1;border-radius:var(--sl-radius);border:1px solid transparent;padding:0 16px;height:36px;display:inline-flex;align-items:center;gap:8px;cursor:pointer;white-space:nowrap}
+.sl-btn--contained{background:var(--sl-model);color:#fff;border-color:var(--sl-model)}
+.sl-btn--outlined{background:transparent;color:var(--sl-ink);border-color:var(--sl-line-strong)}
+.sl-btn--text{background:transparent;color:var(--sl-model);border-color:transparent;padding:0 10px}
+.sl-btn--danger{background:var(--sl-negative);color:#fff;border-color:var(--sl-negative)}
+.sl-btn--danger-text{background:transparent;color:var(--sl-negative);border-color:transparent;padding:0 10px}
+.sl-btn--sm{height:30px;font-size:13px;padding:0 12px}
+.sl-btn--full{width:100%;justify-content:center}
+.sl-btn[disabled]{opacity:.5;cursor:not-allowed}
+
+/* --- fields --- */
+.sl-field{display:flex;flex-direction:column;gap:6px}
+.sl-field > label{font-size:12px;font-weight:500;color:var(--sl-ink2)}
+.sl-input{height:38px;border:1px solid var(--sl-line-strong);border-radius:var(--sl-radius);background:var(--sl-paper);padding:0 12px;font-family:inherit;font-size:14px;color:var(--sl-ink);width:100%}
+.sl-input::placeholder{color:var(--sl-ink3)}
+.sl-input--error{border-color:var(--sl-negative)}
+.sl-help{font-size:12px;color:var(--sl-ink3)}
+.sl-help--error{color:var(--sl-negative)}
+
+/* --- alerts: outlined, soft fill --- */
+.sl-alert{display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border-radius:var(--sl-radius);font-size:14px;line-height:20px;border:1px solid}
+.sl-alert svg{width:20px;height:20px;flex:none}
+.sl-alert--info{border-color:var(--sl-line-strong);color:var(--sl-ink2);background:transparent}
+.sl-alert--caution{border-color:var(--sl-caution);color:var(--sl-caution);background:var(--sl-caution-soft)}
+.sl-alert--error{border-color:var(--sl-negative);color:var(--sl-negative);background:var(--sl-negative-soft)}
+.sl-alert .body{flex:1}
+
+/* --- table --- */
+.sl-tbl{width:100%;border-collapse:collapse}
+.sl-tbl th{text-align:left;font-size:12px;font-weight:500;color:var(--sl-ink2);padding:10px 16px;border-bottom:1px solid var(--sl-line)}
+.sl-tbl td{padding:12px 16px;border-bottom:1px solid var(--sl-line);font-size:14px;height:52px;vertical-align:middle}
+.sl-tbl tr:last-child td{border-bottom:0}
+.sl-tbl .right{text-align:right}
+.sl-trunc{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* --- empty / terminal states: no artwork, ever --- */
+.sl-empty{display:flex;flex-direction:column;align-items:center;gap:16px;padding:64px 24px;text-align:center}
+.sl-empty .t-h2{color:var(--sl-ink)}
+.sl-empty p{margin:0;font-size:14px;line-height:20px;color:var(--sl-ink2);max-width:420px}
+
+/* --- dialog stage --- */
+.sl-stage{position:relative;min-height:400px;display:grid;place-items:center;padding:24px;background:var(--sl-bg)}
+.sl-scrim{position:absolute;inset:0;background:rgba(9,11,18,.45)}
+.sl[data-sl="dark"] .sl-scrim{background:rgba(0,0,0,.6)}
+.sl-dialog{position:relative;background:var(--sl-elev);border:1px solid var(--sl-line);border-radius:var(--sl-radius);box-shadow:var(--sl-shadow-pop);width:100%;max-width:400px;padding:20px 24px 16px}
+.sl-dialog h4{margin:0 0 12px;font-size:16px;font-weight:500}
+.sl-dialog-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:24px}
+
+/* --- menu / drawer --- */
+.sl-menu{position:absolute;top:52px;right:24px;width:260px;background:var(--sl-elev);border:1px solid var(--sl-line);border-radius:var(--sl-radius);box-shadow:var(--sl-shadow-pop);padding:4px;z-index:5}
+.sl-menu-head{padding:10px 12px}
+.sl-menu-item{padding:9px 12px;border-radius:4px;font-size:14px;cursor:pointer}
+.sl-menu-item:hover{background:var(--sl-hover)}
+.sl-drawer{position:absolute;inset:0 auto 0 0;width:264px;background:var(--sl-elev);border-right:1px solid var(--sl-line);z-index:5;display:flex;flex-direction:column}
+.sl-drawer-item{padding:12px 16px;font-size:14px;color:var(--sl-ink2);cursor:pointer}
+.sl-drawer-item.on{background:var(--sl-model-soft);color:var(--sl-model)}
+
+/* --- snackbar --- */
+.sl-snack{display:inline-flex;align-items:center;gap:10px;background:var(--sl-elev);border:1px solid var(--sl-line);border-radius:var(--sl-radius);padding:10px 14px;font-size:14px;box-shadow:var(--sl-shadow-pop)}
+
+/* --- skeleton: pulse, never a shimmer sweep. Data does not animate in. --- */
+.sl-sk{background:var(--sl-hover);border-radius:4px;animation:sl-pulse 1.6s ease-in-out infinite}
+@keyframes sl-pulse{0%,100%{opacity:1}50%{opacity:.55}}
+@media (prefers-reduced-motion:reduce){.sl-sk{animation:none}}
+
+/* ============================================================
+   FEATURE ADDITIONS — Autonomy surfaces.
+   Same token layer (--sl-*). Nothing here introduces a colour.
+   ============================================================ */
+
+/* chip variants this feature needs beyond the scaffold's set */
+.sl-chip--error{color:var(--sl-negative);border-color:var(--sl-negative);background:transparent}
+.sl-chip--error-fill{color:var(--sl-negative);border-color:var(--sl-negative);background:var(--sl-negative-soft)}
+.sl-chip--model-fill{color:var(--sl-model);border-color:var(--sl-model);background:var(--sl-model-soft)}
+
+/* secondary tab row inside the Autonomy section */
+.sl-secnav{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid var(--sl-line);margin-bottom:20px}
+.sl-secnav span{font-size:14px;font-weight:500;color:var(--sl-ink2);padding:8px 12px;border-bottom:2px solid transparent;cursor:pointer;white-space:nowrap}
+.sl-secnav span.on{color:var(--sl-model);border-bottom-color:var(--sl-model)}
+
+/* the permanent "simulated" disclosure that rides under every title */
+.sl-papermode{font-size:13px;line-height:18px;color:var(--sl-ink3);margin:2px 0 0}
+
+/* four headline figures */
+.sl-figs{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.mock--phone .sl-figs{grid-template-columns:1fr 1fr}
+.sl-fig{background:var(--sl-paper);border:1px solid var(--sl-line);border-radius:var(--sl-radius);padding:12px 14px}
+.sl-fig .k{font-size:12px;font-weight:500;color:var(--sl-ink2);display:block;margin-bottom:4px}
+.sl-fig .sub{font-size:13px;line-height:18px;color:var(--sl-ink3);display:block;margin-top:2px;font-variant-numeric:tabular-nums}
+
+/* exposure meter — ARIA meter in the product; a track and a fill here */
+.sl-meter{display:grid;grid-template-columns:88px 1fr auto;gap:12px;align-items:center;padding:7px 0}
+.sl-meter .lab{font-size:13px;color:var(--sl-ink2)}
+.sl-meter .track{height:8px;border-radius:2px;background:var(--sl-hover);border:1px solid var(--sl-line);overflow:hidden}
+.sl-meter .fill{height:100%;background:var(--sl-model)}
+.sl-meter .fill--full{background:var(--sl-negative)}
+.sl-meter .val{font-size:13px;font-variant-numeric:tabular-nums;color:var(--sl-ink2);white-space:nowrap}
+
+/* candidate card — the audit trail, shared by cycle detail and dry run */
+.sl-cand{border-bottom:1px solid var(--sl-line);padding:14px 16px}
+.sl-cand:last-child{border-bottom:0}
+.sl-cand .hd{display:flex;align-items:baseline;gap:10px;margin-bottom:6px}
+.sl-cand .rank{font-size:13px;color:var(--sl-ink3);font-variant-numeric:tabular-nums;width:16px;flex:none}
+.sl-cand .who{font-size:15px;line-height:22px}
+.sl-cand .verdict{margin-left:auto;font-size:13px;font-weight:500;letter-spacing:0}
+.sl-cand .ln{font-size:13px;line-height:19px;color:var(--sl-ink2);font-variant-numeric:tabular-nums;padding-left:26px}
+.sl-cand .bound{font-size:13px;line-height:19px;padding-left:26px;color:var(--sl-ink)}
+.sl-cand .bound b{font-weight:500;color:var(--sl-ink2)}
+
+/* key/value blocks used by the cycle header and the breach facts */
+.sl-kv{display:grid;grid-template-columns:96px 1fr;gap:4px 14px;font-size:13px;line-height:19px}
+.sl-kv .k{color:var(--sl-ink2)}
+.sl-kv .v{color:var(--sl-ink);font-variant-numeric:tabular-nums}
+
+/* semantic value colours — sign always accompanies the colour */
+.sl .pos{color:var(--sl-model)}
+.sl .neg{color:var(--sl-negative)}
+.sl .caution{color:var(--sl-caution)}
+.sl .market{color:var(--sl-market)}
+
+/* readiness criteria */
+.sl-crit{display:grid;grid-template-columns:18px 1fr;gap:4px 10px;padding:9px 0;border-bottom:1px solid var(--sl-line)}
+.sl-crit:last-child{border-bottom:0}
+.sl-crit .g{font-size:14px;line-height:20px}
+.sl-crit .g.met{color:var(--sl-model)}
+.sl-crit .g.unmet{color:var(--sl-negative)}
+.sl-crit .lab{font-size:14px;line-height:20px}
+.sl-crit .ev{grid-column:2;font-size:13px;line-height:18px;color:var(--sl-ink2);font-variant-numeric:tabular-nums}
+
+/* risk-mode cards */
+.sl-modes{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.mock--phone .sl-modes{grid-template-columns:1fr}
+.sl-mode{border:1px solid var(--sl-line);border-radius:var(--sl-radius);padding:12px 14px;background:var(--sl-paper);cursor:pointer}
+.sl-mode.on{border-color:var(--sl-model);background:var(--sl-model-soft)}
+.sl-mode .nm{font-size:14px;font-weight:500;display:flex;align-items:center;gap:6px}
+.sl-mode .p{font-size:13px;line-height:19px;color:var(--sl-ink2);font-variant-numeric:tabular-nums;margin-top:6px}
+.sl-mode.on .nm{color:var(--sl-model)}
+
+/* chart — bordered plot area, dashed reference lines, no fill, no gradient */
+.sl-chart{background:var(--sl-paper);border:1px solid var(--sl-line);border-radius:var(--sl-radius);padding:14px 16px}
+.sl-chart svg{display:block;width:100%;height:auto}
+.sl-legend{display:flex;gap:16px;font-size:13px;color:var(--sl-ink2);margin-top:8px;flex-wrap:wrap}
+.sl-legend i{display:inline-block;width:18px;height:0;border-top:2px solid currentColor;margin-right:6px;vertical-align:middle}
+
+/* checkbox rows on the force-override route */
+.sl-ack{display:flex;gap:12px;padding:14px 16px;border:1px solid var(--sl-caution);background:var(--sl-caution-soft);border-radius:var(--sl-radius)}
+.sl-box{width:18px;height:18px;border:1.5px solid var(--sl-line-strong);border-radius:3px;flex:none;margin-top:2px;background:var(--sl-paper)}
+.sl-box.on{border-color:var(--sl-model);background:var(--sl-model)}
+.sl-btn--caution{background:transparent;color:var(--sl-caution);border-color:var(--sl-caution)}
+
+/* fixed bottom bar carrying the kill switch at phone width */
+.sl-bottombar{border-top:1px solid var(--sl-line);background:var(--sl-paper);padding:10px 16px}
+</style>
+</head>
+
+<body>
+
+<!-- ============ STUDIO HEADER — fixed scaffolding ============ -->
+<header class="pv-head">
+  <div class="pv-head-in">
+    <div class="pv-brand">
+      <svg viewBox="0 0 64 64" style="width:26px;height:26px;color:var(--pv-ink)" aria-hidden="true">
+        <circle cx="32" cy="32" r="20" fill="none" stroke="currentColor" stroke-width="2.6"/>
+        <path d="M32 12 A20 20 0 0 1 52 32" fill="none" stroke="currentColor" stroke-width="4.6" stroke-linecap="round"/>
+        <line x1="32" y1="5" x2="32" y2="12" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>
+        <line x1="32" y1="52" x2="32" y2="59" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>
+        <line x1="5" y1="32" x2="12" y2="32" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>
+        <line x1="52" y1="32" x2="59" y2="32" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>
+        <circle cx="32" cy="32" r="3.4" fill="currentColor"/>
+      </svg>
+      <div>
+        <h1>Sightline · Bankroll, Sizing &amp; Autonomous Paper Trading</h1>
+        <p>UI preview — the seven admin-only Autonomy surfaces, both appearance modes</p>
+      </div>
+    </div>
+    <nav class="pv-jump" aria-label="Jump to section">
+      <a href="#s1">Overview</a><a href="#s2">Cycles</a><a href="#s3">Positions</a><a href="#s4">Review</a><a href="#s5">Readiness</a><a href="#s6">Dry Run</a><a href="#s7">Configuration</a><a href="#s8">Safety</a><a href="#s9">States</a>
+    </nav>
+    <div class="pv-toggle">
+      <span class="lbl">Appearance</span>
+      <div class="pv-seg" role="tablist" aria-label="Product appearance">
+        <button id="pv-light" class="on" role="tab" aria-selected="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>Light
+        </button>
+        <button id="pv-dark" role="tab" aria-selected="false">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg>Dark
+        </button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="pv-wrap">
+
+  <!-- ============ LEAD ============ -->
+  <div class="pv-lead">
+    <span class="pv-eyebrow">Design handoff · v1.0</span>
+    <h2>A ledger that can testify against itself.</h2>
+    <p>Seven admin-only surfaces through which a bot trades fake money and then accounts for every dollar of it: the stake it wanted, the stake that filled, and the constraint that explains the difference. What deliberately does not ship is any control that moves the system from paper to real money — there is no such affordance in any state, including when readiness passes. The commitment to check these frames against: <b>intended and filled are two numbers, always both, and every candidate carries a named binding constraint</b>. Use the <b>Light / Dark</b> switch to flip every product surface.</p>
+    <span class="pv-note"><b>Note</b>&nbsp;This preview is a rendering of the design, not product code. The application is built in Material UI against the theme; nothing here is copied into it.</span>
+  </div>
+
+  <!-- ============================================================ 01 OVERVIEW -->
+  <section class="pv-section" id="s1">
+    <div class="pv-sec-head">
+      <span class="pv-num">01</span>
+      <h3>Autonomy overview</h3>
+      <span class="desc">The Sunday-morning screen. Bankroll decomposed rather than summarised, exposure against its caps, and the safety state stated before anything else.</span>
+    </div>
+
+    <div class="pv-frame">
+      <div class="pv-cap">
+        <span class="name">Overview — halted by a drawdown breaker</span>
+        <span class="route">/autonomy</span>
+        <span class="tag">admin · populated</span>
+      </div>
+      <div class="mock mock--shell sl js-sl" data-sl="light">
+        <div class="sl-shell">
+          <div class="sl-appbar">
+            <span class="sl-lockup">
+              <img class="light" src="../../../src/assets/brand/logo-lockup-for-light-backgrounds.svg" alt="Sightline">
+              <img class="dark" src="../../../src/assets/brand/logo-lockup-for-dark-backgrounds.svg" alt="Sightline">
+            </span>
+            <nav class="sl-tabs">
+              <span class="sl-tab">Slate</span><span class="sl-tab">Accuracy</span><span class="sl-tab on">Autonomy</span><span class="sl-tab">Health</span><span class="sl-tab">Users</span>
+            </nav>
+            <span class="sl-spacer"></span>
+            <span class="sl-avatar">WR</span>
+          </div>
+          <div class="sl-content">
+            <div class="sl-between" style="align-items:flex-start;margin-bottom:20px">
+              <div>
+                <h1 class="t-h1">Autonomy</h1>
+                <p class="sl-papermode">Paper mode · all figures simulated</p>
+              </div>
+              <button class="sl-btn sl-btn--outlined" style="color:var(--sl-negative);border-color:var(--sl-negative)">Kill autonomy</button>
+            </div>
+
+            <div class="sl-secnav">
+              <span class="on">Overview</span><span>Cycles</span><span>Positions</span><span>Review</span><span>Readiness</span><span>Dry Run</span><span>Configuration</span>
+            </div>
+
+            <div class="sl-stack" style="gap:20px">
+
+              <div class="sl-alert sl-alert--error" role="alert">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>
+                <span class="body">
+                  <span class="t-label" style="display:block;margin-bottom:4px">Halted</span>
+                  <span class="t-body2" style="display:block">Drawdown halt — measured <span class="num">11.2%</span> of the high-water mark, threshold <span class="num">10.0%</span> (conservative).</span>
+                  <span class="t-body2" style="display:block">Calibration — rolling Brier <span class="num">0.229</span> against market <span class="num">0.221</span>, tolerance <span class="num">+0.020</span>.</span>
+                  <span class="t-caption" style="display:block;margin-top:4px">Tripped Sun 26 Oct 1:47p ET · 2 candidates blocked</span>
+                </span>
+                <span class="sl-row" style="align-self:center">
+                  <button class="sl-btn sl-btn--sm sl-btn--outlined" disabled>Resume</button>
+                  <button class="sl-btn sl-btn--sm sl-btn--caution">Force override →</button>
+                </span>
+              </div>
+
+              <div class="sl-figs">
+                <div class="sl-fig">
+                  <span class="k">Active bankroll</span>
+                  <span class="num num-lg">$912.40</span>
+                  <span class="sub">settled $874.10 + open $38.30</span>
+                </div>
+                <div class="sl-fig">
+                  <span class="k">Total paper wealth</span>
+                  <span class="num num-lg">$1,062.40</span>
+                  <span class="sub">withdrawn $150.00</span>
+                </div>
+                <div class="sl-fig">
+                  <span class="k">Net paper P&amp;L</span>
+                  <span class="num num-lg neg">−$87.60</span>
+                  <span class="sub">−8.8% of starting $1,000.00</span>
+                </div>
+                <div class="sl-fig">
+                  <span class="k">Max drawdown</span>
+                  <span class="num num-lg">11.2%</span>
+                  <span class="sub">mark-to-market · peak $1,027.90</span>
+                </div>
+              </div>
+
+              <div class="sl-paper" style="padding:14px 16px">
+                <div class="sl-between" style="margin-bottom:8px">
+                  <span class="sl-row">
+                    <span class="t-label ink2" style="width:80px">Risk mode</span>
+                    <span class="sl-chip sl-chip--neutral">conservative</span>
+                    <span class="t-body2 ink2 num">0.25× Kelly · game 5% · slate 15% · halt 10%</span>
+                  </span>
+                  <button class="sl-btn sl-btn--text sl-btn--sm">Configure →</button>
+                </div>
+                <div class="sl-row">
+                  <span class="t-label ink2" style="width:80px">Ceiling</span>
+                  <span class="t-body2">Corrected probability ≤ <span class="num">0.750</span> — independent of risk mode.</span>
+                </div>
+              </div>
+
+              <div class="sl-paper" style="padding:14px 16px">
+                <h2 class="t-h2" style="margin-bottom:6px">Open exposure</h2>
+                <div class="sl-meter"><span class="lab">Slate</span><span class="track"><span class="fill" style="width:28%"></span></span><span class="val">$38.30 / $136.86 · 15% of $912.40</span></div>
+                <div class="sl-meter"><span class="lab">DET @ GB</span><span class="track"><span class="fill" style="width:48%"></span></span><span class="val">$22.10 / $45.62 · 5%</span></div>
+                <div class="sl-meter"><span class="lab">CIN @ PIT</span><span class="track"><span class="fill" style="width:36%"></span></span><span class="val">$16.20 / $45.62 · 5%</span></div>
+              </div>
+
+              <div class="sl-chart">
+                <div class="sl-between" style="margin-bottom:10px">
+                  <h2 class="t-h2">Bankroll history</h2>
+                  <span class="sl-row"><span class="sl-chip sl-chip--model">week</span><span class="sl-chip sl-chip--neutral">campaign</span></span>
+                </div>
+                <svg viewBox="0 0 720 180" role="img" aria-label="Bankroll history. Starts at 1,000 dollars, peaks at 1,027.90 on 19 October, ends at 912.40 on 26 October. High-water mark 1,027.90; conservative halt threshold 925.11. Settled balance and mark-to-market diverge by 38.30 at the end.">
+                  <line x1="44" y1="10" x2="44" y2="150" stroke="var(--sl-line)" stroke-width="1"/>
+                  <line x1="44" y1="150" x2="710" y2="150" stroke="var(--sl-line)" stroke-width="1"/>
+                  <line x1="44" y1="34" x2="710" y2="34" stroke="var(--sl-ink3)" stroke-width="1" stroke-dasharray="3 3"/>
+                  <text x="706" y="28" text-anchor="end" font-size="11" fill="var(--sl-ink3)" font-family="Space Grotesk">high-water $1,027.90</text>
+                  <line x1="44" y1="104" x2="710" y2="104" stroke="var(--sl-negative)" stroke-width="1" stroke-dasharray="5 4"/>
+                  <text x="706" y="118" text-anchor="end" font-size="11" fill="var(--sl-negative)" font-family="Space Grotesk">halt threshold $925.11</text>
+                  <polyline points="60,60 160,52 260,38 360,34 460,66 560,96 660,118" fill="none" stroke="var(--sl-model)" stroke-width="2"/>
+                  <polyline points="60,60 160,50 260,36 360,30 460,72 560,90 660,110" fill="none" stroke="var(--sl-model)" stroke-width="1.5" stroke-dasharray="2 3"/>
+                  <text x="8" y="38" font-size="11" fill="var(--sl-ink3)" font-family="Space Grotesk">1050</text>
+                  <text x="8" y="154" font-size="11" fill="var(--sl-ink3)" font-family="Space Grotesk">850</text>
+                  <text x="60" y="170" font-size="11" fill="var(--sl-ink3)" font-family="Space Grotesk">5 Oct</text>
+                  <text x="640" y="170" font-size="11" fill="var(--sl-ink3)" font-family="Space Grotesk">26 Oct</text>
+                </svg>
+                <div class="sl-legend"><span style="color:var(--sl-model)"><i></i></span><span>Settled balance</span><span style="color:var(--sl-model)"><i style="border-top-style:dotted"></i></span><span>Mark-to-market</span></div>
+              </div>
+
+              <div class="sl-paper">
+                <div class="sl-between" style="padding:12px 16px">
+                  <h2 class="t-h2">Recent cycles</h2>
+                  <button class="sl-btn sl-btn--text sl-btn--sm">All cycles →</button>
+                </div>
+                <table class="sl-tbl">
+                  <tbody>
+                    <tr><td style="height:auto;padding:10px 16px"><span class="num num-sm ink2">26 Oct 12:20p</span> &nbsp; DET @ GB · 1:00p ET<div class="num num-sm ink2">3 candidates · 2 filled · $22.10</div></td><td class="right" style="height:auto;padding:10px 16px">ok</td></tr>
+                    <tr><td style="height:auto;padding:10px 16px"><span class="num num-sm ink2">26 Oct 12:20p</span> &nbsp; CIN @ PIT · 1:00p ET<div class="num num-sm ink2">5 candidates · 1 filled · $16.20</div></td><td class="right caution" style="height:auto;padding:10px 16px">partial fill</td></tr>
+                    <tr><td style="height:auto;padding:10px 16px"><span class="num num-sm ink2">26 Oct 1:47p</span> &nbsp; LAR @ SEA · 4:05p ET<div class="num num-sm ink2">4 candidates · 0 filled · drawdown breaker tripped mid-cycle</div></td><td class="right neg" style="height:auto;padding:10px 16px">halted</td></tr>
+                    <tr><td style="height:auto;padding:10px 16px"><span class="num num-sm ink2">26 Oct 3:55p</span> &nbsp; KC @ BUF · 8:20p ET<div class="num num-sm ink2">reached the 10-minute pre-kickoff cutoff</div></td><td class="right caution" style="height:auto;padding:10px 16px">skipped</td></tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div class="sl-paper" style="padding:14px 16px">
+                <div class="sl-between">
+                  <span class="sl-row"><h2 class="t-h2">Live readiness</h2><span class="sl-chip sl-chip--caution">paper evidence building</span><span class="t-body2 ink2 num">1 of 2 NFL weeks</span></span>
+                  <button class="sl-btn sl-btn--text sl-btn--sm">View evidence →</button>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pv-frame">
+      <div class="pv-cap"><span class="name">Overview — responsive, and never enabled</span><span class="route">/autonomy</span><span class="tag">375 · kill switch pinned within thumb reach</span></div>
+      <div class="pv-row">
+        <div class="mock mock--phone sl js-sl" data-sl="light">
+          <div class="sl-shell" style="min-height:560px">
+            <div class="sl-appbar">
+              <svg class="sl-burger" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+              <svg class="sl-mark" viewBox="0 0 64 64" aria-label="Sightline">
+                <circle cx="32" cy="32" r="20" fill="none" stroke="currentColor" stroke-width="2.6"/>
+                <path d="M32 12 A20 20 0 0 1 52 32" fill="none" stroke="currentColor" stroke-width="4.6" stroke-linecap="round"/>
+                <circle cx="32" cy="32" r="3.4" fill="currentColor"/>
+              </svg>
+              <span class="sl-spacer"></span>
+              <span class="sl-avatar">WR</span>
+            </div>
+            <div class="sl-content" style="flex:1">
+              <h1 class="t-h1">Autonomy</h1>
+              <p class="sl-papermode" style="margin-bottom:14px">Paper mode · all figures simulated</p>
+              <div class="sl-alert sl-alert--error" style="margin-bottom:14px">
+                <span class="body"><span class="t-label" style="display:block">Halted</span><span class="t-caption" style="display:block;color:inherit">Drawdown 11.2%, threshold 10.0%</span></span>
+              </div>
+              <div class="sl-figs" style="margin-bottom:14px">
+                <div class="sl-fig"><span class="k">Active</span><span class="num num-lg">$912.40</span><span class="sub">+ open $38.30</span></div>
+                <div class="sl-fig"><span class="k">Wealth</span><span class="num num-lg">$1,062.40</span><span class="sub">withdrawn $150.00</span></div>
+                <div class="sl-fig"><span class="k">Net P&amp;L</span><span class="num num-lg neg">−$87.60</span><span class="sub">−8.8%</span></div>
+                <div class="sl-fig"><span class="k">Max DD</span><span class="num num-lg">11.2%</span><span class="sub">mark-to-market</span></div>
+              </div>
+              <div class="sl-paper" style="padding:12px 14px">
+                <div class="sl-meter" style="grid-template-columns:64px 1fr"><span class="lab">Slate</span><span class="track"><span class="fill" style="width:28%"></span></span></div>
+                <div class="num num-sm ink2">$38.30 / $136.86</div>
+              </div>
+            </div>
+            <div class="sl-bottombar">
+              <button class="sl-btn sl-btn--outlined sl-btn--full" style="color:var(--sl-negative);border-color:var(--sl-negative)">Kill autonomy</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="mock mock--pane sl js-sl" data-sl="light" style="min-width:520px">
+          <div class="sl-content" style="padding:24px">
+            <h1 class="t-h1">Autonomy</h1>
+            <p class="sl-papermode" style="margin-bottom:16px">Paper mode · all figures simulated</p>
+            <div class="sl-paper">
+              <div class="sl-empty">
+                <h2 class="t-h2">Autonomous paper trading is not enabled.</h2>
+                <p>Starting bankroll $1,000.00 · risk mode conservative. Run a Dry Run against an upcoming game window to see what the bot would do before it does anything.</p>
+                <span class="sl-row"><button class="sl-btn sl-btn--contained sl-btn--sm">Open Dry Run</button><button class="sl-btn sl-btn--outlined sl-btn--sm">Configuration</button></span>
+              </div>
+            </div>
+            <p class="t-caption" style="margin-top:10px">No chart, no exposure meters, no cycle table — a zeroed dashboard would read as a loss.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ 02 CYCLES -->
+  <section class="pv-section" id="s2">
+    <div class="pv-sec-head">
+      <span class="pv-num">02</span>
+      <h3>Cycles and cycle detail</h3>
+      <span class="desc">Every evaluation is a row, including the ones that did nothing. The detail view is the audit trail: three narrowing counts, then a named binding constraint per candidate.</span>
+    </div>
+
+    <div class="pv-frame">
+      <div class="pv-cap"><span class="name">Cycles</span><span class="route">/autonomy/cycles</span><span class="tag">admin · a skipped and a failed cycle are rows, not errors</span></div>
+      <div class="mock mock--shell sl js-sl" data-sl="light">
+        <div class="sl-content">
+          <div class="sl-between" style="align-items:flex-start;margin-bottom:16px">
+            <div><h1 class="t-h1">Cycles</h1><p class="sl-papermode">Paper mode · all figures simulated</p></div>
+            <span class="sl-row"><span class="sl-chip sl-chip--neutral">season 2026</span><span class="sl-chip sl-chip--neutral">week 9</span></span>
+          </div>
+          <div class="sl-paper">
+            <table class="sl-tbl">
+              <thead><tr><th>Started</th><th>Game window</th><th class="right">Cand.</th><th class="right">Sized</th><th class="right">Filled</th><th class="right">Staked</th><th>Outcome</th></tr></thead>
+              <tbody>
+                <tr><td class="num num-md">26 Oct 12:20p</td><td>DET @ GB · 1:00p ET</td><td class="right num num-md">3</td><td class="right num num-md">2</td><td class="right num num-md">2</td><td class="right num num-md">$22.10</td><td>ok</td></tr>
+                <tr><td class="num num-md">26 Oct 12:20p</td><td>CIN @ PIT · 1:00p ET</td><td class="right num num-md">5</td><td class="right num num-md">2</td><td class="right num num-md">1</td><td class="right num num-md">$16.20</td><td class="caution">partial fill</td></tr>
+                <tr><td class="num num-md">26 Oct 12:22p</td><td>NYJ @ NE · 1:00p ET<div class="num num-sm ink2">all 4 candidates above the 0.750 ceiling</div></td><td class="right num num-md">4</td><td class="right num num-md">0</td><td class="right num num-md">0</td><td class="right num num-md ink3">—</td><td>no candidate</td></tr>
+                <tr><td class="num num-md">26 Oct 1:47p</td><td>LAR @ SEA · 4:05p ET<div class="num num-sm ink2">drawdown breaker tripped mid-cycle; 2 candidates blocked</div></td><td class="right num num-md">4</td><td class="right num num-md">2</td><td class="right num num-md">0</td><td class="right num num-md ink3">—</td><td class="neg">halted</td></tr>
+                <tr><td class="num num-md">26 Oct 3:55p</td><td>KC @ BUF · 8:20p ET<div class="num num-sm ink2">reached the 10-minute pre-kickoff cutoff</div></td><td class="right num num-md ink3">—</td><td class="right num num-md ink3">—</td><td class="right num num-md ink3">—</td><td class="right num num-md ink3">—</td><td class="caution">skipped</td></tr>
+                <tr><td class="num num-md">26 Oct 3:55p</td><td>MIA @ LV · 8:20p ET<div class="num num-sm ink2">Kalshi unavailable — no positions created</div></td><td class="right num num-md ink3">—</td><td class="right num num-md ink3">—</td><td class="right num num-md ink3">—</td><td class="right num num-md ink3">—</td><td class="neg">failed</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pv-frame">
+      <div class="pv-cap"><span class="name">Cycle detail</span><span class="route">/autonomy/cycles/[cycleId]</span><span class="tag">admin · every candidate carries a bound-by</span></div>
+      <div class="mock mock--shell sl js-sl" data-sl="light">
+        <div class="sl-content">
+          <button class="sl-btn sl-btn--text sl-btn--sm" style="margin-bottom:8px;padding-left:0">← Cycles</button>
+          <h1 class="t-h1">CIN @ PIT · 1:00p ET · Sun 26 Oct</h1>
+          <p class="sl-papermode" style="margin-bottom:16px">Paper mode · all figures simulated</p>
+
+          <div class="sl-paper" style="padding:14px 16px;margin-bottom:16px">
+            <div class="sl-kv" style="grid-template-columns:132px 1fr">
+              <span class="k">Run</span><span class="v">started 12:20:14p · finished 12:20:19p · outcome partial fill</span>
+              <span class="k">Risk mode</span><span class="v">conservative — 0.25× Kelly, game 5%, slate 15%</span>
+              <span class="k">Recalibration</span><span class="v">v3 — backtest 2019–2024 contract-like, blended with 412 live observations</span>
+              <span class="k">Bankroll</span><span class="v">$999.80 at evaluation · slate capacity $149.97 · game capacity $49.99</span>
+            </div>
+          </div>
+
+          <div class="sl-paper">
+            <div class="sl-between" style="padding:12px 16px"><h2 class="t-h2">Candidates</h2><span class="t-caption">ranked by Kelly edge, descending</span></div>
+            <div class="sl-divider"></div>
+
+            <div class="sl-cand">
+              <div class="hd"><span class="rank num">1</span><span class="who">Ja'Marr Chase CIN · receiving yards ≥ 74.5</span><span class="verdict pos">FILLED</span></div>
+              <div class="ln">raw <span class="pos">61.4%</span> → corrected <span class="pos">58.9%</span> · confidence high (×1.00)</div>
+              <div class="ln">yes ask <span class="market">54¢</span> · fee <span class="market">1¢</span> · net price <span class="market">55¢</span> · top-of-book <span class="market">40 contracts</span></div>
+              <div class="ln">Kelly edge <span class="pos">+0.071</span> · fraction 0.25× · intended $17.75 (32 contracts)</div>
+              <div class="bound"><b>bound by:</b> none &nbsp;·&nbsp; filled 32 @ 54¢ + $0.32 fee = $17.60</div>
+            </div>
+
+            <div class="sl-cand">
+              <div class="hd"><span class="rank num">2</span><span class="who">Tee Higgins CIN · receptions ≥ 4.5</span><span class="verdict caution">PARTIAL</span></div>
+              <div class="ln">raw <span class="pos">57.0%</span> → corrected <span class="pos">55.1%</span> · confidence medium (×0.70)</div>
+              <div class="ln">yes ask <span class="market">49¢</span> · fee <span class="market">1¢</span> · net price <span class="market">50¢</span> · top-of-book <span class="market">12 contracts</span></div>
+              <div class="ln">Kelly edge <span class="pos">+0.051</span> · fraction 0.25× · intended $12.25 (25 contracts)</div>
+              <div class="bound"><b>bound by:</b> top-of-book size &nbsp;·&nbsp; filled 12 @ 49¢ + $0.12 fee = $6.00</div>
+              <div class="bound caution">unfilled $6.25 returned to available bankroll</div>
+            </div>
+
+            <div class="sl-cand">
+              <div class="hd"><span class="rank num">3</span><span class="who">Najee Harris PIT · rushing yards ≥ 54.5</span><span class="verdict ink2">NO STAKE</span></div>
+              <div class="ln">raw <span class="pos">78.2%</span> → corrected <span class="pos">76.4%</span> · confidence high</div>
+              <div class="bound"><b>bound by:</b> probability ceiling (0.750)</div>
+            </div>
+
+            <div class="sl-cand">
+              <div class="hd"><span class="rank num">4</span><span class="who">George Pickens PIT · receiving yards ≥ 49.5</span><span class="verdict ink2">NO STAKE</span></div>
+              <div class="ln">raw <span class="pos">53.1%</span> → corrected <span class="pos">51.2%</span> · confidence low (×0.40)</div>
+              <div class="ln">yes ask <span class="market">51¢</span> · fee <span class="market">1¢</span> · net price <span class="market">52¢</span></div>
+              <div class="ln">Kelly edge <span class="neg">−0.017</span></div>
+              <div class="bound"><b>bound by:</b> no edge after fees</div>
+            </div>
+
+            <div class="sl-cand">
+              <div class="hd"><span class="rank num">5</span><span class="who">Pat Freiermuth PIT · receptions ≥ 2.5</span><span class="verdict caution">REFUSED</span></div>
+              <div class="bound"><b>bound by:</b> stale projection — predates today's inactives</div>
+            </div>
+          </div>
+
+          <div class="sl-paper" style="padding:14px 16px;margin-top:16px">
+            <h2 class="t-h2" style="margin-bottom:8px">Reallocation</h2>
+            <p class="t-body2 ink2" style="margin-bottom:4px"><span class="num">Pass 1</span> — allocated $17.75 to Chase, $12.25 to Higgins.</p>
+            <p class="t-body2 ink2"><span class="num">Pass 2</span> — $6.25 returned from Higgins. Higgins' top-of-book was consumed and is not retried this cycle. No remaining candidate had positive Kelly edge. $6.25 left unallocated.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pv-frame">
+      <div class="pv-cap"><span class="name">Cycles · cycle detail — responsive</span><span class="route">/autonomy/cycles</span><span class="tag">375 · rows wrap to two lines, never become cards</span></div>
+      <div class="pv-row">
+        <div class="mock mock--phone sl js-sl" data-sl="light">
+          <div class="sl-content">
+            <h1 class="t-h1">Cycles</h1>
+            <p class="sl-papermode" style="margin-bottom:14px">Paper mode · simulated</p>
+            <div class="sl-paper">
+              <table class="sl-tbl">
+                <tbody>
+                  <tr><td style="height:auto;padding:10px 14px">DET @ GB · 1:00p<div class="num num-sm ink2">3 · 2 · 2 — $22.10</div></td><td class="right" style="height:auto;padding:10px 14px">ok</td></tr>
+                  <tr><td style="height:auto;padding:10px 14px">CIN @ PIT · 1:00p<div class="num num-sm ink2">5 · 2 · 1 — $16.20</div></td><td class="right caution" style="height:auto;padding:10px 14px">partial</td></tr>
+                  <tr><td style="height:auto;padding:10px 14px">LAR @ SEA · 4:05p<div class="num num-sm ink2">breaker tripped mid-cycle</div></td><td class="right neg" style="height:auto;padding:10px 14px">halted</td></tr>
+                  <tr><td style="height:auto;padding:10px 14px">KC @ BUF · 8:20p<div class="num num-sm ink2">10-minute cutoff</div></td><td class="right caution" style="height:auto;padding:10px 14px">skipped</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div class="mock mock--phone sl js-sl" data-sl="light">
+          <div class="sl-content">
+            <h1 class="t-h1" style="font-size:18px;line-height:26px">CIN @ PIT · 1:00p</h1>
+            <p class="sl-papermode" style="margin-bottom:14px">Paper mode · simulated</p>
+            <div class="sl-paper">
+              <div class="sl-cand" style="padding:12px 14px">
+                <div class="hd" style="flex-wrap:wrap"><span class="rank num">1</span><span class="who" style="font-size:14px">Ja'Marr Chase · rec yds ≥74.5</span><span class="verdict pos" style="margin-left:26px">FILLED</span></div>
+                <div class="ln">61.4% → <span class="pos">58.9%</span> · conf high</div>
+                <div class="ln">ask <span class="market">54¢</span> · fee <span class="market">1¢</span> · book <span class="market">40</span></div>
+                <div class="ln">edge <span class="pos">+0.071</span> · intended $17.75</div>
+                <div class="bound"><b>bound by:</b> none</div>
+                <div class="bound num num-sm">filled 32 @ 54¢ = $17.60</div>
+              </div>
+              <div class="sl-cand" style="padding:12px 14px">
+                <div class="hd" style="flex-wrap:wrap"><span class="rank num">2</span><span class="who" style="font-size:14px">Tee Higgins · receptions ≥4.5</span><span class="verdict caution" style="margin-left:26px">PARTIAL</span></div>
+                <div class="ln">57.0% → <span class="pos">55.1%</span> · conf medium</div>
+                <div class="ln">ask <span class="market">49¢</span> · fee <span class="market">1¢</span> · book <span class="market">12</span></div>
+                <div class="bound"><b>bound by:</b> top-of-book size</div>
+                <div class="bound caution num num-sm">unfilled $6.25 returned</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ 03 POSITIONS -->
+  <section class="pv-section" id="s3">
+    <div class="pv-sec-head">
+      <span class="pv-num">03</span>
+      <h3>Positions</h3>
+      <span class="desc">The paper ledger. Every row carries the intended stake beside the fill; a voided market is terminal and visually distinct from a loss.</span>
+    </div>
+
+    <div class="pv-frame">
+      <div class="pv-cap"><span class="name">Positions</span><span class="route">/autonomy/positions</span><span class="tag">admin · open, settled, and voided together</span></div>
+      <div class="mock mock--shell sl js-sl" data-sl="light">
+        <div class="sl-content">
+          <div class="sl-between" style="align-items:flex-start;margin-bottom:16px">
+            <div><h1 class="t-h1">Positions</h1><p class="sl-papermode">Paper mode · all positions simulated · never live</p></div>
+            <span class="sl-row"><span class="sl-chip sl-chip--neutral">open</span><span class="sl-chip sl-chip--neutral">settled</span><span class="sl-chip sl-chip--model">all</span></span>
+          </div>
+          <div class="sl-paper">
+            <table class="sl-tbl">
+              <thead><tr><th>Contract</th><th>Side</th><th class="right">Qty</th><th class="right">Cost</th><th class="right">Mark</th><th>Result</th><th class="right">P&amp;L</th></tr></thead>
+              <tbody>
+                <tr>
+                  <td>Ja'Marr Chase · receiving yards ≥ 74.5<div class="num num-sm ink2">opened Sun 26 Oct 12:20p · intended $17.75 · filled complete</div></td>
+                  <td class="market">yes</td><td class="right num num-md">32</td><td class="right num num-md">$17.60</td><td class="right num num-md market">$19.20</td><td>open</td><td class="right num num-md ink3">—</td>
+                </tr>
+                <tr>
+                  <td>Tee Higgins · receptions ≥ 4.5<div class="num num-sm ink2">opened Sun 26 Oct 12:20p · intended $12.25 · <span class="caution">partial, $6.25 unfilled</span></div></td>
+                  <td class="market">yes</td><td class="right num num-md">12</td><td class="right num num-md">$6.00</td><td class="right num num-md market">$5.40</td><td>open</td><td class="right num num-md ink3">—</td>
+                </tr>
+                <tr>
+                  <td>Bijan Robinson · rushing yards ≥ 54.5<div class="num num-sm ink2">opened Sun 19 Oct 12:18p · settled Sun 19 Oct 7:42p · intended $15.40 · filled complete</div></td>
+                  <td class="market">yes</td><td class="right num num-md">28</td><td class="right num num-md">$15.40</td><td class="right num num-md ink3">—</td><td class="market">settled yes</td><td class="right num num-md pos">+$12.60</td>
+                </tr>
+                <tr>
+                  <td>Puka Nacua · receiving yards ≥ 89.5<div class="num num-sm ink2">opened Sun 19 Oct 12:18p · settled Sun 19 Oct 11:58p · intended $9.00 · filled complete</div></td>
+                  <td class="market">no</td><td class="right num num-md">20</td><td class="right num num-md">$9.00</td><td class="right num num-md ink3">—</td><td class="market">settled yes</td><td class="right num num-md neg">−$9.00</td>
+                </tr>
+                <tr style="color:var(--sl-ink2)">
+                  <td>Brock Bowers · receptions ≥ 3.5<div class="num num-sm ink3">opened Sun 12 Oct · market voided Mon 13 Oct · cost basis and fees returned</div></td>
+                  <td>no</td><td class="right num num-md">15</td><td class="right num num-md">$8.25</td><td class="right num num-md ink3">—</td><td><span class="sl-chip sl-chip--neutral">voided</span></td><td class="right num num-md">$0.00</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="t-caption" style="margin-top:10px;max-width:720px">Positions settle against Kalshi's settlement result. Where Kalshi's settlement and the official stat line disagree, the position follows Kalshi and the model's grade follows the official line — the two are recorded separately and never reconciled.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="pv-frame">
+      <div class="pv-cap"><span class="name">Positions — Kalshi degraded, and phone</span><span class="route">/autonomy/positions</span><span class="tag">designed degraded mode · 375</span></div>
+      <div class="pv-row">
+        <div class="mock mock--pane sl js-sl" data-sl="light">
+          <div class="sl-content" style="padding:24px">
+            <h1 class="t-h1">Positions</h1>
+            <p class="sl-papermode" style="margin-bottom:14px">Paper mode · all positions simulated · never live</p>
+            <div class="sl-alert sl-alert--info" style="margin-bottom:14px">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></svg>
+              <span class="body">Kalshi prices unavailable. Mark-to-market cannot be computed; cost, result, and realised P&amp;L are unaffected. Last successful fetch <span class="num">Sun 26 Oct 1:32p ET</span>.</span>
+            </div>
+            <div class="sl-paper">
+              <table class="sl-tbl">
+                <thead><tr><th>Contract</th><th class="right">Cost</th><th class="right">Mark</th><th class="right">P&amp;L</th></tr></thead>
+                <tbody>
+                  <tr><td>Ja'Marr Chase · rec yds ≥74.5</td><td class="right num num-md">$17.60</td><td class="right t-caption">unavailable</td><td class="right num num-md ink3">—</td></tr>
+                  <tr><td>Tee Higgins · receptions ≥4.5</td><td class="right num num-md">$6.00</td><td class="right t-caption">unavailable</td><td class="right num num-md ink3">—</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="t-caption" style="margin-top:10px">Drawdown also reports unavailable rather than falling back to settled-only — a figure on a different basis than the breaker uses would misstate the safety state.</p>
+          </div>
+        </div>
+        <div class="mock mock--phone sl js-sl" data-sl="light">
+          <div class="sl-content">
+            <h1 class="t-h1">Positions</h1>
+            <p class="sl-papermode" style="margin-bottom:14px">Paper mode · simulated</p>
+            <div class="sl-paper">
+              <table class="sl-tbl">
+                <tbody>
+                  <tr><td style="height:auto;padding:10px 14px">Ja'Marr Chase rec yds ≥74.5<div class="num num-sm ink2">yes 32 · $17.60 → $19.20 · open</div><div class="num num-sm ink2">intended $17.75 · complete</div></td></tr>
+                  <tr><td style="height:auto;padding:10px 14px">Tee Higgins receptions ≥4.5<div class="num num-sm ink2">yes 12 · $6.00 → $5.40 · open</div><div class="num num-sm caution">intended $12.25 · $6.25 unfilled</div></td></tr>
+                  <tr><td style="height:auto;padding:10px 14px">Bijan Robinson rush yds ≥54.5<div class="num num-sm ink2">yes 28 · $15.40 · settled yes</div><div class="num num-sm pos">+$12.60</div></td></tr>
+                  <tr style="color:var(--sl-ink2)"><td style="height:auto;padding:10px 14px">Brock Bowers receptions ≥3.5<div class="num num-sm ink3">no 15 · $8.25 · voided</div><div class="num num-sm">$0.00 — cost and fees returned</div></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ 04 REVIEW -->
+  <section class="pv-section" id="s4">
+    <div class="pv-sec-head">
+      <span class="pv-num">04</span>
+      <h3>Review and counterfactual replay</h3>
+      <span class="desc">Eight required figures, safety events with permanent override records, and — below a hard rule — a replay that is decision support and writes nowhere the bankroll can read it.</span>
+    </div>
+
+    <div class="pv-frame">
+      <div class="pv-cap"><span class="name">Review — week 9</span><span class="route">/autonomy/review?granularity=week&amp;period=2026-w9</span><span class="tag">admin · a losing week, reported plainly</span></div>
+      <div class="mock mock--shell sl js-sl" data-sl="light">
+        <div class="sl-content">
+          <div class="sl-between" style="align-items:flex-start;margin-bottom:16px">
+            <div><h1 class="t-h1">Review</h1><p class="sl-papermode">Paper mode · all figures simulated</p></div>
+            <span class="sl-row"><span class="sl-chip sl-chip--neutral">game window</span><span class="sl-chip sl-chip--model">week</span><span class="sl-chip sl-chip--neutral">campaign</span></span>
+          </div>
+          <p class="t-body2 ink2" style="margin-bottom:14px">Week 9 · 26 Oct – 30 Oct · risk mode conservative throughout</p>
+
+          <div class="sl-figs" style="margin-bottom:12px">
+            <div class="sl-fig"><span class="k">Starting bankroll</span><span class="num num-lg">$1,000.00</span></div>
+            <div class="sl-fig"><span class="k">Ending active</span><span class="num num-lg">$912.40</span></div>
+            <div class="sl-fig"><span class="k">Net paper P&amp;L</span><span class="num num-lg neg">−$87.60</span><span class="sub">after fills and fees</span></div>
+            <div class="sl-fig"><span class="k">Simulated withdrawals</span><span class="num num-lg">$150.00</span></div>
+          </div>
+          <div class="sl-figs" style="margin-bottom:16px">
+            <div class="sl-fig"><span class="k">Total paper wealth</span><span class="num num-lg">$1,062.40</span></div>
+            <div class="sl-fig"><span class="k">Max drawdown</span><span class="num num-lg">11.2%</span><span class="sub">mark-to-market</span></div>
+            <div class="sl-fig"><span class="k">Positions</span><span class="num num-lg">8</span><span class="sub">6 settled, 2 open</span></div>
+            <div class="sl-fig"><span class="k">Fill quality</span><span class="num num-lg">5 / 2 / 1</span><span class="sub">complete / partial / unfilled</span></div>
+          </div>
+
+          <div class="sl-paper" style="margin-bottom:16px">
+            <div style="padding:12px 16px"><h2 class="t-h2">Safety events</h2></div>
+            <table class="sl-tbl">
+              <tbody>
+                <tr><td class="num num-md">26 Oct 1:47p</td><td>drawdown halt</td><td class="num num-md">measured 11.2%, threshold 10.0%</td><td class="caution">force overridden by admin, 26 Oct 2:05p</td></tr>
+                <tr><td class="num num-md">26 Oct 12:04p</td><td>drawdown warning</td><td class="num num-md">measured 5.3%, threshold 5.0%</td><td class="ink2">cleared 26 Oct 12:41p</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="sl-paper" style="padding:14px 16px;margin-bottom:24px">
+            <div class="sl-between" style="margin-bottom:8px"><h2 class="t-h2">Model quality this period</h2><button class="sl-btn sl-btn--text sl-btn--sm">Accuracy →</button></div>
+            <p class="t-body2 ink2 num">Rolling Brier <span class="pos">0.229</span> over 118 graded contract-like predictions. Backtest reference <span class="pos">0.213</span>; market <span class="market">0.221</span> over the same contracts.</p>
+            <p class="t-body2" style="margin-top:8px">Paper P&amp;L is a financial result over 8 positions. It is not evidence of model quality on its own.</p>
+          </div>
+
+          <div style="border-top:3px double var(--sl-line-strong);padding-top:18px">
+            <div class="sl-between" style="margin-bottom:8px">
+              <h2 class="t-h2">Counterfactual risk-mode replay</h2>
+              <button class="sl-btn sl-btn--outlined sl-btn--sm">Run replay</button>
+            </div>
+            <div class="sl-paper" style="margin-bottom:10px">
+              <table class="sl-tbl">
+                <thead><tr><th>Mode</th><th class="right">Ending active</th><th class="right">Net P&amp;L</th><th class="right">Withdrawn</th><th class="right">Max DD</th><th class="right">Pos</th><th>Breakers</th></tr></thead>
+                <tbody>
+                  <tr><td>conservative <span class="ink3">*</span></td><td class="right num num-md">$912.40</td><td class="right num num-md neg">−$87.60</td><td class="right num num-md">$150.00</td><td class="right num num-md">11.2%</td><td class="right num num-md">8</td><td class="num num-md">1 halt</td></tr>
+                  <tr><td>moderate</td><td class="right num num-md">$868.10</td><td class="right num num-md neg">−$131.90</td><td class="right num num-md">$150.00</td><td class="right num num-md">16.8%</td><td class="right num num-md">11</td><td class="num num-md">1 halt</td></tr>
+                  <tr><td>aggressive</td><td class="right num num-md">$791.40</td><td class="right num num-md neg">−$208.60</td><td class="right num num-md">$150.00</td><td class="right num num-md">24.1%</td><td class="right num num-md">14</td><td class="num num-md">2 halts</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="t-caption"><span class="ink3">*</span> the mode actually used. Replayed 2 Nov 9:12a from the state available at each original decision time — same projections, same corrected probabilities, same observed books, same fill policy, same settlements. Only the risk configuration differs.</p>
+            <p class="t-body2 ink2" style="margin-top:8px">Replays are decision support. Sightline does not change risk mode from a replay result; you do, in Configuration.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pv-frame">
+      <div class="pv-cap"><span class="name">Review — replay not yet available, and phone</span><span class="route">/autonomy/review</span><span class="tag">designed state · 375</span></div>
+      <div class="pv-row">
+        <div class="mock mock--pane sl js-sl" data-sl="light">
+          <div class="sl-content" style="padding:24px">
+            <h2 class="t-h2" style="margin-bottom:10px">Counterfactual risk-mode replay</h2>
+            <div class="sl-paper" style="padding:16px">
+              <p class="t-body2 ink2" style="margin-bottom:12px">Replay uses the state available at each original decision time. Only the risk configuration changes; the projections, corrected probabilities, observed books, fill policy, and settlements are the ones that actually applied.</p>
+              <button class="sl-btn sl-btn--outlined sl-btn--sm" disabled>Run replay</button>
+              <p class="sl-help" style="margin-top:8px">Replay runs once the period's positions have all settled — 2 still open.</p>
+            </div>
+            <p class="t-caption" style="margin-top:10px">The section explains the condition rather than hiding. It never renders as an empty table.</p>
+          </div>
+        </div>
+        <div class="mock mock--phone sl js-sl" data-sl="light">
+          <div class="sl-content">
+            <h1 class="t-h1">Review</h1>
+            <p class="sl-papermode" style="margin-bottom:14px">Paper mode · simulated</p>
+            <div class="sl-figs" style="margin-bottom:12px">
+              <div class="sl-fig"><span class="k">Start</span><span class="num num-lg">$1,000</span></div>
+              <div class="sl-fig"><span class="k">Ending</span><span class="num num-lg">$912.40</span></div>
+              <div class="sl-fig"><span class="k">Net P&amp;L</span><span class="num num-lg neg">−$87.60</span></div>
+              <div class="sl-fig"><span class="k">Withdrawn</span><span class="num num-lg">$150.00</span></div>
+              <div class="sl-fig"><span class="k">Wealth</span><span class="num num-lg">$1,062</span></div>
+              <div class="sl-fig"><span class="k">Max DD</span><span class="num num-lg">11.2%</span></div>
+              <div class="sl-fig"><span class="k">Positions</span><span class="num num-lg">8</span></div>
+              <div class="sl-fig"><span class="k">Fills</span><span class="num num-lg">5/2/1</span></div>
+            </div>
+            <div class="sl-paper" style="padding:12px 14px">
+              <p class="t-label" style="margin-bottom:6px">Safety events</p>
+              <p class="t-caption caution">drawdown halt · 11.2% vs 10.0% · force overridden</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ 05 READINESS -->
+  <section class="pv-section" id="s5">
+    <div class="pv-sec-head">
+      <span class="pv-num">05</span>
+      <h3>Live readiness</h3>
+      <span class="desc">Evidence per criterion, grouped so financial evidence never blends into model evidence. Eligibility is a report; no state on this screen produces a control that could act on it.</span>
+    </div>
+
+    <div class="pv-frame">
+      <div class="pv-cap"><span class="name">Readiness — evidence building</span><span class="route">/autonomy/readiness</span><span class="tag">admin · the honest majority state</span></div>
+      <div class="mock mock--shell sl js-sl" data-sl="light">
+        <div class="sl-content">
+          <h1 class="t-h1">Live readiness</h1>
+          <p class="sl-papermode" style="margin-bottom:16px">Paper mode · all figures simulated</p>
+
+          <div class="sl-paper" style="padding:16px;margin-bottom:16px">
+            <span class="sl-chip sl-chip--caution">paper evidence building</span>
+            <p class="t-body2" style="margin-top:10px;max-width:640px">Reaching every criterion does not enable live trading and does not create a control that would. Real-money operation requires the later Kalshi Trading capability and an explicit decision by you.</p>
+          </div>
+
+          <div class="sl-paper" style="padding:14px 16px;margin-bottom:12px">
+            <h2 class="t-h2" style="margin-bottom:6px">Paper evidence</h2>
+            <div class="sl-crit"><span class="g unmet" aria-label="not met">✗</span><span class="lab">Two complete NFL weeks of autonomous paper trading</span><span class="ev">1 of 2 complete. Week 9 in progress (3 positions unsettled).</span></div>
+            <div class="sl-crit"><span class="g unmet" aria-label="not met">✗</span><span class="lab">Positive cumulative net paper P&amp;L across those weeks</span><span class="ev">−$87.60 across 1 complete week, after realistic fills and fees.</span></div>
+          </div>
+
+          <div class="sl-paper" style="padding:14px 16px;margin-bottom:12px">
+            <div class="sl-between" style="margin-bottom:6px"><h2 class="t-h2">Model quality</h2><button class="sl-btn sl-btn--text sl-btn--sm">Accuracy →</button></div>
+            <div class="sl-crit"><span class="g met" aria-label="met">✓</span><span class="lab">Calibration within the approved range</span><span class="ev">Rolling Brier 0.229 against backtest 0.213 (tolerance +0.030).</span></div>
+            <div class="sl-crit"><span class="g unmet" aria-label="not met">✗</span><span class="lab">Performance relative to Kalshi</span><span class="ev">Model 0.229 against market 0.221 over 118 shared contracts (tolerance +0.020).</span></div>
+            <div class="sl-crit"><span class="g met" aria-label="met">✓</span><span class="lab">Approved baseline requirements satisfied</span><span class="ev">Stored backtest run 2019–2024 holdout beats both baselines.</span></div>
+          </div>
+
+          <div class="sl-paper" style="padding:14px 16px">
+            <h2 class="t-h2" style="margin-bottom:6px">Safety and operations</h2>
+            <div class="sl-crit"><span class="g unmet" aria-label="not met">✗</span><span class="lab">Drawdown within acceptable bounds</span><span class="ev">Max drawdown 11.2%, bound 10.0% (conservative).</span></div>
+            <div class="sl-crit"><span class="g met" aria-label="met">✓</span><span class="lab">Breakers behaved as expected</span><span class="ev">1 trip, 1 force override, 0 failures to trip.</span></div>
+            <div class="sl-crit"><span class="g met" aria-label="met">✓</span><span class="lab">No unresolved operational failures</span><span class="ev">0 failed cycles in the last 14 days.</span></div>
+            <div class="sl-crit"><span class="g met" aria-label="met">✓</span><span class="lab">Sizing and exposure behaviour responsible</span><span class="ev">0 cap breaches across 24 cycles.</span></div>
+          </div>
+
+          <p class="t-caption" style="margin-top:10px">Evaluated 2 Nov 9:14a · re-evaluated on each page load</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="pv-frame">
+      <div class="pv-cap"><span class="name">Readiness — eligible, and not ready</span><span class="route">/autonomy/readiness</span><span class="tag">no control appears in either state</span></div>
+      <div class="pv-grid2">
+        <div class="mock mock--pane sl js-sl" data-sl="light" style="min-width:0">
+          <div class="sl-content" style="padding:24px">
+            <div class="sl-paper" style="padding:16px">
+              <span class="sl-chip sl-chip--model">eligible for live trading</span>
+              <p class="t-body2" style="margin-top:10px">Every criterion is met. This is a report, not an action. Sightline cannot move itself to real money and no control on this page will. Real-money operation requires the later Kalshi Trading capability and an explicit decision by you.</p>
+            </div>
+            <div class="sl-paper" style="padding:14px 16px;margin-top:12px">
+              <div class="sl-crit"><span class="g met" aria-label="met">✓</span><span class="lab">Two complete NFL weeks</span><span class="ev">2 of 2 complete (weeks 9, 10).</span></div>
+              <div class="sl-crit"><span class="g met" aria-label="met">✓</span><span class="lab">Positive cumulative net paper P&amp;L</span><span class="ev">+$63.20 across 2 complete weeks, after realistic fills and fees.</span></div>
+            </div>
+            <p class="t-caption" style="margin-top:10px">No button. No activation affordance exists anywhere in this feature.</p>
+          </div>
+        </div>
+        <div class="mock mock--pane sl js-sl" data-sl="light" style="min-width:0">
+          <div class="sl-content" style="padding:24px">
+            <div class="sl-paper" style="padding:16px">
+              <span class="sl-chip sl-chip--neutral">not ready</span>
+              <p class="t-body2" style="margin-top:10px">Reaching every criterion does not enable live trading and does not create a control that would.</p>
+            </div>
+            <div class="sl-paper" style="padding:14px 16px;margin-top:12px">
+              <div class="sl-crit"><span class="g unmet" aria-label="not met">✗</span><span class="lab">Two complete NFL weeks</span><span class="ev">0 of 2 complete.</span></div>
+              <div class="sl-crit"><span class="g unmet" aria-label="not met">✗</span><span class="lab">Positive cumulative net paper P&amp;L</span><span class="ev">No complete week yet.</span></div>
+              <div class="sl-crit"><span class="g unmet" aria-label="not met">✗</span><span class="lab">Calibration within the approved range</span><span class="ev">Could not evaluate: no graded live predictions yet.</span></div>
+            </div>
+            <p class="t-caption" style="margin-top:10px">A criterion that cannot be evaluated renders as not met — never as passing, never omitted.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ 06 DRY RUN -->
+  <section class="pv-section" id="s6">
+    <div class="pv-sec-head">
+      <span class="pv-num">06</span>
+      <h3>Dry Run</h3>
+      <span class="desc">The same decision path, the same candidate card, conditional verb tense, and nothing written. Dry Run reports that a breaker would block rather than showing an empty list.</span>
+    </div>
+
+    <div class="pv-frame">
+      <div class="pv-cap"><span class="name">Dry Run — a breaker would block</span><span class="route">/autonomy/dry-run</span><span class="tag">admin · writes nothing</span></div>
+      <div class="mock mock--shell sl js-sl" data-sl="light">
+        <div class="sl-content">
+          <h1 class="t-h1">Dry Run</h1>
+          <p class="sl-papermode" style="margin-bottom:16px">Paper mode · all figures simulated · this run writes nothing</p>
+
+          <div class="sl-paper" style="padding:14px 16px;margin-bottom:16px">
+            <div class="sl-between" style="margin-bottom:8px">
+              <span class="sl-row"><span class="t-label ink2">Game window</span><span class="sl-chip sl-chip--neutral">DET @ GB · Sun 2 Nov 1:00p ET</span></span>
+              <button class="sl-btn sl-btn--contained sl-btn--sm">Run dry run</button>
+            </div>
+            <p class="t-body2 ink2">Uses the active risk mode, the active recalibration, the current bankroll state, the same exposure caps, the same breaker evaluation, and the same fill policy as an autonomous cycle. Creates no position and changes no bankroll.</p>
+          </div>
+
+          <p class="t-body2 ink2 num" style="margin-bottom:10px">Result · run 2 Nov 9:20a · would not have executed</p>
+
+          <div class="sl-alert sl-alert--caution" style="margin-bottom:14px">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 20h20L12 3Z"/><path d="M12 10v4M12 17h.01"/></svg>
+            <span class="body">A breaker would block this cycle: drawdown halt, measured <span class="num">11.2%</span> against a threshold of <span class="num">10.0%</span>. The candidates below are what the cycle would have evaluated before the block.</span>
+          </div>
+
+          <div class="sl-paper">
+            <div class="sl-cand">
+              <div class="hd"><span class="rank num">1</span><span class="who">Jahmyr Gibbs DET · rushing yards ≥ 54.5</span><span class="verdict pos">WOULD FILL</span></div>
+              <div class="ln">raw <span class="pos">64.0%</span> → corrected <span class="pos">61.2%</span> · confidence high (×1.00)</div>
+              <div class="ln">yes ask <span class="market">56¢</span> · fee <span class="market">1¢</span> · net price <span class="market">57¢</span> · top-of-book <span class="market">55 contracts</span></div>
+              <div class="ln">Kelly edge <span class="pos">+0.075</span> · fraction 0.25× · intended $18.60 (33 contracts)</div>
+              <div class="bound"><b>bound by:</b> breaker: drawdown halt</div>
+            </div>
+            <div class="sl-cand">
+              <div class="hd"><span class="rank num">2</span><span class="who">Tucker Kraft GB · receptions ≥ 3.5</span><span class="verdict caution">WOULD PARTIAL</span></div>
+              <div class="ln">raw <span class="pos">58.8%</span> → corrected <span class="pos">56.4%</span> · confidence medium (×0.70)</div>
+              <div class="ln">yes ask <span class="market">51¢</span> · fee <span class="market">1¢</span> · net price <span class="market">52¢</span> · top-of-book <span class="market">9 contracts</span></div>
+              <div class="ln">Kelly edge <span class="pos">+0.044</span> · fraction 0.25× · intended $10.20 (20 contracts)</div>
+              <div class="bound"><b>bound by:</b> top-of-book size, then breaker: drawdown halt</div>
+            </div>
+            <div class="sl-cand">
+              <div class="hd"><span class="rank num">3</span><span class="who">Amon-Ra St. Brown DET · receiving yards ≥ 74.5</span><span class="verdict ink2">NO STAKE</span></div>
+              <div class="ln">raw <span class="pos">80.1%</span> → corrected <span class="pos">77.9%</span> · confidence high</div>
+              <div class="bound"><b>bound by:</b> probability ceiling (0.750)</div>
+            </div>
+          </div>
+
+          <p class="t-body2 ink2 num" style="margin-top:12px">Would have staked $0.00 of $149.97 slate capacity across 0 positions.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="pv-frame">
+      <div class="pv-cap"><span class="name">Dry Run — no eligible window, and running</span><span class="route">/autonomy/dry-run</span><span class="tag">designed states</span></div>
+      <div class="pv-grid2">
+        <div class="mock mock--pane sl js-sl" data-sl="light" style="min-width:0">
+          <div class="sl-content" style="padding:24px">
+            <h1 class="t-h1">Dry Run</h1>
+            <p class="sl-papermode" style="margin-bottom:16px">Paper mode · this run writes nothing</p>
+            <div class="sl-paper">
+              <div class="sl-empty">
+                <h2 class="t-h2">No upcoming game window has resolvable contracts.</h2>
+                <p>Dry Run becomes available once the slate has contracts for a scheduled game. Next kickoff: Thu 30 Oct, 8:15p ET.</p>
+                <button class="sl-btn sl-btn--outlined sl-btn--sm" disabled>Run dry run</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="mock mock--pane sl js-sl" data-sl="light" style="min-width:0">
+          <div class="sl-content" style="padding:24px">
+            <h1 class="t-h1">Dry Run</h1>
+            <p class="sl-papermode" style="margin-bottom:16px">Paper mode · this run writes nothing</p>
+            <div class="sl-paper" style="padding:14px 16px;margin-bottom:12px">
+              <div class="sl-between"><span class="sl-chip sl-chip--neutral">CIN @ PIT · Sun 2 Nov 1:00p ET</span><button class="sl-btn sl-btn--contained sl-btn--sm" disabled>Running…</button></div>
+            </div>
+            <div class="sl-progress" style="margin-bottom:12px"></div>
+            <div class="sl-paper" style="opacity:.5">
+              <div class="sl-cand"><div class="hd"><span class="rank num">1</span><span class="who">Previous result, dimmed but not removed</span></div><div class="bound"><b>bound by:</b> none</div></div>
+            </div>
+            <p class="t-caption" style="margin-top:10px">On failure: “Dry run could not complete: &lt;reason&gt;. Nothing was written.” The last sentence is required copy.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ 07 CONFIGURATION -->
+  <section class="pv-section" id="s7">
+    <div class="pv-sec-head">
+      <span class="pv-num">07</span>
+      <h3>Configuration</h3>
+      <span class="desc">Four presets rather than fourteen sliders. Custom exposes the underlying values with a non-blocking warning above 0.75× Kelly; the probability ceiling is stated as independent of mode.</span>
+    </div>
+
+    <div class="pv-frame">
+      <div class="pv-cap"><span class="name">Configuration — custom, above 0.75× Kelly</span><span class="route">/autonomy/configuration</span><span class="tag">admin · the warning does not block</span></div>
+      <div class="mock mock--shell sl js-sl" data-sl="light">
+        <div class="sl-content">
+          <h1 class="t-h1">Configuration</h1>
+          <p class="sl-papermode" style="margin-bottom:16px">Paper mode · all settings apply to simulated trading only</p>
+
+          <h2 class="t-h2" style="margin-bottom:10px">Risk mode</h2>
+          <div class="sl-modes" style="margin-bottom:10px">
+            <div class="sl-mode"><span class="nm">conservative</span><span class="p">0.25× Kelly<br>game 5% · slate 15%<br>halt at 10%</span></div>
+            <div class="sl-mode"><span class="nm">moderate</span><span class="p">0.50× Kelly<br>game 8% · slate 25%<br>halt at 15%</span></div>
+            <div class="sl-mode"><span class="nm">aggressive</span><span class="p">0.75× Kelly<br>game 12% · slate 35%<br>halt at 20%</span></div>
+            <div class="sl-mode on"><span class="nm">custom ●</span><span class="p">0.85× Kelly<br>game 12% · slate 30%<br>halt at 20%</span></div>
+          </div>
+          <p class="t-body2 ink2" style="margin-bottom:4px">Changing mode applies to the next sizing decision. Open positions keep the mode and limits they were created under.</p>
+          <p class="t-body2 ink2" style="margin-bottom:18px">The probability ceiling (<span class="num">0.750</span>) does not change with mode.</p>
+
+          <div class="sl-paper" style="padding:16px;margin-bottom:18px">
+            <h2 class="t-h2" style="margin-bottom:12px">Custom parameters</h2>
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px">
+              <div class="sl-field"><label for="cfg-k">Kelly fraction ×</label><input id="cfg-k" class="sl-input num" value="0.85"><span class="sl-help">0 to 1.0</span></div>
+              <div class="sl-field"><label for="cfg-g">Per-game cap %</label><input id="cfg-g" class="sl-input num" value="12"><span class="sl-help">1 to 50, of current active bankroll</span></div>
+              <div class="sl-field"><label for="cfg-s">Per-slate cap %</label><input id="cfg-s" class="sl-input num" value="30"><span class="sl-help">1 to 50, at least the per-game cap</span></div>
+              <div class="sl-field"><label for="cfg-d">Drawdown halt %</label><input id="cfg-d" class="sl-input num" value="20"><span class="sl-help">1 to 50</span></div>
+            </div>
+            <div class="sl-alert sl-alert--caution" style="margin-top:14px" role="status">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 20h20L12 3Z"/><path d="M12 10v4M12 17h.01"/></svg>
+              <span class="body">Above 0.75×, Kelly sizing is highly sensitive to probability error. Full Kelly assumes the probability is exactly right.</span>
+            </div>
+          </div>
+
+          <div class="sl-paper" style="padding:16px;margin-bottom:18px">
+            <h2 class="t-h2" style="margin-bottom:12px">Bankroll</h2>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;max-width:620px">
+              <div class="sl-field"><label for="cfg-b">Starting bankroll $</label><input id="cfg-b" class="sl-input num" value="1000.00" disabled><span class="sl-help">Locked — the campaign has positions. Starting bankroll defines the historical record.</span></div>
+              <div class="sl-field"><label for="cfg-w">Withdrawal ceiling ×</label><input id="cfg-w" class="sl-input num" value="1.5"><span class="sl-help num">= $1,500.00</span></div>
+            </div>
+            <p class="t-body2 ink2" style="margin-top:12px;max-width:640px">When active bankroll exceeds the ceiling, the excess is withdrawn to simulated withdrawn profit and active bankroll returns to $1,500.00. This repeats each time the ceiling is exceeded.</p>
+          </div>
+
+          <div class="sl-paper" style="padding:16px;margin-bottom:18px">
+            <h2 class="t-h2" style="margin-bottom:10px">Autonomous execution</h2>
+            <p class="t-body"><span class="sl-chip sl-chip--model-fill">enabled</span> &nbsp; Cycles run automatically before each game window.</p>
+            <p class="t-body2 ink2" style="margin-top:8px">Cutoff: no new position inside 10 minutes of kickoff. Not configurable.</p>
+          </div>
+
+          <div class="sl-row" style="justify-content:flex-end">
+            <button class="sl-btn sl-btn--text">Cancel</button>
+            <button class="sl-btn sl-btn--outlined">Save configuration</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pv-frame">
+      <div class="pv-cap"><span class="name">Configuration — responsive, and a validation error</span><span class="route">/autonomy/configuration</span><span class="tag">375 · mode cards stack with parameters intact</span></div>
+      <div class="pv-row">
+        <div class="mock mock--phone sl js-sl" data-sl="light">
+          <div class="sl-content">
+            <h1 class="t-h1">Configuration</h1>
+            <p class="sl-papermode" style="margin-bottom:14px">Paper mode · simulated only</p>
+            <div class="sl-modes">
+              <div class="sl-mode on"><span class="nm">conservative ●</span><span class="p">0.25× Kelly · game 5% · slate 15% · halt 10%</span></div>
+              <div class="sl-mode"><span class="nm">moderate</span><span class="p">0.50× Kelly · game 8% · slate 25% · halt 15%</span></div>
+              <div class="sl-mode"><span class="nm">aggressive</span><span class="p">0.75× Kelly · game 12% · slate 35% · halt 20%</span></div>
+              <div class="sl-mode"><span class="nm">custom</span><span class="p">set your own</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="mock mock--pane sl js-sl" data-sl="light" style="min-width:0">
+          <div class="sl-content" style="padding:24px">
+            <div class="sl-paper" style="padding:16px">
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+                <div class="sl-field"><label for="cfg-g2">Per-game cap %</label><input id="cfg-g2" class="sl-input num" value="30"><span class="sl-help">1 to 50</span></div>
+                <div class="sl-field"><label for="cfg-s2">Per-slate cap %</label><input id="cfg-s2" class="sl-input sl-input--error num" value="20" aria-describedby="cfg-s2-err"><span id="cfg-s2-err" class="sl-help sl-help--error">Per-slate cap must be at least the per-game cap (30%).</span></div>
+              </div>
+              <div class="sl-row" style="justify-content:flex-end;margin-top:16px">
+                <button class="sl-btn sl-btn--text">Cancel</button>
+                <button class="sl-btn sl-btn--outlined" disabled>Save configuration</button>
+              </div>
+              <p class="sl-help" style="text-align:right;margin-top:6px">One field is invalid.</p>
+            </div>
+            <p class="t-caption" style="margin-top:10px">Errors render inline beneath the field. No error is reported only in a notification, and no value is discarded by a failed save.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ 08 SAFETY -->
+  <section class="pv-section" id="s8">
+    <div class="pv-sec-head">
+      <span class="pv-num">08</span>
+      <h3>Safety controls</h3>
+      <span class="desc">Kill, Resume, and Force Override are three shapes of control in three places. Force Override is a route with per-condition acknowledgement — never a dialog beside Resume.</span>
+    </div>
+
+    <div class="pv-frame">
+      <div class="pv-cap"><span class="name">Force override</span><span class="route">/autonomy/override</span><span class="tag">admin · action disabled until every breach is acknowledged</span></div>
+      <div class="mock mock--shell sl js-sl" data-sl="light">
+        <div class="sl-content">
+          <button class="sl-btn sl-btn--text sl-btn--sm" style="margin-bottom:8px;padding-left:0">← Autonomy</button>
+          <h1 class="t-h1">Force override</h1>
+          <p class="sl-papermode" style="margin-bottom:16px">Paper mode · all figures simulated</p>
+
+          <div class="sl-alert sl-alert--caution" style="margin-bottom:18px">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2 20h20L12 3Z"/><path d="M12 10v4M12 17h.01"/></svg>
+            <span class="body">Force override resumes autonomous trading while a safety condition is still breached. Ordinary Resume is not available because the condition has not cleared. The breaker remains active and will evaluate again on the next cycle — this does not disable it.</span>
+          </div>
+
+          <h2 class="t-h2" style="margin-bottom:10px">Active breaches — select each one you are overriding</h2>
+
+          <div class="sl-stack" style="gap:12px;margin-bottom:18px">
+            <label class="sl-ack">
+              <span class="sl-box on" role="checkbox" aria-checked="true" aria-label="Override drawdown halt"></span>
+              <span>
+                <span class="t-label" style="display:block;margin-bottom:6px">drawdown halt</span>
+                <span class="sl-kv">
+                  <span class="k">condition</span><span class="v">active bankroll below the high-water mark by more than the mode's halt threshold, measured mark-to-market</span>
+                  <span class="k">measured</span><span class="v">11.2% — $912.40 against a high-water mark of $1,027.90</span>
+                  <span class="k">threshold</span><span class="v">10.0% — conservative</span>
+                  <span class="k">tripped</span><span class="v">Sun 26 Oct 1:47p ET</span>
+                </span>
+              </span>
+            </label>
+
+            <label class="sl-ack">
+              <span class="sl-box" role="checkbox" aria-checked="false" aria-label="Override calibration breaker"></span>
+              <span>
+                <span class="t-label" style="display:block;margin-bottom:6px">calibration</span>
+                <span class="sl-kv">
+                  <span class="k">condition</span><span class="v">rolling Brier behind the market by more than the tolerance</span>
+                  <span class="k">measured</span><span class="v">0.229 model against 0.221 market — +0.008 over the +0.020 bound; 118 in a 100-prediction window, minimum 30</span>
+                  <span class="k">threshold</span><span class="v">+0.020</span>
+                  <span class="k">tripped</span><span class="v">Sun 26 Oct 1:47p ET</span>
+                </span>
+              </span>
+            </label>
+          </div>
+
+          <p class="t-body2 ink2" style="margin-bottom:14px;max-width:680px">Autonomous trading will resume with these conditions still breached. Each override is recorded permanently against this campaign and appears in review.</p>
+
+          <div class="sl-row" style="justify-content:flex-end">
+            <button class="sl-btn sl-btn--text">Cancel</button>
+            <button class="sl-btn sl-btn--caution" disabled>Force override and resume</button>
+          </div>
+          <p class="sl-help" style="text-align:right;margin-top:6px">1 of 2 breaches acknowledged.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="pv-frame">
+      <div class="pv-cap"><span class="name">Kill · resume · feedback</span><span class="route">/autonomy</span><span class="tag">kill has no confirmation, by design</span></div>
+      <div class="pv-grid2">
+        <div class="mock sl js-sl" data-sl="light">
+          <div class="sl-stage">
+            <div class="sl-scrim"></div>
+            <div class="sl-dialog">
+              <h4>Resume autonomous trading?</h4>
+              <p class="t-body">Every breached condition has cleared: drawdown is 3.1% against a 10.0% threshold. Breakers stay active and will evaluate on the next cycle.</p>
+              <div class="sl-dialog-actions">
+                <button class="sl-btn sl-btn--text">Cancel</button>
+                <button class="sl-btn sl-btn--outlined">Resume</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="mock sl js-sl" data-sl="light" style="padding:24px">
+          <div class="sl-stack" style="gap:14px">
+            <div class="sl-paper" style="padding:14px 16px">
+              <p class="t-label" style="margin-bottom:8px">Kill switch — armed, engaged, and its release</p>
+              <div class="sl-row" style="gap:10px;flex-wrap:wrap">
+                <button class="sl-btn sl-btn--outlined" style="color:var(--sl-negative);border-color:var(--sl-negative)">Kill autonomy</button>
+                <button class="sl-btn sl-btn--outlined" disabled style="color:var(--sl-negative);border-color:var(--sl-negative)">Killed</button>
+                <button class="sl-btn sl-btn--outlined sl-btn--sm">Disengage kill switch</button>
+              </div>
+              <p class="sl-help" style="margin-top:8px">No confirmation on engage. Disengaging is confirmed.</p>
+            </div>
+            <span class="sl-snack" style="color:var(--sl-caution);border-color:var(--sl-caution)">Autonomy killed. No new positions will be created.</span>
+            <span class="sl-snack" style="color:var(--sl-caution);border-color:var(--sl-caution)">Force override recorded. Autonomous trading resumed with 2 conditions still breached.</span>
+            <span class="sl-snack">Configuration saved. Applies to the next sizing decision.</span>
+            <span class="sl-snack">Risk mode changed to moderate. Open positions keep their original limits.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ 09 STATES -->
+  <section class="pv-section" id="s9">
+    <div class="pv-sec-head">
+      <span class="pv-num">09</span>
+      <h3>States</h3>
+      <span class="desc">Loading, offseason, error, permission denial, and the Health additions — given the same billing as the populated screens.</span>
+    </div>
+
+    <div class="pv-grid2">
+      <div class="pv-frame">
+        <div class="pv-cap"><span class="name">Overview — loading</span><span class="route">/autonomy</span><span class="tag">the kill switch never skeletons</span></div>
+        <div class="mock sl js-sl" data-sl="light" style="padding:24px">
+          <div class="sl-between" style="align-items:flex-start;margin-bottom:16px">
+            <div><h1 class="t-h1">Autonomy</h1><p class="sl-papermode">Paper mode · all figures simulated</p></div>
+            <button class="sl-btn sl-btn--outlined" style="color:var(--sl-negative);border-color:var(--sl-negative)">Kill autonomy</button>
+          </div>
+          <div class="sl-figs" style="margin-bottom:14px">
+            <div class="sl-sk" style="height:76px"></div><div class="sl-sk" style="height:76px"></div><div class="sl-sk" style="height:76px"></div><div class="sl-sk" style="height:76px"></div>
+          </div>
+          <div class="sl-sk" style="height:120px;margin-bottom:14px"></div>
+          <div class="sl-sk" style="height:200px"></div>
+        </div>
+      </div>
+
+      <div class="pv-frame">
+        <div class="pv-cap"><span class="name">Overview — read failed, and a kill that did not take</span><span class="route">/autonomy</span><span class="tag">the control that stops the bot stays live</span></div>
+        <div class="mock sl js-sl" data-sl="light" style="padding:24px">
+          <div class="sl-between" style="align-items:flex-start;margin-bottom:16px">
+            <div><h1 class="t-h1">Autonomy</h1><p class="sl-papermode">Paper mode · all figures simulated</p></div>
+            <button class="sl-btn sl-btn--outlined" style="color:var(--sl-negative);border-color:var(--sl-negative)">Kill autonomy</button>
+          </div>
+          <div class="sl-alert sl-alert--error">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>
+            <span class="body">Could not load autonomy state.</span>
+            <button class="sl-btn sl-btn--sm sl-btn--outlined">Retry</button>
+          </div>
+          <div class="sl-paper" style="padding:14px 16px;margin-top:14px">
+            <button class="sl-btn sl-btn--outlined" disabled style="color:var(--sl-negative);border-color:var(--sl-negative)">Killed</button>
+            <p class="t-body2 neg" style="margin-top:8px">Kill did not take effect. Retry.</p>
+            <p class="t-caption" style="margin-top:6px">The button does not clear its pressed appearance — a control that looks like it worked and did not is the worst failure here.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="pv-frame">
+        <div class="pv-cap"><span class="name">Cycles — offseason</span><span class="route">/autonomy/cycles</span><span class="tag">dormancy is designed, not a failure</span></div>
+        <div class="mock sl js-sl" data-sl="light" style="padding:24px">
+          <h1 class="t-h1">Cycles</h1>
+          <p class="sl-papermode" style="margin-bottom:14px">Paper mode · all figures simulated</p>
+          <div class="sl-paper">
+            <div class="sl-empty">
+              <h2 class="t-h2">Offseason. Autonomous cycles resume with the season schedule.</h2>
+              <p>Last cycle: Sun 4 Jan, 3:55p ET. Bankroll, positions, and review remain available.</p>
+              <span class="sl-row"><button class="sl-btn sl-btn--outlined sl-btn--sm">Review</button><button class="sl-btn sl-btn--outlined sl-btn--sm">Positions</button></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="pv-frame">
+        <div class="pv-cap"><span class="name">Any Autonomy route — viewer</span><span class="route">/autonomy/*</span><span class="tag">viewer · 403 in place, no chrome drawn first</span></div>
+        <div class="mock sl js-sl" data-sl="light">
+          <div class="sl-shell" style="min-height:340px">
+            <div class="sl-appbar">
+              <span class="sl-lockup">
+                <img class="light" src="../../../src/assets/brand/logo-lockup-for-light-backgrounds.svg" alt="Sightline">
+                <img class="dark" src="../../../src/assets/brand/logo-lockup-for-dark-backgrounds.svg" alt="Sightline">
+              </span>
+              <nav class="sl-tabs"><span class="sl-tab on">Slate</span><span class="sl-tab">Accuracy</span></nav>
+              <span class="sl-spacer"></span>
+              <span class="sl-avatar">DK</span>
+            </div>
+            <div class="sl-content">
+              <div class="sl-paper">
+                <div class="sl-empty">
+                  <h2 class="t-h2">Not available.</h2>
+                  <p>This page is not part of your access.</p>
+                  <button class="sl-btn sl-btn--outlined sl-btn--sm">Back to slate</button>
+                </div>
+              </div>
+              <p class="t-caption" style="margin-top:10px">No Autonomy tab exists in the viewer's navigation. Absence is indistinguishable from non-existence — never a disabled or locked item.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="pv-frame">
+        <div class="pv-cap"><span class="name">Health — the three autonomy signals</span><span class="route">/health</span><span class="tag">admin · disabled is neutral, not amber</span></div>
+        <div class="mock sl js-sl" data-sl="light" style="padding:24px">
+          <h1 class="t-h1" style="margin-bottom:14px">Health</h1>
+          <div class="sl-paper">
+            <table class="sl-tbl">
+              <tbody>
+                <tr><td>Last successful autonomous cycle</td><td class="num num-md">Sun 26 Oct 3:55p ET</td><td class="right"><span class="sl-chip sl-chip--caution">late</span></td></tr>
+                <tr><td>Last successful paper settlement pass<div class="num num-sm ink2">3 positions awaiting settlement</div></td><td class="num num-md">Sun 26 Oct 11:02p ET</td><td class="right"><span class="sl-chip sl-chip--neutral">ok</span></td></tr>
+                <tr><td>Autonomy state</td><td class="num num-md">halted — 2 breaches</td><td class="right"><span class="sl-chip sl-chip--error">halted</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="t-caption" style="margin-top:10px">A cycle that failed is a row on Cycles with a reason, not an error state. Health reports failures; choosing not to run the bot is not one.</p>
+        </div>
+      </div>
+
+      <div class="pv-frame">
+        <div class="pv-cap"><span class="name">Positions and Review — empty</span><span class="route">/autonomy/positions · /autonomy/review</span><span class="tag">legitimate answers</span></div>
+        <div class="mock sl js-sl" data-sl="light" style="padding:24px">
+          <div class="sl-stack" style="gap:14px">
+            <div class="sl-paper">
+              <div class="sl-empty" style="padding:36px 24px">
+                <h2 class="t-h2">No paper positions.</h2>
+                <p>Positions appear once an autonomous cycle fills one.</p>
+                <button class="sl-btn sl-btn--outlined sl-btn--sm">View cycles</button>
+              </div>
+            </div>
+            <div class="sl-paper">
+              <div class="sl-empty" style="padding:36px 24px">
+                <h2 class="t-h2">No completed period to review.</h2>
+                <p>Week 9 is in progress; review becomes available once its positions settle.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ CLOSING LEGEND ============ -->
+  <section class="pv-section">
+    <div class="pv-sec-head">
+      <span class="pv-num">✳</span><h3>What these screens are built to respect</h3>
+      <span class="desc">The design commitments a reviewer should check the frames above against.</span>
+    </div>
+    <div class="pv-legend">
+      <div class="pv-card">
+        <h4>Honest accounting</h4>
+        <ul class="pv-rules">
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg><span><b>Intended and filled are two numbers, always both.</b> Every candidate, every position row, and every review summary carries the intended stake beside the simulated fill, with the shortfall named.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg><span><b>Every candidate names its binding constraint.</b> The bound-by field is a closed set of eleven values and is never blank — including "none" when nothing bound it.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg><span><b>Fills are top-of-book only.</b> The displayed size is shown on every priced candidate, and a fill capped by it says so rather than walking deeper into the book.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg><span><b>Nothing happened is a result.</b> A no-candidate cycle, a skipped cutoff, an offseason, and an unenabled bot each render as a finished statement with its reason.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg><span><b>Money is neutral-toned.</b> Ledger dollars are Sightline's own fiction and never borrow the market's mint; only a sign takes colour, and the sign is always printed.</span></li>
+        </ul>
+      </div>
+      <div class="pv-card">
+        <h4>Safety and separation</h4>
+        <ul class="pv-rules">
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg><span><b>Kill, Resume, and Force Override are never adjacent.</b> Kill has no confirmation and is always reachable; Force Override is a separate route with per-condition acknowledgement and all four facts stated before the button enables.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg><span><b>An override never ages into "cleared".</b> It stays a warning-toned permanent record in Review, with its actor and time.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg><span><b>Eligibility is a report, not a button.</b> No control in any state moves the system from paper to real money, and the disclaimer is strongest when every criterion passes.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg><span><b>The replay writes nowhere the bankroll can read it.</b> It sits below a hard rule, states its own boundary, and never contributes to a figure above it.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg><span><b>Paper says paper, permanently.</b> Every surface carries the simulated disclosure in its own chrome, and no shared viewer surface hints that any of this exists.</span></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <div class="pv-foot">
+    <span>Sightline · Bankroll, Sizing &amp; Autonomous Paper Trading — UI preview generated from <b>bankroll-sizing-and-autonomous-paper-trading-design-doc.md</b> v1.0</span>
+    <span>Intended vs filled, named binding constraints, non-adjacent safety controls, paper permanently labelled · light + near-black dark</span>
+  </div>
+</div>
+
+<script>
+(function(){
+  var light=document.getElementById('pv-light'), dark=document.getElementById('pv-dark');
+  function set(mode){
+    document.querySelectorAll('.js-sl').forEach(function(el){ el.setAttribute('data-sl',mode); });
+    document.documentElement.setAttribute('data-pv',mode);
+    dark.classList.toggle('on',mode==='dark'); light.classList.toggle('on',mode!=='dark');
+    dark.setAttribute('aria-selected',mode==='dark'); light.setAttribute('aria-selected',mode!=='dark');
+  }
+  light.addEventListener('click',function(){set('light');});
+  dark.addEventListener('click',function(){set('dark');});
+  // Follow the OS on first load — system is Sightline's default.
+  if(window.matchMedia&&window.matchMedia('(prefers-color-scheme:dark)').matches){set('dark');}
+})();
+</script>
+
+</body>
+</html>
