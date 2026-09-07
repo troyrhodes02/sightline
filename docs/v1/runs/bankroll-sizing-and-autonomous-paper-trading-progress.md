@@ -42,8 +42,54 @@ reviewed, audited, green, and its PR left open for human review.
   review, counterfactual replay, readiness, `boundaries.test.ts`, runbook.
   Verified: jest 793, schema 29, lint, typecheck, format, build.
 
-**All six tickets complete.** Next: step 10 — squash-merge #57→#62 into the
-feature branch in order, then step 11's full suite.
+**All six tickets complete and squash-merged into the feature branch, in order.**
+
+Merge sequence and its one wrinkle, recorded because it changed PR numbers:
+`gh pr merge 57 --squash --delete-branch` deleted SIG-60's branch, which
+auto-CLOSED PR #58 (its base no longer existed) and made it un-reopenable. #58
+was recreated as **#63** from the same branch with the same body, and the
+remaining PRs were retargeted to the feature branch BEFORE their parents merged,
+so none was orphaned again.
+
+Two merge conflicts, both resolved without changing any ticket's substance:
+- The run-progress file had been swept into ticket commits by a broad `git add`.
+  Synced to the feature branch's copy on each ticket branch (one commit each).
+- SIG-65 vs SIG-64 on `build-invariants.test.ts` (adjacent insertions into the
+  admin-route list) and `NavSections.test.ts` (**line endings only** — a Python
+  `write_text` on Windows wrote CRLF during SIG-64; prettier's LF is correct).
+  Resolved by rebuilding SIG-65's branch as a single commit on the feature tip
+  carrying SIG-65's tree, which is the strict superset. Verified afterwards that
+  all nine autonomy routes are in the admin-route list.
+
+Feature branch commits, one per ticket:
+`aca1455` SIG-60 · `c4a4b1e` SIG-61 · `69ee280` SIG-62 · `9509028` SIG-63 ·
+`d9f18f4` SIG-64 · `dcd6389` SIG-65
+
+## Step 11 — full verification on the feature branch
+
+| Check | Result |
+| --- | --- |
+| `npm run lint` | pass |
+| `npm run typecheck` | pass |
+| `npm run format` | pass |
+| `npm run prisma:validate` | pass |
+| `npx jest` | **793 passed**, 1 pre-existing local-only failure (below) |
+| `npm run test:schema` | **29 passed** |
+| `npm run build` | pass — all nine autonomy pages and seven routes dynamic |
+| `uv run pytest` (TEST_DATABASE_URL set) | **363 passed** |
+| `npx playwright test` | **44 passed, 36 skipped** (auth suites need seeded-account creds; they run in CI) |
+
+Pitch-specific checks the run instruction required, all green:
+- **Temporal-leakage suite passes unchanged** — `python/tests/test_asof_leakage.py`
+  and the rest of the Python suite, with no test modified, skipped or re-baselined.
+- **Python import-graph assertion** — `test_import_graph.py` extended to every new
+  table (`paper_*`, `recalibration_fits`) with planted-reference and
+  false-positive self-tests; 8 tests pass.
+- **Paper/live ledger non-joinability** — `prisma/tests/schema-invariants.test.mjs`
+  asserts no mode discriminator on any ledger-shaped model, no ledger-shaped model
+  outside the `paper_*` family, and no `Live*` model at all.
+
+Next: step 12 — `/review` the feature branch against `main`, inline on PR #56.
 
 **Known pre-existing failure, local only:** `src/lib/pipeline/auth.test.ts ›
 reports an unset server token as unconfigured`. Reproduced on a clean tree by
