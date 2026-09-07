@@ -152,11 +152,24 @@ warning is left alone), and two structural assertions in `boundaries.test.ts`
 | `uv run pytest` (TEST_DATABASE_URL set) | **363 passed** |
 | `npx playwright test` | **44 passed, 36 skipped** |
 
-CI on PR #56 is green on the final commit `4822584`: web app, Python ingest
+Post-audit commits on the feature branch, in order:
+
+| Commit | What |
+| --- | --- |
+| `494b218` | The fourteen fixes, with fourteen regression tests |
+| `4822584` | `BindingConstraint.opposite_side_held` — spec decision 41 |
+| `bca6eb4` | The run report |
+| `2350c6b` | Side-flip refusal runs last among the refusals; the replay's final settlement sweep counts toward drawdown |
+| `d9d3337` | Report records decision 41 and the two refinements |
+
+CI on PR #56 is green: web app (lint, types, unit, build, e2e), Python ingest
 (unit + DB integration), Prisma schema invariants, Vercel.
 
-**Step 15 done — the run report is written. The branch is NOT merged and must not
-be merged by this run.**
+**Step 15 done — the run report is at
+`docs/v1/runs/bankroll-sizing-and-autonomous-paper-trading-report.md`. The branch
+is NOT merged and must not be merged by this run. Nothing in it touched a Kalshi
+signing key, placed an order, or called a withdrawal API, and no stop condition
+was hit.**
 
 **Known pre-existing failure, local only:** `src/lib/pipeline/auth.test.ts ›
 reports an unset server token as unconfigured`. Reproduced on a clean tree by
