@@ -12,7 +12,46 @@ reviewed, audited, green, and its PR left open for human review.
 **Step 8 — working tickets.** Steps 1–7 complete. Feature branch
 `feat/bankroll-sizing-and-autonomous-paper-trading`, feature PR
 [#56](https://github.com/troyrhodes02/sightline/pull/56) open against `main`.
-Next: SIG-60 via `/sightline-ticket-worker`, branching off the feature branch.
+
+- **SIG-60 done** — branch `feat/SIG-60-paper-ledger-schema`, PR
+  [#57](https://github.com/troyrhodes02/sightline/pull/57) into the feature branch.
+  Schema (14 models, 8 enums, hand-written constraints), `src/lib/paper/{config,fees,kelly}.ts`,
+  extended Python blocklist, paper/live non-aggregability schema invariant.
+  Verified: jest 522, test:schema 29, lint, typecheck, format, prisma:validate,
+  build, migrate deploy on a clean DB, pytest **363 passed** with `TEST_DATABASE_URL`.
+- **SIG-61 done** — branch `feat/SIG-61-probability-recalibration` (off SIG-60), PR
+  [#58](https://github.com/troyrhodes02/sightline/pull/58). PAVA + per-bin shrinkage
+  fit, versioned storage, nightly refit route and workflow step, and the
+  import-graph boundary guard (allowlist of five Prisma delegates).
+  Verified: jest 580, test:schema 29, lint, typecheck, format, build.
+- **SIG-62 done** — branch `feat/SIG-62-decision-path` (off SIG-61), PR
+  [#59](https://github.com/troyrhodes02/sightline/pull/59). Pure `planCycle`,
+  top-of-book-only fills, duplicate-exposure identity, `getOrderbookTop` with the
+  bid/ask inversion. Verified: jest 637, schema 29, lint, typecheck, format, build.
+- **SIG-63 done** — branch `feat/SIG-63-execution-breakers` (off SIG-62), PR
+  [#60](https://github.com/troyrhodes02/sightline/pull/60). Single writer,
+  breakers, settlement + withdrawal ratchet, cadence, seven routes, autonomy
+  workflow, `autonomy-invariants.test.ts`. Verified: jest 726, schema 29, lint,
+  typecheck, format, build.
+- **SIG-64 done** — branch `feat/SIG-64-autonomy-surfaces` (off SIG-63), PR
+  [#61](https://github.com/troyrhodes02/sightline/pull/61). Six admin surfaces,
+  nav entry, two Health signals + state chip. Verified: jest 759, schema 29,
+  lint, typecheck, format, build.
+- **SIG-65 done** — branch `feat/SIG-65-dryrun-review-replay-readiness` (off
+  SIG-64), PR [#62](https://github.com/troyrhodes02/sightline/pull/62). Dry Run,
+  review, counterfactual replay, readiness, `boundaries.test.ts`, runbook.
+  Verified: jest 793, schema 29, lint, typecheck, format, build.
+
+**All six tickets complete.** Next: step 10 — squash-merge #57→#62 into the
+feature branch in order, then step 11's full suite.
+
+**Known pre-existing failure, local only:** `src/lib/pipeline/auth.test.ts ›
+reports an unset server token as unconfigured`. Reproduced on a clean tree by
+stashing — `next/jest` loads the repo `.env`, which defines
+`PIPELINE_SCHEDULER_TOKEN`, so the default parameter resolves where the test
+expects nothing. CI has no `.env` and passes. Deliberately not fixed inside this
+pitch's branches: it belongs to another pitch and a drive-by edit would make a
+stacked branch harder to review. Recorded in the run report as a follow-up.
 
 ## Pipeline checklist
 
@@ -23,8 +62,8 @@ Next: SIG-60 via `/sightline-ticket-worker`, branching off the feature branch.
 - [x] 5. Resolve remaining open questions as Resolved Decisions (40 total: 1–12 pre-resolved by instruction, 13–25 in the design doc §20, 26–40 in the spec §21; spec §21 is the authoritative table)
 - [x] 6. Milestone + Linear issues, chained blockedBy, IDs captured here
 - [x] 7. Feature PR into main — #56
-- [ ] 8. Work every ticket in order (branch chain), PR each
-- [ ] 9. Runbook → `docs/v1/runbooks/bankroll-sizing-and-autonomous-paper-trading-runbook.md`
+- [x] 8. Work every ticket in order (branch chain), PR each — SIG-60 #57, SIG-61 #58, SIG-62 #59, SIG-63 #60, SIG-64 #61, SIG-65 #62
+- [x] 9. Runbook → `docs/v1/runbooks/bankroll-sizing-and-autonomous-paper-trading-runbook.md` (shipped in SIG-65)
 - [ ] 10. Squash-merge every ticket PR into the feature branch, in order
 - [ ] 11. Full verification suite on the feature branch
 - [ ] 12. `/review` feature branch vs main → inline comments on the feature PR
