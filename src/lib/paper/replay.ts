@@ -430,6 +430,18 @@ function simulateMode(inputs: {
   // position open at cost would report a P&L for an alternative history that
   // never finished, against an actual one that did.
   settleFinished(null);
+  // The final settled balance counts toward drawdown like every intermediate
+  // one. It usually rises, so this can only ever ADD a trough the run really
+  // reached — never hide one.
+  highWater = nextHighWaterMark({
+    currentCents: highWater,
+    markCents: settled,
+    withdrewCents: 0,
+  });
+  if (highWater > 0) {
+    const bps = Math.round(((highWater - settled) / highWater) * 10_000);
+    if (bps > maxDrawdownBps) maxDrawdownBps = bps;
+  }
   for (;;) {
     const excess = withdrawalCents(
       settled,

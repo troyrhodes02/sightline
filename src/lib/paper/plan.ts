@@ -599,23 +599,6 @@ function priceCandidate(
   planned.topOfBookSizeContracts = best.sizeContracts;
   planned.kellyEdge = bestEdge;
 
-  // A side flip is refused, never traded through. The book or the corrected
-  // probability can move enough between cycles that the other side becomes the
-  // better one, but a paper position holds a single side: an increment on the
-  // opposite side is not an increment at all. Closing the old side to open the
-  // new one would be the bot trading out of a position on its own initiative,
-  // which is not in this pitch. So the candidate is refused and the existing
-  // position is left to settle. The refusal is recorded with its own reason
-  // rather than being reported as "desired total already held", which would
-  // describe holding the opposite of what was wanted.
-  const openPosition = input.heldByContractId[candidate.contractId];
-  if (openPosition !== undefined && openPosition.side !== best.side) {
-    planned.verdict = "refused";
-    planned.boundBy = "opposite_side_held";
-    planned.boundByDetail = `holds ${openPosition.contracts} ${openPosition.side}`;
-    return planned;
-  }
-
   // The ceiling is checked on the CORRECTED probability of the side actually
   // being staked, and read from the config version — never from the mode.
   // Aggressive raises how much is risked on acceptable opportunities; it does
@@ -639,6 +622,28 @@ function priceCandidate(
     planned.verdict = "refused";
     planned.boundBy = "price_unavailable";
     planned.boundByDetail = "no displayed size at the executable price";
+    return planned;
+  }
+
+  // A side flip is refused, never traded through. The book or the corrected
+  // probability can move enough between cycles that the other side becomes the
+  // better one, but a paper position holds a single side: an increment on the
+  // opposite side is not an increment at all. Closing the old side to open the
+  // new one would be the bot trading out of a position on its own initiative,
+  // which is not in this pitch. So the candidate is refused and the existing
+  // position is left to settle.
+  //
+  // Checked LAST among the refusals, after every test that is a property of the
+  // evidence — staleness, the ceiling, no edge after fees, unreadable depth. A
+  // candidate reaching here was otherwise a live opportunity, so
+  // `opposite_side_held` means exactly that: declined only because of what is
+  // already held. Recording it ahead of the evidence tests would let a portfolio
+  // fact mask a reason that would have applied with no position at all.
+  const openPosition = input.heldByContractId[candidate.contractId];
+  if (openPosition !== undefined && openPosition.side !== best.side) {
+    planned.verdict = "refused";
+    planned.boundBy = "opposite_side_held";
+    planned.boundByDetail = `holds ${openPosition.contracts} ${openPosition.side}`;
     return planned;
   }
 
