@@ -488,3 +488,252 @@ test("projections carry both clocks and the idempotent persist key", () => {
     "projections must have the idempotent persist unique key",
   );
 });
+
+// ---------------------------------------------------------------------------
+// Autonomous paper trading (SIG-60)
+// ---------------------------------------------------------------------------
+
+const PAPER_TABLES = [
+  "paper_campaigns",
+  "paper_risk_configs",
+  "paper_control_events",
+  "paper_ledger_entries",
+  "paper_cycles",
+  "paper_cycle_candidates",
+  "paper_positions",
+  "paper_fills",
+  "paper_desired_exposures",
+  "paper_breaches",
+  "paper_dry_runs",
+  "paper_replays",
+  "paper_replay_mode_results",
+  "recalibration_fits",
+];
+
+test("paper trading tables exist and are not bitemporal fact tables", () => {
+  // A bankroll is an account record, not a fact about the world. None of these
+  // may acquire the temporal trio or an ingest_run_id by imitation — and
+  // nothing here may ever feed a projection.
+  for (const table of PAPER_TABLES) {
+    const model = modelsByTable.get(table);
+    assert.ok(model, `${table} not found in schema`);
+    for (const field of ["validAt", "knownAt", "knownAtReconstructed"]) {
+      assert.ok(
+        !model.fields.has(field),
+        `${table} must not carry ${field} — it is not a fact table`,
+      );
+    }
+    assert.ok(
+      !/@map\("ingest_run_id"\)/.test(model.body),
+      `${table} must not carry ingest_run_id`,
+    );
+  }
+});
+
+test("paper and live ledgers cannot be aggregated: there is no live ledger", () => {
+  // THE separation guarantee, expressed structurally rather than as a
+  // convention every future query has to remember. Paper and live P&L never
+  // merging is a No-Go; the way this codebase keeps it is by not having a
+  // second ledger to merge with, and by refusing a mode column that a
+  // forgotten WHERE clause could leak across.
+  //
+  // When Kalshi Trading adds live tables it must add them as their OWN models
+  // (LivePosition, LiveLedgerEntry, ...) and update this test deliberately —
+  // which is the review moment this assertion exists to force.
+  const LEDGER_SHAPED = [
+    "balance_after_cents",
+    "cost_basis_cents",
+    "starting_bankroll_cents",
+    "high_water_mark_cents",
+    "realized_pnl_cents",
+  ];
+
+  for (const [table, model] of modelsByTable) {
+    const isLedgerShaped = LEDGER_SHAPED.some((col) =>
+      new RegExp('@map\\("' + col + '"\\)').test(model.body),
+    );
+    if (!isLedgerShaped) continue;
+
+    assert.ok(
+      table.startsWith("paper_"),
+      `${table} holds ledger-shaped money but is not a paper_* table — a ` +
+        `live ledger must be its own model family, never a sibling column`,
+    );
+
+    // No mode/ledger discriminator anywhere on a ledger-shaped table. This is
+    // the column that would make a sum span both books.
+    for (const banned of [
+      "ledger_mode",
+      "ledgerMode",
+      "is_live",
+      "isLive",
+      "is_paper",
+      "isPaper",
+      "account_mode",
+      "accountMode",
+      "operating_mode",
+      "operatingMode",
+    ]) {
+      assert.ok(
+        !model.body.includes(banned),
+        `${table} must not carry a paper/live discriminator (${banned}) — ` +
+          `separation is structural, not a filter`,
+      );
+    }
+  }
+});
+
+test("no live ledger model exists yet", () => {
+  // Live order placement, fills, and the funded bankroll belong to the Kalshi
+  // Trading pitch. A model appearing here early would mean paper and live
+  // became aggregable before anyone decided they should be.
+  for (const [table, model] of modelsByTable) {
+    assert.ok(
+      !/^live_/.test(table),
+      `${table} exists but live trading is not in scope yet`,
+    );
+    assert.ok(
+      !/^Live[A-Z]/.test(model.name),
+      `${model.name} exists but live trading is not in scope yet`,
+    );
+  }
+});
+
+test("the fill guards are enforced in the database, not only in code", () => {
+  // Paper trading exists to produce honest evidence. The most likely way that
+  // evidence gets corrupted is a well-meaning optimisation that walks the book
+  // or assumes unseen depth — so the rule lives where application code cannot
+  // relax it.
+  assert.match(
+    migration,
+    /paper_cycle_candidates_fill_within_book/,
+    "missing the CHECK that a fill cannot exceed the observed top-of-book size",
+  );
+  assert.match(
+    migration,
+    /paper_cycle_candidates_fill_within_intent/,
+    "missing the CHECK that a fill cannot exceed the intended size",
+  );
+  assert.match(
+    migration,
+    /"filled_contracts" <= "top_of_book_size_contracts"/,
+    "the top-of-book CHECK must compare filled against observed size",
+  );
+});
+
+test("breach and risk-config constraints exist", () => {
+  assert.match(
+    migration,
+    /paper_breaches_one_active_per_condition/,
+    "missing the partial unique index for one active breach per condition",
+  );
+  assert.match(
+    migration,
+    /paper_breaches_resolution_provenance/,
+    "a resolved breach must carry its resolver and time",
+  );
+  assert.match(
+    migration,
+    /recalibration_fits_one_active_per_model/,
+    "missing the partial unique index for one active fit per model version",
+  );
+  assert.match(
+    migration,
+    /paper_risk_configs_bounds/,
+    "missing the risk-config bounds CHECK",
+  );
+  assert.match(
+    migration,
+    /"drawdown_halt_pct" > "drawdown_warn_pct"/,
+    "the halt must sit above the warning or the warning can never fire",
+  );
+});
+
+test("risk configuration is append-only by construction", () => {
+  // "Changing mode applies to the next sizing decision; open positions keep
+  // the limits they were created under" is only true if a config version is
+  // never edited. A row with no updatedAt is a row nothing is expected to
+  // update, and every consumer references it by id.
+  const config = modelsByTable.get("paper_risk_configs");
+  assert.ok(config, "paper_risk_configs not found");
+  assert.ok(
+    !config.fields.has("updatedAt"),
+    "paper_risk_configs must not carry updatedAt — versions are appended, " +
+      "never edited, or historical cycles would silently re-describe themselves",
+  );
+  for (const consumer of [
+    "paper_cycles",
+    "paper_positions",
+    "paper_breaches",
+    "paper_dry_runs",
+  ]) {
+    const model = modelsByTable.get(consumer);
+    assert.ok(
+      model.fields.has("riskConfigId"),
+      `${consumer} must record the risk config it ran under`,
+    );
+  }
+});
+
+test("dry runs and replays are separate tables from the ledger", () => {
+  // A dry run creates no position and alters no bankroll; a replay must never
+  // be readable as real. Separate tables make both structural rather than a
+  // filter every future aggregate has to remember.
+  for (const table of [
+    "paper_dry_runs",
+    "paper_replays",
+    "paper_replay_mode_results",
+  ]) {
+    const model = modelsByTable.get(table);
+    assert.ok(model, `${table} not found`);
+    assert.ok(
+      !model.fields.has("positionId"),
+      `${table} must not reference a position`,
+    );
+  }
+  const cycle = modelsByTable.get("paper_cycles");
+  assert.ok(
+    !cycle.fields.has("trigger"),
+    "paper_cycles must not carry a scheduled/dry-run trigger discriminator — " +
+      "dry runs live in their own table",
+  );
+});
+
+test("the candidate audit row can never lose its binding constraint", () => {
+  // The bound-by field is the audit trail this whole feature exists to produce.
+  const candidate = modelsByTable.get("paper_cycle_candidates");
+  assert.ok(candidate, "paper_cycle_candidates not found");
+  const boundBy = candidate.fields.get("boundBy");
+  assert.ok(boundBy?.required, "boundBy must be non-nullable");
+  assert.equal(boundBy.type, "BindingConstraint");
+  // Intended and filled are two fields, always both.
+  for (const field of [
+    "intendedStakeCents",
+    "intendedContracts",
+    "filledContracts",
+    "filledCostCents",
+  ]) {
+    assert.ok(candidate.fields.has(field), `candidate is missing ${field}`);
+  }
+});
+
+test("a paper position keeps the intended stake beside the actual cost", () => {
+  const position = modelsByTable.get("paper_positions");
+  assert.ok(position, "paper_positions not found");
+  for (const field of [
+    "costBasisCents",
+    "feesPaidCents",
+    "intendedStakeCents",
+  ]) {
+    assert.ok(
+      position.fields.get(field)?.required,
+      `paper_positions.${field} must be non-nullable — the ledger may never ` +
+        `present the wished-for stake as the actual one, or lose it`,
+    );
+  }
+  assert.match(
+    position.body,
+    /@@unique\(\[campaignId, contractId\]\)/,
+    "one position per contract per campaign; increments accumulate onto it",
+  );
+});

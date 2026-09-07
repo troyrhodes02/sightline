@@ -163,6 +163,15 @@ describe("product boundaries", () => {
     // `/sign-up` IS a route now — account requests are how people get in.
     // What stays forbidden is anything that would grant access without an
     // admin decision, or that belongs to a later pitch.
+    //
+    // `/bankroll` STAYS forbidden, and deliberately so. Autonomous paper
+    // trading (SIG-60) ships a paper bankroll — but it does so under
+    // `/autonomy`, which names what it actually is: a bot that trades a
+    // simulated account and accounts for itself. The deferred V2 product is
+    // bankroll and PORTFOLIO MANAGEMENT — multiple bankrolls, allocation
+    // across strategies, tax lots — and a route at `/bankroll` is what that
+    // would arrive as. Keeping the entry means building it stays a decision
+    // rather than a drift.
     for (const forbidden of [
       "/reset-password",
       "/forgot-password",

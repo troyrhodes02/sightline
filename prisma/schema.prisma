@@ -117,6 +117,9 @@ enum PipelineJobCategory {
   keepalive
   outcome_ingest // TS settlement ingest (Outcome Scoring & Accuracy Surface)
   grading // Python grading job (Outcome Scoring & Accuracy Surface)
+  paper_cycle // Scheduled autonomous paper execution (Bankroll & Autonomous Paper Trading)
+  paper_settlement // Paper settlement, withdrawal ratchet, breaker re-evaluation
+  recalibration_fit // Refit of the active probability correction
 }
 
 enum PipelineRunStatus {
@@ -246,6 +249,8 @@ model Game {
   contracts        Contract[]
   projections      Projection[]
   pipelineRunGames PipelineRunGame[]
+  paperCycles      PaperCycle[]
+  paperDryRuns     PaperDryRun[]
 
   @@unique([season, week, seasonType, homeTeamId, awayTeamId])
   @@index([season, week])
@@ -474,8 +479,9 @@ model PipelineRun {
   finishedAt   DateTime?           @map("finished_at")
   createdAt    DateTime            @default(now()) @map("created_at")
 
-  games      PipelineRunGame[]
-  ingestRuns IngestRun[]
+  games       PipelineRunGame[]
+  ingestRuns  IngestRun[]
+  paperCycles PaperCycle[]
 
   @@unique([category, invocationId])
   @@index([category, status, finishedAt(sort: Desc)])
@@ -592,7 +598,8 @@ model BacktestRun {
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
-  calibrationBins CalibrationBin[]
+  calibrationBins   CalibrationBin[]
+  recalibrationFits RecalibrationFit[]
 
   @@index([status, startedAt(sort: Desc)])
   @@index([modelVersion, startedAt(sort: Desc)])
@@ -689,9 +696,14 @@ model User {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  decidedBy     User?      @relation("AccessDecision", fields: [decidedById], references: [id])
-  decisionsMade User[]     @relation("AccessDecision")
-  decisions     Decision[]
+  decidedBy          User?               @relation("AccessDecision", fields: [decidedById], references: [id])
+  decisionsMade      User[]              @relation("AccessDecision")
+  decisions          Decision[]
+  paperRiskConfigs   PaperRiskConfig[]
+  paperControlEvents PaperControlEvent[]
+  paperBreaches      PaperBreach[]
+  paperDryRuns       PaperDryRun[]
+  paperReplays       PaperReplay[]
 
   // Pending requests are read first and most often; the list groups by status.
   @@index([status, requestedAt])
@@ -783,6 +795,10 @@ model Contract {
   outcome           Outcome?
   thresholdGrades   ThresholdGrade[]
 
+  paperCandidates PaperCycleCandidate[]
+  paperPositions  PaperPosition[]
+  paperDesired    PaperDesiredExposure[]
+
   @@index([status, resolutionStatus])
   @@index([gameId])
   @@index([playerId, gameId, statType])
@@ -828,6 +844,8 @@ model PriceObservation {
   snapshots RecommendationSnapshot[]
   decisions Decision[]
 
+  paperCandidates PaperCycleCandidate[]
+
   @@index([contractId, observedAt(sort: Desc)])
   @@map("price_observations")
 }
@@ -865,6 +883,8 @@ model Projection {
 
   grade           ProjectionGrade?
   thresholdGrades ThresholdGrade[]
+
+  paperCandidates PaperCycleCandidate[]
 
   // Idempotent persist: same inputs, same row. A new cutoff is a new row;
   // the freshest (max computedAt) is what the slate reads.
@@ -1063,4 +1083,539 @@ model ThresholdGrade {
   @@unique([projectionId, thresholdSource, threshold])
   @@index([contractId])
   @@map("threshold_grades")
+}
+
+// ---------------------------------------------------------------------------
+// Autonomous paper trading (Bankroll, Sizing & Autonomous Paper Trading —
+// SIG-60)
+//
+// NONE of these are bitemporal fact tables. They are account and operational
+// records: no validAt/knownAt, no ingest_run_id, and nothing here may ever feed
+// a projection. Every table in this block is on the Python import-graph
+// blocklist — the modelling runtime has no reason to know a bankroll exists,
+// and `paper_cycle_candidates` carries executable prices, which makes it as
+// barred as `price_observations`.
+//
+// There is NO live ledger in this schema and no `mode` discriminator. Paper and
+// live separation is STRUCTURAL: the live tables arrive with the Kalshi Trading
+// pitch as their own models, so no query can aggregate across them by
+// forgetting a filter. `prisma/tests/schema-invariants.test.mjs` fails the
+// build if either appears.
+// ---------------------------------------------------------------------------
+
+enum RiskMode {
+  conservative
+  moderate
+  aggressive
+  custom
+}
+
+enum BreachCondition {
+  drawdown_warning // does NOT halt; the only condition with that property
+  drawdown_halt
+  calibration
+  exposure
+  kill_switch
+}
+
+enum BreachResolution {
+  active
+  cleared
+  force_overridden // terminal; never becomes cleared
+}
+
+enum PaperCycleOutcome {
+  ok
+  partial_fill
+  no_candidate
+  halted
+  skipped
+  failed
+}
+
+enum CandidateVerdict {
+  filled
+  partial
+  no_stake // economics did not support a stake
+  refused // ineligible before economics were considered
+  blocked // a breaker tripped before this candidate was reached
+}
+
+/// The single named constraint that determined a candidate's outcome. Closed
+/// set, never null: `none` is the value when nothing bound it. This field is
+/// the audit trail the whole feature exists to produce.
+enum BindingConstraint {
+  none
+  top_of_book_size
+  per_game_cap
+  per_slate_cap
+  available_bankroll
+  probability_ceiling
+  no_edge_after_fees
+  stale_projection
+  price_unavailable
+  pre_kickoff_cutoff
+  breaker
+  no_active_recalibration
+}
+
+enum PaperPositionStatus {
+  open
+  settled_won
+  settled_lost
+  voided // terminal, distinct from settled_lost; cost basis and fees returned
+}
+
+enum PaperLedgerEntryKind {
+  opening_balance
+  stake_debit
+  fee_debit
+  settlement_credit
+  void_refund
+  withdrawal
+}
+
+/// The single paper account. Operational switches and the high-water mark live
+/// here; every configurable NUMBER lives on PaperRiskConfig, so a cycle can name
+/// the exact configuration it ran under.
+model PaperCampaign {
+  id                    String  @id @default(uuid())
+  label                 String? // operator label, e.g. "2026 week 9 onward"
+  startingBankrollCents Int     @map("starting_bankroll_cents")
+  autonomyEnabled       Boolean @default(false) @map("autonomy_enabled")
+  killSwitchEngaged     Boolean @default(false) @map("kill_switch_engaged")
+
+  // Greatest mark-to-market value observed. Monotone EXCEPT at a simulated
+  // withdrawal, which resets it to the post-withdrawal active bankroll so
+  // deliberately removing profit never reads as a loss. Stored rather than
+  // derived because it depends on the path of mark observations, not all of
+  // which are retained; every update is written inside the same transaction as
+  // the entry that caused it.
+  highWaterMarkCents Int      @map("high_water_mark_cents")
+  highWaterMarkAt    DateTime @map("high_water_mark_at")
+
+  startedAt DateTime @map("started_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  riskConfigs   PaperRiskConfig[]
+  ledgerEntries PaperLedgerEntry[]
+  cycles        PaperCycle[]
+  positions     PaperPosition[]
+  breaches      PaperBreach[]
+  controlEvents PaperControlEvent[]
+  desired       PaperDesiredExposure[]
+  dryRuns       PaperDryRun[]
+  replays       PaperReplay[]
+
+  @@map("paper_campaigns")
+}
+
+/// Append-only configuration version. A mode change writes a new row; no row is
+/// ever updated. Every cycle, breach, and position records the row it ran under,
+/// which is what makes "open positions keep their original limits" true of the
+/// data rather than only of the copy.
+model PaperRiskConfig {
+  id         String   @id @default(uuid())
+  campaignId String   @map("campaign_id")
+  mode       RiskMode
+
+  kellyFraction   Decimal @map("kelly_fraction") @db.Decimal(4, 3)
+  perGameCapPct   Int     @map("per_game_cap_pct") // % of CURRENT active bankroll
+  perSlateCapPct  Int     @map("per_slate_cap_pct")
+  drawdownWarnPct Int     @map("drawdown_warn_pct")
+  drawdownHaltPct Int     @map("drawdown_halt_pct")
+
+  // Independent of risk mode by product rule; stored per version so a change is
+  // recorded, and asserted equal across the preset modes by a config test.
+  probabilityCeiling Decimal @map("probability_ceiling") @db.Decimal(4, 3)
+
+  withdrawalCeilingMultiple Decimal @map("withdrawal_ceiling_multiple") @db.Decimal(4, 2)
+
+  effectiveFrom   DateTime @map("effective_from")
+  createdByUserId String   @map("created_by_user_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  campaign  PaperCampaign   @relation(fields: [campaignId], references: [id])
+  createdBy User            @relation(fields: [createdByUserId], references: [id])
+  cycles    PaperCycle[]
+  breaches  PaperBreach[]
+  positions PaperPosition[]
+  dryRuns   PaperDryRun[]
+
+  @@index([campaignId, effectiveFrom(sort: Desc)])
+  @@map("paper_risk_configs")
+}
+
+/// Human control actions against the campaign. Append-only audit trail;
+/// force-override events are the ones this table exists for.
+model PaperControlEvent {
+  id          String   @id @default(uuid())
+  campaignId  String   @map("campaign_id")
+  kind        String // enabled | disabled | killed | kill_released | resumed | force_overridden | config_changed | starting_bankroll_set
+  actorUserId String   @map("actor_user_id")
+  detail      Json? // breach ids, outgoing/incoming config id — never free-form user text
+  occurredAt  DateTime @map("occurred_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  campaign PaperCampaign @relation(fields: [campaignId], references: [id])
+  actor    User          @relation(fields: [actorUserId], references: [id])
+
+  @@index([campaignId, occurredAt(sort: Desc)])
+  @@map("paper_control_events")
+}
+
+/// Append-only bankroll history. `balanceAfterCents` is a running total, not a
+/// cache of current state: it is a fact of the entry, makes the balance at any
+/// historical point readable without replaying the whole ledger, and lets a
+/// corrupted sequence be detected. A test asserts the running total equals the
+/// cumulative sum of `amountCents` for every campaign.
+model PaperLedgerEntry {
+  id                String               @id @default(uuid())
+  campaignId        String               @map("campaign_id")
+  kind              PaperLedgerEntryKind
+  amountCents       Int                  @map("amount_cents") // signed
+  balanceAfterCents Int                  @map("balance_after_cents")
+  positionId        String?              @map("position_id")
+  cycleId           String?              @map("cycle_id")
+  note              String? // e.g. "settlement superseded: yes -> no"
+  occurredAt        DateTime             @map("occurred_at")
+  createdAt         DateTime             @default(now()) @map("created_at")
+
+  campaign PaperCampaign  @relation(fields: [campaignId], references: [id])
+  position PaperPosition? @relation(fields: [positionId], references: [id])
+  cycle    PaperCycle?    @relation(fields: [cycleId], references: [id])
+
+  @@index([campaignId, occurredAt, id])
+  @@index([positionId])
+  @@map("paper_ledger_entries")
+}
+
+/// The versioned probability correction. Fitted from the stored contract-like
+/// backtest calibration record, blended with live graded results under per-bin
+/// shrinkage. NOTHING price-derived is an input, and an import-graph assertion
+/// enforces that the fitting module cannot reach one.
+model RecalibrationFit {
+  id      String @id @default(uuid())
+  version Int    @unique // monotonic; displayed as "v3"
+
+  modelVersion  String @map("model_version")
+  backtestRunId String @map("backtest_run_id")
+  method        String // "pava_piecewise_linear/v1"
+  shrinkageK    Int    @map("shrinkage_k") // live observations at which live weight = 0.5
+
+  liveObservationCount Int       @map("live_observation_count")
+  liveWindowFrom       DateTime? @map("live_window_from")
+  liveWindowTo         DateTime? @map("live_window_to")
+
+  /// Monotone non-decreasing knots, anchored at (0,0) and (1,1).
+  /// Piecewise-linear between them.
+  knots Json
+
+  isActive Boolean  @default(false) @map("is_active")
+  fittedAt DateTime @map("fitted_at")
+
+  backtestRun BacktestRun           @relation(fields: [backtestRunId], references: [id])
+  candidates  PaperCycleCandidate[]
+  cycles      PaperCycle[]
+  dryRuns     PaperDryRun[]
+
+  @@index([modelVersion, fittedAt(sort: Desc)])
+  @@map("recalibration_fits")
+}
+
+/// One autonomous evaluation of one game window. SCHEDULED CYCLES ONLY — dry
+/// runs and replays have their own tables so no bankroll, review, or readiness
+/// aggregate can reach them.
+model PaperCycle {
+  id              String  @id @default(uuid())
+  campaignId      String  @map("campaign_id")
+  riskConfigId    String  @map("risk_config_id")
+  recalibrationId String? @map("recalibration_id")
+  gameId          String  @map("game_id")
+  pipelineRunId   String? @map("pipeline_run_id")
+
+  /// The scheduler invocation. The (campaignId, gameId, invocationId) unique
+  /// makes duplicate cron delivery a structural no-op, matching the keepalive
+  /// and outcome-ingest pattern.
+  invocationId String? @map("invocation_id")
+
+  outcome    PaperCycleOutcome
+  skipReason String?           @map("skip_reason")
+
+  candidatesEvaluated Int @default(0) @map("candidates_evaluated")
+  candidatesSized     Int @default(0) @map("candidates_sized")
+  candidatesFilled    Int @default(0) @map("candidates_filled")
+  stakedCents         Int @default(0) @map("staked_cents")
+
+  // State AS IT WAS. Never re-read for display.
+  bankrollAtEvaluationCents Int @map("bankroll_at_evaluation_cents")
+  settledBalanceCents       Int @map("settled_balance_cents")
+  openExposureCents         Int @map("open_exposure_cents")
+  slateCapacityCents        Int @map("slate_capacity_cents")
+  gameCapacityCents         Int @map("game_capacity_cents")
+  highWaterMarkCents        Int @map("high_water_mark_cents")
+
+  // Breaker measurements at evaluation, retained so a replay reuses them rather
+  // than recomputing a model-quality number from a different window.
+  drawdownBps            Int?     @map("drawdown_bps") // null when mark-to-market unavailable
+  calibrationBrier       Decimal? @map("calibration_brier") @db.Decimal(6, 5)
+  calibrationMarketBrier Decimal? @map("calibration_market_brier") @db.Decimal(6, 5)
+  calibrationSampleSize  Int?     @map("calibration_sample_size")
+
+  allocationPasses Int  @default(0) @map("allocation_passes")
+  allocationTrace  Json @map("allocation_trace") // ordered, human-readable pass lines
+
+  errorMessage String?   @map("error_message") // sanitized; never a URL or credential
+  startedAt    DateTime  @map("started_at")
+  finishedAt   DateTime? @map("finished_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  campaign      PaperCampaign         @relation(fields: [campaignId], references: [id])
+  riskConfig    PaperRiskConfig       @relation(fields: [riskConfigId], references: [id])
+  recalibration RecalibrationFit?     @relation(fields: [recalibrationId], references: [id])
+  game          Game                  @relation(fields: [gameId], references: [id])
+  pipelineRun   PipelineRun?          @relation(fields: [pipelineRunId], references: [id])
+  candidates    PaperCycleCandidate[]
+  fills         PaperFill[]
+  ledgerEntries PaperLedgerEntry[]
+  breaches      PaperBreach[]
+
+  @@unique([campaignId, gameId, invocationId])
+  @@index([campaignId, startedAt(sort: Desc)])
+  @@index([gameId])
+  @@map("paper_cycles")
+}
+
+/// The audit trail. One row per contract considered, whatever the outcome.
+model PaperCycleCandidate {
+  id                 String  @id @default(uuid())
+  cycleId            String  @map("cycle_id")
+  contractId         String  @map("contract_id")
+  projectionId       String? @map("projection_id")
+  priceObservationId String? @map("price_observation_id")
+  recalibrationId    String? @map("recalibration_id")
+
+  rank Int // 0-based, by Kelly edge descending; refused candidates rank last
+
+  rawProbability       Decimal?    @map("raw_probability") @db.Decimal(6, 5)
+  correctedProbability Decimal?    @map("corrected_probability") @db.Decimal(6, 5)
+  confidence           Confidence?
+  side                 MarketSide?
+
+  askCents               Int? @map("ask_cents")
+  feeCents               Int? @map("fee_cents") // for the intended order size
+  netPriceCents          Int? @map("net_price_cents") // per-contract, fee-adjusted, rounded up
+  topOfBookSizeContracts Int? @map("top_of_book_size_contracts")
+
+  kellyEdge            Decimal? @map("kelly_edge") @db.Decimal(7, 6)
+  kellyFractionApplied Decimal? @map("kelly_fraction_applied") @db.Decimal(5, 4)
+
+  intendedStakeCents Int @default(0) @map("intended_stake_cents")
+  intendedContracts  Int @default(0) @map("intended_contracts")
+  filledContracts    Int @default(0) @map("filled_contracts")
+  filledCostCents    Int @default(0) @map("filled_cost_cents")
+  filledFeeCents     Int @default(0) @map("filled_fee_cents")
+
+  verdict       CandidateVerdict
+  boundBy       BindingConstraint
+  boundByDetail String?           @map("bound_by_detail") // e.g. the breach condition name
+
+  positionId String?  @map("position_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  cycle            PaperCycle        @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  contract         Contract          @relation(fields: [contractId], references: [id])
+  projection       Projection?       @relation(fields: [projectionId], references: [id])
+  priceObservation PriceObservation? @relation(fields: [priceObservationId], references: [id])
+  recalibration    RecalibrationFit? @relation(fields: [recalibrationId], references: [id])
+  position         PaperPosition?    @relation(fields: [positionId], references: [id])
+
+  @@unique([cycleId, contractId])
+  @@index([contractId])
+  @@map("paper_cycle_candidates")
+}
+
+/// One simulated holding. Accumulates across increments; PaperFill records each.
+/// `intendedStakeCents` accumulates alongside cost so the ledger can never
+/// present the wished-for stake as the actual one, or lose it.
+model PaperPosition {
+  id           String @id @default(uuid())
+  campaignId   String @map("campaign_id")
+  contractId   String @map("contract_id")
+  riskConfigId String @map("risk_config_id") // the config it was OPENED under
+
+  side               MarketSide
+  contracts          Int
+  costBasisCents     Int        @map("cost_basis_cents") // price only
+  feesPaidCents      Int        @map("fees_paid_cents")
+  intendedStakeCents Int        @map("intended_stake_cents")
+
+  status           PaperPositionStatus @default(open)
+  settlementResult OutcomeResult?      @map("settlement_result")
+  proceedsCents    Int?                @map("proceeds_cents")
+  realizedPnlCents Int?                @map("realized_pnl_cents")
+  settledAt        DateTime?           @map("settled_at")
+
+  openedAt  DateTime @map("opened_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  campaign      PaperCampaign         @relation(fields: [campaignId], references: [id])
+  contract      Contract              @relation(fields: [contractId], references: [id])
+  riskConfig    PaperRiskConfig       @relation(fields: [riskConfigId], references: [id])
+  fills         PaperFill[]
+  ledgerEntries PaperLedgerEntry[]
+  candidates    PaperCycleCandidate[]
+
+  @@unique([campaignId, contractId])
+  @@index([campaignId, status])
+  @@map("paper_positions")
+}
+
+/// One simulated execution. Append-only; an increment is a new fill, never an
+/// edit to an existing one.
+model PaperFill {
+  id          String   @id @default(uuid())
+  positionId  String   @map("position_id")
+  cycleId     String   @map("cycle_id")
+  candidateId String   @unique @map("candidate_id")
+  contracts   Int
+  priceCents  Int      @map("price_cents") // per contract, executable ask
+  feeCents    Int      @map("fee_cents") // for this fill, rounded up
+  costCents   Int      @map("cost_cents") // contracts x priceCents
+  filledAt    DateTime @map("filled_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  position PaperPosition @relation(fields: [positionId], references: [id])
+  cycle    PaperCycle    @relation(fields: [cycleId], references: [id])
+
+  @@index([positionId])
+  @@index([cycleId])
+  @@map("paper_fills")
+}
+
+/// Duplicate-execution identity: (contract, game window, account-local decision
+/// date). Stores DESIRED TOTAL exposure, so a retry compares totals rather than
+/// reapplying an instruction.
+model PaperDesiredExposure {
+  id            String   @id @default(uuid())
+  campaignId    String   @map("campaign_id")
+  contractId    String   @map("contract_id")
+  gameWindowKey String   @map("game_window_key") // ISO instant of the game's kickoff, UTC
+  decisionDate  DateTime @map("decision_date") @db.Date // account-local (America/New_York)
+
+  desiredContracts  Int      @map("desired_contracts")
+  desiredStakeCents Int      @map("desired_stake_cents")
+  lastCycleId       String?  @map("last_cycle_id")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  campaign PaperCampaign @relation(fields: [campaignId], references: [id])
+  contract Contract      @relation(fields: [contractId], references: [id])
+
+  @@unique([campaignId, contractId, gameWindowKey, decisionDate])
+  @@map("paper_desired_exposures")
+}
+
+/// A safety condition that tripped. Never deleted; `force_overridden` is
+/// terminal and is what makes "the bot wanted to stop and was overruled"
+/// permanently visible.
+model PaperBreach {
+  id           String           @id @default(uuid())
+  campaignId   String           @map("campaign_id")
+  riskConfigId String           @map("risk_config_id")
+  condition    BreachCondition
+  resolution   BreachResolution @default(active)
+
+  measuredValue    Decimal @map("measured_value") @db.Decimal(12, 5)
+  measuredDisplay  String  @map("measured_display") // rendered verbatim; built server-side
+  thresholdValue   Decimal @map("threshold_value") @db.Decimal(12, 5)
+  thresholdDisplay String  @map("threshold_display")
+
+  detectedByCycleId String?   @map("detected_by_cycle_id")
+  trippedAt         DateTime  @map("tripped_at")
+  resolvedAt        DateTime? @map("resolved_at")
+  resolvedByUserId  String?   @map("resolved_by_user_id")
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  campaign   PaperCampaign   @relation(fields: [campaignId], references: [id])
+  riskConfig PaperRiskConfig @relation(fields: [riskConfigId], references: [id])
+  cycle      PaperCycle?     @relation(fields: [detectedByCycleId], references: [id])
+  resolvedBy User?           @relation(fields: [resolvedByUserId], references: [id])
+
+  @@index([campaignId, trippedAt(sort: Desc)])
+  @@map("paper_breaches")
+}
+
+/// Inspection only. Writes no position and no ledger entry, and is structurally
+/// unreachable from every bankroll, review, and readiness read.
+model PaperDryRun {
+  id              String  @id @default(uuid())
+  campaignId      String  @map("campaign_id")
+  riskConfigId    String  @map("risk_config_id")
+  recalibrationId String? @map("recalibration_id")
+  gameId          String  @map("game_id")
+  actorUserId     String  @map("actor_user_id")
+
+  wouldExecute      Boolean @map("would_execute")
+  blockedByBreaches Json?   @map("blocked_by_breaches") // condition names active at run time
+
+  /// The full plan, in the same shape CandidateDto renders. Not rows: this is
+  /// not ledger data and must not look like it.
+  plan Json
+
+  ranAt     DateTime @map("ran_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  campaign      PaperCampaign     @relation(fields: [campaignId], references: [id])
+  riskConfig    PaperRiskConfig   @relation(fields: [riskConfigId], references: [id])
+  recalibration RecalibrationFit? @relation(fields: [recalibrationId], references: [id])
+  game          Game              @relation(fields: [gameId], references: [id])
+  actor         User              @relation(fields: [actorUserId], references: [id])
+
+  @@index([campaignId, ranAt(sort: Desc)])
+  @@map("paper_dry_runs")
+}
+
+/// Counterfactual risk-mode replay over a completed period. Separate tables, for
+/// the same reason as PaperDryRun: nothing that reads bankroll, readiness, or
+/// the active risk mode may reach them.
+model PaperReplay {
+  id          String   @id @default(uuid())
+  campaignId  String   @map("campaign_id")
+  periodKind  String   @map("period_kind") // game_window | week | campaign
+  periodKey   String   @map("period_key") // 2026-w9 | an ISO kickoff instant | campaign
+  actualMode  RiskMode @map("actual_mode")
+  actorUserId String   @map("actor_user_id")
+  ranAt       DateTime @map("ran_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  campaign PaperCampaign           @relation(fields: [campaignId], references: [id])
+  actor    User                    @relation(fields: [actorUserId], references: [id])
+  results  PaperReplayModeResult[]
+
+  @@unique([campaignId, periodKind, periodKey, ranAt])
+  @@index([campaignId, periodKind, periodKey])
+  @@map("paper_replays")
+}
+
+model PaperReplayModeResult {
+  id       String   @id @default(uuid())
+  replayId String   @map("replay_id")
+  mode     RiskMode
+
+  endingActiveCents Int @map("ending_active_cents")
+  netPnlCents       Int @map("net_pnl_cents")
+  withdrawnCents    Int @map("withdrawn_cents")
+  maxDrawdownBps    Int @map("max_drawdown_bps")
+  positionCount     Int @map("position_count")
+  breakerTrips      Int @map("breaker_trips")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  replay PaperReplay @relation(fields: [replayId], references: [id], onDelete: Cascade)
+
+  @@unique([replayId, mode])
+  @@map("paper_replay_mode_results")
 }
