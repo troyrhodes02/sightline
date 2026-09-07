@@ -1,0 +1,66 @@
+name: Pipeline autonomy
+
+# Autonomous PAPER trading. No real order is placed by anything in this
+# workflow, and no Kalshi signing credential beyond the existing market-data
+# key is used.
+#
+# Two phases on separate schedules:
+#
+#   * paper-cycle every 10 minutes. The cron fires year-round and the ROUTE
+#     decides, per game and from the stored schedule, whether anything happens:
+#     a game is eligible only inside [kickoff - 6h, kickoff - 10min], and at
+#     most one cycle per game per 30 minutes. Ten minutes rather than fifteen
+#     because the hard cutoff is ten: a coarser cadence would routinely leave
+#     the last half hour before kickoff unevaluated.
+#
+#   * paper-settlement hourly at :20. Offset from outcome ingest at :30 —
+#     settlement reads what the PREVIOUS hour's ingest wrote, so it never races
+#     the job that supplies its input.
+#
+# `curl --fail` makes any non-2xx fail the job, so a misconfigured token (503)
+# or a broken deploy is a red run rather than a silent skip. A Kalshi outage is
+# NOT a failure here: the route answers 200 with degraded: true and records the
+# cycle as failed, which is visible on the cycles list rather than in Actions.
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+    - cron: "20 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: pipeline-autonomy
+  cancel-in-progress: false
+
+jobs:
+  cycle:
+    # Only the 10-minute schedule runs the cycle. A manual dispatch runs both,
+    # which is the useful behaviour when someone is deliberately exercising it.
+    if: github.event.schedule != '20 * * * *'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run the autonomous paper cycle
+        env:
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
+          PIPELINE_SCHEDULER_TOKEN: ${{ secrets.PIPELINE_SCHEDULER_TOKEN }}
+        run: |
+          curl --fail --silent --show-error --max-time 300 \
+            -X POST "${APP_BASE_URL%/}/api/pipeline/paper-cycle" \
+            -H "Authorization: Bearer ${PIPELINE_SCHEDULER_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"invocationId\":\"gh:${{ github.run_id }}:${{ github.run_attempt }}\"}"
+
+  settle:
+    if: github.event.schedule != '*/10 * * * *'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Settle paper positions and re-evaluate breakers
+        env:
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
+          PIPELINE_SCHEDULER_TOKEN: ${{ secrets.PIPELINE_SCHEDULER_TOKEN }}
+        run: |
+          curl --fail --silent --show-error --max-time 300 \
+            -X POST "${APP_BASE_URL%/}/api/pipeline/paper-settlement" \
+            -H "Authorization: Bearer ${PIPELINE_SCHEDULER_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"invocationId\":\"gh:${{ github.run_id }}:${{ github.run_attempt }}\"}"
