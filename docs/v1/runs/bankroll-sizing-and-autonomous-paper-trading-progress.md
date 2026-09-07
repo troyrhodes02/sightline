@@ -9,17 +9,20 @@ reviewed, audited, green, and its PR left open for human review.
 
 ## Current step
 
-Step 2 — design doc.
+**Step 8 — working tickets.** Steps 1–7 complete. Feature branch
+`feat/bankroll-sizing-and-autonomous-paper-trading`, feature PR
+[#56](https://github.com/troyrhodes02/sightline/pull/56) open against `main`.
+Next: SIG-60 via `/sightline-ticket-worker`, branching off the feature branch.
 
 ## Pipeline checklist
 
 - [x] 1. Pull pitch doc from Linear → `docs/v1/pitches/bankroll-sizing-and-autonomous-paper-trading.md`
-- [ ] 2. Design doc → `docs/v1/design-docs/bankroll-sizing-and-autonomous-paper-trading-design-doc.md`
-- [ ] 3. UI preview → `docs/v1/ui/bankroll-sizing-and-autonomous-paper-trading-ui-preview.html`
-- [ ] 4. Spec → `docs/v1/specs/bankroll-sizing-and-autonomous-paper-trading-spec.md`
-- [ ] 5. Resolve remaining open questions as Resolved Decisions
-- [ ] 6. Milestone + Linear issues, chained blockedBy, IDs captured here
-- [ ] 7. Feature PR into main
+- [x] 2. Design doc → `docs/v1/design-docs/bankroll-sizing-and-autonomous-paper-trading-design-doc.md`
+- [x] 3. UI preview → `docs/v1/ui/bankroll-sizing-and-autonomous-paper-trading-ui-preview.html`
+- [x] 4. Spec → `docs/v1/specs/bankroll-sizing-and-autonomous-paper-trading-spec.md`
+- [x] 5. Resolve remaining open questions as Resolved Decisions (40 total: 1–12 pre-resolved by instruction, 13–25 in the design doc §20, 26–40 in the spec §21; spec §21 is the authoritative table)
+- [x] 6. Milestone + Linear issues, chained blockedBy, IDs captured here
+- [x] 7. Feature PR into main — #56
 - [ ] 8. Work every ticket in order (branch chain), PR each
 - [ ] 9. Runbook → `docs/v1/runbooks/bankroll-sizing-and-autonomous-paper-trading-runbook.md`
 - [ ] 10. Squash-merge every ticket PR into the feature branch, in order
@@ -64,3 +67,44 @@ report for a human to apply. **Do not edit `docs/planning/` during this run.**
 ## Resolved Decisions (accumulating)
 
 _See the design doc and spec for the authoritative list; new ones are appended here as they are made._
+
+## Linear artefacts (step 6)
+
+**Project:** Sightline V1 · **Milestone:** `Bankroll, Sizing & Autonomous Paper Trading`
+(id `4f0b1061-8c8a-4175-bc5b-1ab453276295`)
+
+Work these in order. Each is `blockedBy` the previous one.
+
+| # | Ticket | Title | Branch chain |
+| - | ------ | ----- | ------------ |
+| 1 | SIG-60 | Paper ledger schema, risk configuration, and the sizing arithmetic core | off `feat/bankroll-sizing-and-autonomous-paper-trading` |
+| 2 | SIG-61 | Probability Recalibration: shrinkage fit, versioning, and the nightly refit | off SIG-60's branch |
+| 3 | SIG-62 | The decision path: candidate selection, ranking, sizing, caps, conservative fills, reallocation, duplicate prevention | off SIG-61's branch |
+| 4 | SIG-63 | Autonomous execution, circuit breakers, settlement, and the withdrawal ratchet | off SIG-62's branch |
+| 5 | SIG-64 | Autonomy surfaces: overview, cycles, cycle detail, positions, configuration, override, nav, health | off SIG-63's branch |
+| 6 | SIG-65 | Dry Run, paper review, counterfactual risk-mode replay, live readiness, and the runbook | off SIG-64's branch |
+
+Feature branch: `feat/bankroll-sizing-and-autonomous-paper-trading`
+Feature PR: <https://github.com/troyrhodes02/sightline/pull/56> (docs-only at open; ticket PRs merge into it)
+
+Linear note: this team has no "In Review" state — the convention is **In Progress + PR attached**.
+
+## Resolved Decisions — where they live
+
+The authoritative table is **spec §21**, forty rows.
+
+- **1–12** — from the run instruction, treated as approved-doc authority. Restated verbatim above.
+- **13–25** — settled in the design doc §20 (route namespace, readiness copy, review periods, confidence reuse, money colour, shared candidate card, `bound by:` as a closed required set, Force Override as a route, drawdown unavailability, permanent override records, Health neutrality for `disabled`, shared surfaces untouched, no reset control).
+- **26–40** — settled in the spec §21 (separate dry-run/replay tables, no mode discriminator and no live ledger model, derived autonomy status, append-only risk config, the Kalshi fee formula, floor-to-whole-contracts, bid-based mark-to-market, both staleness states refusing, the execution window and cycle interval, missing depth refusing, three allocation passes with liquidity exhaustion, the `pava_piecewise_linear/v1` fit with K = 200, refusing to size without an active recalibration, refusing to size when mark-to-market is unavailable, and the new `getOrderbookTop` market-data client method).
+
+Three inherited postures are restated in spec §22 rather than re-decided: ask-versus-midpoint (this feature sizes on the ask unconditionally), settlement-versus-official-line as grading truth (unchanged from the previous pitch), and RLS on user-scoped tables (these tables are not user-scoped; RLS is deliberately not enabled).
+
+## Deliberate schema-vocabulary note (for the run report)
+
+The Architecture Doc's data model names `Position`. This pitch introduces `PaperPosition`
+and reserves `Position` for the **live** entity the Kalshi Trading pitch will build — a
+paper position never becomes a live one, so they are two entities, not one with a flag.
+Adding entities beyond the Architecture Doc's list is the established practice in this
+repo (`PipelineRun`, `MarketSyncRun`, `ProjectionGrade`, `ThresholdGrade`,
+`GameScheduleRevision`, `SourceCoverage`, `PlayerGameStatCorrection`, `PlayerExternalId`
+are all absent from that list). Recorded as an eighth upstream amendment in the run report.
