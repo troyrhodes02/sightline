@@ -207,7 +207,13 @@ async function reevaluateBreakers(
       config.perSlateCapPct,
     ),
     calibration: await calibrationSample(),
-    killSwitchEngaged: campaign.killSwitchEngaged,
+    // Deliberately false, matching the cycle path. The kill switch is a
+    // campaign FLAG with its own release control; `engageKillSwitch` writes no
+    // breach row precisely so that `releaseKillSwitch` has nothing to leave
+    // behind. Persisting one here would outlive the release — the flag clears,
+    // the row stays `active`, the bot stays halted on a condition the operator
+    // already lifted, and recovery needs a Resume for something nobody tripped.
+    killSwitchEngaged: false,
   });
 
   let opened = 0;

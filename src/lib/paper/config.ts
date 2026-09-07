@@ -139,6 +139,19 @@ export const EXECUTION_WINDOW_HOURS = 6;
 export const PAPER_CYCLE_INTERVAL_MINUTES = 30;
 
 /**
+ * How long after kickoff a counterfactual replay treats a game as finished, and
+ * therefore its positions as settleable.
+ *
+ * Replay has no settlement timestamps to work from — it re-simulates from the
+ * stored candidate rows — so it needs a rule for when cash comes back. Four
+ * hours is longer than an NFL game runs, deliberately: returning the cash late
+ * can only reduce what a later cycle in the same replay is able to stake, and
+ * a counterfactual that stakes more than the real campaign could have is the
+ * flattering direction of error.
+ */
+export const GAME_DURATION_ALLOWANCE_HOURS = 4;
+
+/**
  * Allocation passes per cycle. Reassessing the slate after a partial fill is
  * valuable; chasing the same unavailable liquidity is the rabbit hole. A
  * candidate whose fill was capped by displayed size is liquidity-exhausted for

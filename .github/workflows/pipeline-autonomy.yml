@@ -51,7 +51,16 @@ jobs:
             -d "{\"invocationId\":\"gh:${{ github.run_id }}:${{ github.run_attempt }}\"}"
 
   settle:
-    if: github.event.schedule != '*/10 * * * *'
+    if: always() && github.event.schedule != '*/10 * * * *'
+    # `concurrency` serialises workflow RUNS, not the jobs inside one, and on a
+    # manual dispatch both jobs are eligible. Without this they start together,
+    # and the cycle and the settlement pass would each append ledger entries
+    # from a balance read in a separate transaction — leaving `balanceAfterCents`
+    # no longer equal to the cumulative sum of `amountCents`, which is the one
+    # property the ledger's integrity rests on and cannot be repaired without
+    # rewriting history. `always()` keeps settlement running on the :20 schedule,
+    # where the cycle job is skipped.
+    needs: cycle
     runs-on: ubuntu-latest
     steps:
       - name: Settle paper positions and re-evaluate breakers

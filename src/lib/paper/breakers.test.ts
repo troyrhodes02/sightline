@@ -23,6 +23,7 @@ function sample(over: Partial<CalibrationSample> = {}): CalibrationSample {
     rollingBrier: 0.215,
     backtestBrier: 0.213,
     marketBrier: 0.221,
+    modelBrierOnMarketContracts: 0.215,
     observations: 118,
     marketObservations: 118,
     ...over,
@@ -174,10 +175,40 @@ describe("the calibration breaker", () => {
     const verdict = calibrationVerdict(
       sample({
         backtestBrier: 0.9, // degradation arm cannot fire
-        rollingBrier: 0.221 + CALIBRATION_MARKET_TOLERANCE + 0.001,
+        modelBrierOnMarketContracts:
+          0.221 + CALIBRATION_MARKET_TOLERANCE + 0.001,
       }),
     );
     expect(verdict).toEqual({ state: "breached", arm: "market" });
+  });
+
+  it("judges the market arm on the shared contracts, not the whole window", () => {
+    // The window's rolling figure is terrible and the matched one is fine.
+    // Only the matched one is a like-for-like comparison against Kalshi, so
+    // the arm must not fire: the gap is a sample difference, not a regression.
+    expect(
+      calibrationVerdict(
+        sample({
+          backtestBrier: 0.9,
+          rollingBrier: 0.9,
+          marketBrier: 0.221,
+          modelBrierOnMarketContracts: 0.215,
+        }),
+      ).state,
+    ).toBe("healthy");
+
+    // And the reverse: the window looks healthy while the model is behind
+    // Kalshi on precisely the contracts Kalshi priced. That must trip.
+    expect(
+      calibrationVerdict(
+        sample({
+          backtestBrier: 0.9,
+          rollingBrier: 0.1,
+          marketBrier: 0.221,
+          modelBrierOnMarketContracts: 0.3,
+        }),
+      ),
+    ).toEqual({ state: "breached", arm: "market" });
   });
 
   it("needs the market arm's own minimum sample independently", () => {
@@ -188,6 +219,7 @@ describe("the calibration breaker", () => {
         backtestBrier: 0.9,
         rollingBrier: 0.9,
         marketBrier: 0.1,
+        modelBrierOnMarketContracts: 0.9,
         marketObservations: CALIBRATION_MIN_OBSERVATIONS - 1,
       }),
     );

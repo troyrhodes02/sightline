@@ -254,7 +254,13 @@ export async function forceOverride(
       );
     }
 
-    for (const breach of active) {
+    // Only the halting conditions, which are the only ones the override screen
+    // shows and the only ones the acknowledgements above were computed against.
+    // A non-halting `drawdown_warning` open alongside a calibration halt was
+    // never put to the operator, so recording it as deliberately overruled
+    // would put a decision in the readiness evidence and the safety log that
+    // nobody made.
+    for (const breach of halting) {
       await tx.paperBreach.update({
         where: { id: breach.id },
         data: {
@@ -271,8 +277,8 @@ export async function forceOverride(
         kind: "force_overridden",
         actorUserId,
         detail: {
-          breachIds: active.map((b) => b.id),
-          conditions: active.map((b) => b.condition),
+          breachIds: halting.map((b) => b.id),
+          conditions: halting.map((b) => b.condition),
         },
         occurredAt: now,
       },

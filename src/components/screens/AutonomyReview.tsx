@@ -121,37 +121,33 @@ export function AutonomyReview({
               : ""}
           </Typography>
 
+          {/* Period first, campaign second, each under its own heading. The
+              two are never mixed in one row: a campaign-to-date P&L sitting
+              beside a week's fill counts reads as that week's result. */}
           <Stack direction="row" spacing={1.5} sx={{ flexWrap: "wrap" }}>
             <Figure
-              label="Starting bankroll"
-              value={formatCents(review.startingBankrollCents)}
-            />
-            <Figure
-              label="Ending active"
-              value={formatCents(review.endingActiveBankrollCents)}
-            />
-            <Figure
-              label="Net paper P&L"
-              value={formatCents(review.netPaperPnlCents, true)}
+              label="Realised this period"
+              value={formatCents(review.periodMoney.realizedPnlCents, true)}
               tone={
-                review.netPaperPnlCents < 0
+                review.periodMoney.realizedPnlCents < 0
                   ? "negative"
-                  : review.netPaperPnlCents > 0
+                  : review.periodMoney.realizedPnlCents > 0
                     ? "positive"
                     : "neutral"
               }
-              sub="after fills and fees"
+              sub="settled positions, after fills and fees"
             />
             <Figure
-              label="Simulated withdrawals"
-              value={formatCents(review.cumulativeWithdrawalsCents)}
+              label="Staked this period"
+              value={formatCents(review.periodMoney.stakedCents)}
+              sub="cost basis and fees"
             />
-          </Stack>
-
-          <Stack direction="row" spacing={1.5} sx={{ flexWrap: "wrap" }}>
             <Figure
-              label="Total paper wealth"
-              value={formatCents(review.totalPaperWealthCents)}
+              label="Still open"
+              value={formatCents(review.periodMoney.openExposureCents)}
+              sub={`${review.periodMoney.openPositionCount} position${
+                review.periodMoney.openPositionCount === 1 ? "" : "s"
+              }`}
             />
             <Figure
               label="Max drawdown"
@@ -172,6 +168,45 @@ export function AutonomyReview({
               value={`${review.fillQuality.complete} / ${review.fillQuality.partial} / ${review.fillQuality.unfilled}`}
               sub="complete / partial / unfilled"
             />
+          </Stack>
+
+          <Stack spacing={1}>
+            <Typography variant="h2">Campaign to date</Typography>
+            <Typography variant="body2" sx={{ color: "text.secondary" }}>
+              These four ignore the selected period.
+            </Typography>
+            <Stack direction="row" spacing={1.5} sx={{ flexWrap: "wrap" }}>
+              <Figure
+                label="Starting bankroll"
+                value={formatCents(review.campaignMoney.startingBankrollCents)}
+              />
+              <Figure
+                label="Active bankroll"
+                value={formatCents(review.campaignMoney.activeBankrollCents)}
+                sub="settled plus open exposure"
+              />
+              <Figure
+                label="Net paper P&L"
+                value={formatCents(review.campaignMoney.netPaperPnlCents, true)}
+                tone={
+                  review.campaignMoney.netPaperPnlCents < 0
+                    ? "negative"
+                    : review.campaignMoney.netPaperPnlCents > 0
+                      ? "positive"
+                      : "neutral"
+                }
+                sub="after fills and fees"
+              />
+              <Figure
+                label="Simulated withdrawals"
+                value={formatCents(
+                  review.campaignMoney.cumulativeWithdrawalsCents,
+                )}
+                sub={`total paper wealth ${formatCents(
+                  review.campaignMoney.totalPaperWealthCents,
+                )}`}
+              />
+            </Stack>
           </Stack>
 
           <Paper>

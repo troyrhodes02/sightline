@@ -2,6 +2,7 @@ import "server-only";
 
 import type { Prisma } from "../../../generated/prisma/client";
 import { prisma } from "@/lib/prisma";
+import { currentBalance } from "./settlement";
 import type { EvaluatedBreach } from "./breakers";
 import type { CyclePlan } from "./plan";
 
@@ -155,7 +156,14 @@ async function executeInner(
     });
   }
 
-  let balance = input.snapshot.settledBalanceCents;
+  // The running balance is read INSIDE the transaction, not taken from the
+  // snapshot. The cycle cron (*/10) and the settlement pass (:20) can overlap,
+  // and settlement moves the settled balance; seeding from a snapshot read
+  // before the transaction would leave `balanceAfterCents` no longer equal to
+  // the cumulative sum of `amountCents` — which is the single property the
+  // ledger's integrity rests on. The snapshot's copy stays on the cycle row as
+  // a record of what the planner saw, which is a different question.
+  let balance = await currentBalance(tx, input.campaignId);
   let positionsOpened = 0;
   let positionsIncreased = 0;
 

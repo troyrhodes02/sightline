@@ -9,7 +9,15 @@ reviewed, audited, green, and its PR left open for human review.
 
 ## Current step
 
-**Step 8 — working tickets.** Steps 1–7 complete. Feature branch
+**Step 14 done — awaiting human review. DO NOT MERGE.** Steps 1–14 complete;
+step 15 is the run report. The feature branch is verified, reviewed, audited and
+green, and PR [#56](https://github.com/troyrhodes02/sightline/pull/56) is open
+against `main` for a line-by-line human read.
+
+<details>
+<summary>Step 8 — working tickets (complete)</summary>
+
+Steps 1–7 complete. Feature branch
 `feat/bankroll-sizing-and-autonomous-paper-trading`, feature PR
 [#56](https://github.com/troyrhodes02/sightline/pull/56) open against `main`.
 
@@ -89,7 +97,63 @@ Pitch-specific checks the run instruction required, all green:
   asserts no mode discriminator on any ledger-shaped model, no ledger-shaped model
   outside the `paper_*` family, and no `Live*` model at all.
 
-Next: step 12 — `/review` the feature branch against `main`, inline on PR #56.
+</details>
+
+## Steps 12–13 — review and audit
+
+`/review` produced **13 findings**, all posted as inline comments on PR #56.
+`/sightline-review-audit` dispositioned **all 13 as VALID / IN_SCOPE / IMPLEMENT**:
+every one is a correctness, data-integrity or honesty regression this branch
+introduced, and several would roll back a whole cycle or corrupt the append-only
+ledger. Nothing was deferred, skipped, or left to discuss.
+
+A **fourteenth** issue surfaced while writing the regression test for finding 4:
+the replay reset its per-game cap to zero on every cycle and counted fills rather
+than positions, so a counterfactual could stake the full per-game cap again every
+thirty minutes. Same family as finding 4 — the replay diverging from the run it
+claims to be a counterfactual of, always in the flattering direction — so it was
+fixed with it.
+
+| # | Site | Fix |
+| - | ---- | --- |
+| 1 | `plan.ts` | Held positions carry their SIDE. A side flip is refused explicitly instead of reaching the executor, whose throw aborted the whole cycle run. |
+| 2 | `schema.prisma` / migration | `kelly_edge` widened to `DECIMAL(12,6)`. The edge is stored for rejected candidates too and is unbounded below; an overflow rolled back the cycle transaction. |
+| 3 | `pipeline/paper-settlement.ts` | Passes `killSwitchEngaged: false`, as the cycle path does. The persisted `kill_switch` breach outlived `releaseKillSwitch`. |
+| 4 | `replay.ts` | Settlement is gated on the game having finished (kickoff + 4h), not on an outcome merely existing. Previously cleared `held` after cycle one and re-opened the full stake on every later cycle. |
+| 5 | `replay.ts` | Risk config read `desc`, not `asc` — `actualMode` was reporting the mode the campaign was created with. |
+| 6 | `review.ts` | Money split into `periodMoney` and `campaignMoney`, each under its own heading. Campaign-to-date P&L was rendering under a week's label. |
+| 7 | `calibration-window.ts` | New `modelBrierOnMarketContracts`: the market arm now compares the model and Kalshi over the SAME contracts. |
+| 8 | `pipeline/paper-cycle.ts` | The loop is wrapped so `finishRun` always runs; the error is re-thrown after. A stranded `running` row made the health surface report the last good timestamp. |
+| 9 | `pipeline-autonomy.yml` | `settle` now `needs: cycle`, so a manual dispatch cannot run both against the ledger at once. |
+| 10 | `read.ts` | Bankroll history takes the newest 500 and reverses. Ascending froze the chart at campaign start. |
+| 11 | `plan.ts` | `unfilledStakeCents` derived from unfilled CONTRACTS; it was non-zero on a complete fill. |
+| 12 | `api/autonomy/replay/route.ts` | Discriminated-union schema with a shape check per period kind, and eligibility moved inside the try. |
+| 13 | `controls.ts` | Force Override resolves only the HALTING breaches — the ones actually put to the operator. |
+| 14 | `replay.ts` | Per-game exposure carried across cycles; positions counted as distinct contracts, not fills. *(Found during the audit, not in the review.)* |
+
+**14 regression tests added** for the fixes: side flip and unfilled stake in
+`plan.test.ts`, the matched-sample market arm in `breakers.test.ts`, a new
+`replay.test.ts` (duplicate prevention, exact invariance across repeated cycles,
+and the counterfactual reaching a settled state), a new `controls.test.ts` (the
+warning is left alone), and two structural assertions in `boundaries.test.ts`
+(the kill switch has one owner; a pipeline run row is always closed out).
+
+## Step 14 — re-verification after the audit
+
+| Check | Result |
+| --- | --- |
+| `npm run lint` | pass |
+| `npm run typecheck` | pass |
+| `npm run format` | pass |
+| `npm run prisma:validate` | pass |
+| `npx jest` | **807 passed**, 1 pre-existing local-only failure (below) |
+| `npm run test:schema` | **29 passed** |
+| `npm run build` | pass — all nine autonomy pages dynamic |
+| `uv run pytest` | **363 passed** |
+| `npx playwright test` | **44 passed, 36 skipped** |
+
+**Step 15 next, and last: the run report. The branch is NOT merged and must not
+be merged by this run.**
 
 **Known pre-existing failure, local only:** `src/lib/pipeline/auth.test.ts ›
 reports an unset server token as unconfigured`. Reproduced on a clean tree by

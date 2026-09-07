@@ -155,7 +155,7 @@ export async function readReadiness(
 
   if (
     calibration.marketBrier === null ||
-    calibration.rollingBrier === null ||
+    calibration.modelBrierOnMarketContracts === null ||
     calibration.marketObservations < CALIBRATION_MIN_OBSERVATIONS
   ) {
     criteria.push(
@@ -167,15 +167,18 @@ export async function readReadiness(
       ),
     );
   } else {
+    // Model and market scored over the same contracts. Comparing the rolling
+    // figure — which includes predictions Kalshi never priced — against the
+    // market's would be a comparison of two different samples.
     const within =
-      calibration.rollingBrier <=
+      calibration.modelBrierOnMarketContracts <=
       calibration.marketBrier + CALIBRATION_MARKET_TOLERANCE;
     criteria.push({
       key: "market_relative",
       category: "model_quality",
       label: "Performance relative to Kalshi",
       met: within,
-      evidence: `Model ${calibration.rollingBrier.toFixed(3)} against market ${calibration.marketBrier.toFixed(3)} over ${calibration.marketObservations} shared contracts (tolerance +${CALIBRATION_MARKET_TOLERANCE.toFixed(3)}).`,
+      evidence: `Model ${calibration.modelBrierOnMarketContracts.toFixed(3)} against market ${calibration.marketBrier.toFixed(3)} over ${calibration.marketObservations} shared contracts (tolerance +${CALIBRATION_MARKET_TOLERANCE.toFixed(3)}).`,
       unevaluable: false,
     });
   }

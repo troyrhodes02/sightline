@@ -59,7 +59,7 @@ function input(over: Partial<CyclePlanInput> = {}): CyclePlanInput {
     availableBankrollCents: 100_000,
     slateExposureCents: 0,
     gameExposureCents: 0,
-    heldContractsByContractId: {},
+    heldByContractId: {},
     candidates: [candidate()],
     haltingBreaches: [],
     ...over,
@@ -575,7 +575,11 @@ describe("duplicate prevention", () => {
     const first = planCycle(input());
     const held = first.candidates[0].desiredTotalContracts;
 
-    const retry = planCycle(input({ heldContractsByContractId: { c1: held } }));
+    const retry = planCycle(
+      input({
+        heldByContractId: { c1: { side: "yes" as const, contracts: held } },
+      }),
+    );
     expect(retry.candidates[0].verdict).toBe("no_stake");
     expect(retry.candidates[0].boundByDetail).toBe(
       "desired total already held",
@@ -594,7 +598,7 @@ describe("duplicate prevention", () => {
 
     const incremental = planCycle({
       ...richer,
-      heldContractsByContractId: { c1: held },
+      heldByContractId: { c1: { side: "yes" as const, contracts: held } },
     });
     expect(incremental.candidates[0].intendedContracts).toBe(10);
     expect(
@@ -605,17 +609,59 @@ describe("duplicate prevention", () => {
   it("adds nothing when more is held than is now desired", () => {
     const desired = planCycle(input()).candidates[0].desiredTotalContracts;
     const plan = planCycle(
-      input({ heldContractsByContractId: { c1: desired + 50 } }),
+      input({
+        heldByContractId: {
+          c1: { side: "yes" as const, contracts: desired + 50 },
+        },
+      }),
     );
     expect(plan.candidates[0].intendedContracts).toBe(0);
     expect(plan.stakedCents).toBe(0);
+  });
+
+  it("refuses a candidate whose better side has flipped away from the position", () => {
+    // The executor cannot write an increment on the opposite side of an open
+    // position, and a throw there aborts the whole cycle run. The planner has
+    // to see the side, so it can refuse here instead.
+    const desired = planCycle(input()).candidates[0].desiredTotalContracts;
+    const plan = planCycle(
+      input({
+        heldByContractId: { c1: { side: "no" as const, contracts: desired } },
+      }),
+    );
+    const c = plan.candidates[0];
+    expect(c.side).toBe("yes");
+    expect(c.verdict).toBe("refused");
+    expect(c.filledContracts).toBe(0);
+    expect(c.intendedContracts).toBe(0);
+    expect(c.boundByDetail).toContain("better side is now yes");
+    expect(plan.stakedCents).toBe(0);
+  });
+
+  it("does not report an opposite-side holding as the desired total", () => {
+    // The quiet half of the same bug: an increment landing at zero would be
+    // recorded as "desired total already held" when what is held is the other
+    // side of the market entirely.
+    const desired = planCycle(input()).candidates[0].desiredTotalContracts;
+    const plan = planCycle(
+      input({
+        heldByContractId: {
+          c1: { side: "no" as const, contracts: desired + 100 },
+        },
+      }),
+    );
+    expect(plan.candidates[0].boundByDetail).not.toBe(
+      "desired total already held",
+    );
   });
 
   it("caps the increment as if evaluated fresh", () => {
     const desired = planCycle(input()).candidates[0].desiredTotalContracts;
     const plan = planCycle(
       input({
-        heldContractsByContractId: { c1: desired - 40 },
+        heldByContractId: {
+          c1: { side: "yes" as const, contracts: desired - 40 },
+        },
         availableBankrollCents: 300,
       }),
     );
@@ -623,6 +669,35 @@ describe("duplicate prevention", () => {
     expect(c.filledCostCents + c.filledFeeCents).toBeLessThanOrEqual(300);
     expect(c.boundBy === "available_bankroll" || c.filledContracts > 0).toBe(
       true,
+    );
+  });
+});
+
+describe("the fill record says what actually happened", () => {
+  it("reports no unfilled stake on a complete fill", () => {
+    // `intendedStakeCents` is contracts x a PER-CONTRACT fee ceiling, while the
+    // cost charged is one ORDER-level ceiling, so the former is always larger.
+    // Subtracting one from the other left a few cents of "stake returned" on a
+    // position that filled entirely, which the cycle detail and the positions
+    // list both displayed.
+    const plan = planCycle(input());
+    const filled = plan.candidates.filter((c) => c.verdict === "filled");
+    expect(filled.length).toBeGreaterThan(0);
+    for (const candidate of filled) {
+      expect(candidate.unfilledStakeCents).toBe(0);
+    }
+  });
+
+  it("reports unfilled stake in whole unfilled contracts on a partial fill", () => {
+    const desired = planCycle(input()).candidates[0].desiredTotalContracts;
+    const short = Math.max(1, desired - 1);
+    const plan = planCycle(
+      input({ candidates: [candidate({ yesAskSizeContracts: short })] }),
+    );
+    const c = plan.candidates[0];
+    expect(c.verdict).toBe("partial");
+    expect(c.unfilledStakeCents).toBe(
+      (c.intendedContracts - c.filledContracts) * (c.netPriceCents as number),
     );
   });
 });

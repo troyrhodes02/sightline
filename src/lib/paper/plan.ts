@@ -83,8 +83,19 @@ export type CyclePlanInput = {
   slateExposureCents: number;
   /** The same, restricted to this game. */
   gameExposureCents: number;
-  /** Contracts already held, by contract id. */
-  heldContractsByContractId: Readonly<Record<string, number>>;
+  /**
+   * The open position on each contract, by contract id — **side and all.**
+   *
+   * A bare count would be side-blind, and a side-blind count is dangerous
+   * rather than merely imprecise: if the book moves enough between cycles that
+   * the better side flips, subtracting YES contracts from a NO desired total
+   * produces an increment the executor cannot write (a position holds one
+   * side), and the whole cycle aborts. The side travels with the count so the
+   * planner can refuse the flip explicitly instead.
+   */
+  heldByContractId: Readonly<
+    Record<string, { side: MarketSide; contracts: number }>
+  >;
   candidates: CandidateInput[];
   /**
    * Halting breach conditions active at evaluation. A non-empty list blocks
@@ -322,10 +333,16 @@ export function planCycle(input: CyclePlanInput): CyclePlan {
       candidate.filledCostCents = cost;
       candidate.filledFeeCents = fee;
       candidate.feeCents = fee;
-      candidate.unfilledStakeCents = Math.max(
-        0,
-        candidate.intendedStakeCents - (cost + fee),
-      );
+      // Stake the book did not take, derived from the CONTRACTS left unfilled
+      // rather than from intended-minus-spent. `intendedStakeCents` is a
+      // per-contract ceiling (`contracts x netPriceCents`) while the actual
+      // cost is one order-level ceiling, so the former is always the larger
+      // and the subtraction leaves a few cents behind even on a complete fill
+      // — which would report stake as returned on a position that filled
+      // entirely. Zero unfilled contracts is zero unfilled stake.
+      candidate.unfilledStakeCents =
+        (sized.intendedContracts - filled) *
+        (candidate.netPriceCents as number);
 
       if (filled < sized.intendedContracts) {
         candidate.verdict = "partial";
@@ -582,6 +599,23 @@ function priceCandidate(
   planned.topOfBookSizeContracts = best.sizeContracts;
   planned.kellyEdge = bestEdge;
 
+  // A side flip is refused, never traded through. The book or the corrected
+  // probability can move enough between cycles that the other side becomes the
+  // better one, but a paper position holds a single side: an increment on the
+  // opposite side is not an increment at all. Closing the old side to open the
+  // new one would be the bot trading out of a position on its own initiative,
+  // which is not in this pitch. So the candidate is refused and the existing
+  // position is left to settle. The refusal is recorded with its own reason
+  // rather than being reported as "desired total already held", which would
+  // describe holding the opposite of what was wanted.
+  const openPosition = input.heldByContractId[candidate.contractId];
+  if (openPosition !== undefined && openPosition.side !== best.side) {
+    planned.verdict = "refused";
+    planned.boundBy = "none";
+    planned.boundByDetail = `holds ${openPosition.contracts} ${openPosition.side}; better side is now ${best.side}`;
+    return planned;
+  }
+
   // The ceiling is checked on the CORRECTED probability of the side actually
   // being staked, and read from the config version — never from the mode.
   // Aggressive raises how much is risked on acceptable opportunities; it does
@@ -653,7 +687,12 @@ function sizeCandidate(
   boundByDetail: string | null;
 } {
   const net = candidate.netPriceCents as number;
-  const held = input.heldContractsByContractId[candidate.contractId] ?? 0;
+  // Only same-side holdings count against the desired total. An opposite-side
+  // holding is refused upstream in `priceCandidate`, so by the time sizing runs
+  // the only position that can be here is on this candidate's own side.
+  const open = input.heldByContractId[candidate.contractId];
+  const held =
+    open !== undefined && open.side === candidate.side ? open.contracts : 0;
 
   // If the system already holds the intended amount, repeating the cycle
   // creates no second position. Only new information raising the desired total

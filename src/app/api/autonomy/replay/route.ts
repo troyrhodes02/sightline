@@ -7,12 +7,29 @@ import { replayEligibility, runReplay } from "@/lib/paper/replay";
 
 export const dynamic = "force-dynamic";
 
-const replayInputSchema = z
-  .object({
-    periodKind: z.enum(["game_window", "week", "campaign"]),
-    periodKey: z.string().min(1),
-  })
-  .strict();
+// The period key is parsed downstream by `new Date(key)` for a game window and
+// `Number(key.split("-w")[...])` for a week, so a shape check here is the only
+// thing standing between a typo and `Invalid Date` / `NaN` reaching Prisma.
+const replayInputSchema = z.discriminatedUnion("periodKind", [
+  z
+    .object({
+      periodKind: z.literal("game_window"),
+      periodKey: z.string().datetime(),
+    })
+    .strict(),
+  z
+    .object({
+      periodKind: z.literal("week"),
+      periodKey: z.string().regex(/^\d{4}-w\d{1,2}$/),
+    })
+    .strict(),
+  z
+    .object({
+      periodKind: z.literal("campaign"),
+      periodKey: z.literal("campaign"),
+    })
+    .strict(),
+]);
 
 /**
  * Counterfactual risk-mode replay (SIG-65).
@@ -49,16 +66,20 @@ export async function POST(request: Request): Promise<Response> {
     return jsonError("not_found", "No paper campaign exists.");
   }
 
-  const eligibility = await replayEligibility(
-    campaign.id,
-    parsed.data.periodKind,
-    parsed.data.periodKey,
-  );
-  if (!eligibility.replayable) {
-    return jsonError("invalid_state_transition", eligibility.reason);
-  }
-
+  // Inside the try, with the run itself. Eligibility reads the same period key
+  // the replay does, so anything that could throw out of the replay could throw
+  // out of the check — and above the try it would escape as a raw error rather
+  // than the sanitised response every other path here is careful to return.
   try {
+    const eligibility = await replayEligibility(
+      campaign.id,
+      parsed.data.periodKind,
+      parsed.data.periodKey,
+    );
+    if (!eligibility.replayable) {
+      return jsonError("invalid_state_transition", eligibility.reason);
+    }
+
     const result = await runReplay(
       campaign.id,
       parsed.data.periodKind,

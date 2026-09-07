@@ -45,11 +45,34 @@ export type SafetyEvent = {
 export type Review = {
   period: ReviewPeriod;
   modesUsed: string[];
-  startingBankrollCents: number;
-  endingActiveBankrollCents: number;
-  netPaperPnlCents: number;
-  cumulativeWithdrawalsCents: number;
-  totalPaperWealthCents: number;
+  /**
+   * Money that belongs to the SELECTED PERIOD.
+   *
+   * Split from the campaign figures below deliberately. Every other number on
+   * this screen — positions, fills, drawdown, modes — is period-scoped, and a
+   * campaign-to-date P&L rendered beside them under a week's heading reads as
+   * that week's result. An eight-week campaign up $400 overall that lost $60 in
+   * week 5 would report "+$400.00" under "2026 week 5": the one figure the
+   * operator most needs per week, answered with the number that ignores the
+   * week.
+   */
+  periodMoney: {
+    /** Realised on the positions this period's cycles opened. */
+    realizedPnlCents: number;
+    /** Cost basis plus fees staked by this period's fills. */
+    stakedCents: number;
+    /** Cost basis plus fees still open from this period's positions. */
+    openExposureCents: number;
+    openPositionCount: number;
+  };
+  /** Campaign-to-date, and labelled as such wherever it is displayed. */
+  campaignMoney: {
+    startingBankrollCents: number;
+    activeBankrollCents: number;
+    netPaperPnlCents: number;
+    cumulativeWithdrawalsCents: number;
+    totalPaperWealthCents: number;
+  };
   maxDrawdownBps: number | null;
   positionCount: number;
   settledCount: number;
@@ -179,6 +202,28 @@ export async function readReview(
     },
   });
 
+  // The period's own money, from the period's own positions.
+  const periodMoney = {
+    realizedPnlCents: positions.reduce(
+      (sum, position) => sum + (position.realizedPnlCents ?? 0),
+      0,
+    ),
+    stakedCents: positions.reduce(
+      (sum, position) => sum + position.costBasisCents + position.feesPaidCents,
+      0,
+    ),
+    openExposureCents: positions
+      .filter((position) => position.status === "open")
+      .reduce(
+        (sum, position) =>
+          sum + position.costBasisCents + position.feesPaidCents,
+        0,
+      ),
+    openPositionCount: positions.filter(
+      (position) => position.status === "open",
+    ).length,
+  };
+
   // Fill quality: three counts, never one. `unfilled` means the planner wanted
   // a stake and the book supplied nothing — a real, countable event that a
   // summary reporting only "positions taken" would erase.
@@ -211,13 +256,18 @@ export async function readReview(
     select: { balanceAfterCents: true },
   });
   const settled = lastEntry?.balanceAfterCents ?? 0;
-  const openExposure = positions
-    .filter((position) => position.status === "open")
-    .reduce(
-      (sum, position) => sum + position.costBasisCents + position.feesPaidCents,
-      0,
-    );
-  const endingActive = settled + openExposure;
+
+  // Campaign-wide open exposure, to match the campaign-wide settled balance it
+  // is added to. Restricting one side of the sum to the period and not the
+  // other produced an "active bankroll" that was neither.
+  const campaignOpen = await prisma.paperPosition.aggregate({
+    where: { campaignId, status: "open" },
+    _sum: { costBasisCents: true, feesPaidCents: true },
+  });
+  const endingActive =
+    settled +
+    (campaignOpen._sum.costBasisCents ?? 0) +
+    (campaignOpen._sum.feesPaidCents ?? 0);
 
   const breaches = await prisma.paperBreach.findMany({
     where: {
@@ -248,14 +298,17 @@ export async function readReview(
   return {
     period,
     modesUsed: [...new Set(cycles.map((cycle) => cycle.riskConfig.mode))],
-    startingBankrollCents: campaign.startingBankrollCents,
-    endingActiveBankrollCents: endingActive,
-    netPaperPnlCents:
-      endingActive +
-      cumulativeWithdrawalsCents -
-      campaign.startingBankrollCents,
-    cumulativeWithdrawalsCents,
-    totalPaperWealthCents: endingActive + cumulativeWithdrawalsCents,
+    periodMoney,
+    campaignMoney: {
+      startingBankrollCents: campaign.startingBankrollCents,
+      activeBankrollCents: endingActive,
+      netPaperPnlCents:
+        endingActive +
+        cumulativeWithdrawalsCents -
+        campaign.startingBankrollCents,
+      cumulativeWithdrawalsCents,
+      totalPaperWealthCents: endingActive + cumulativeWithdrawalsCents,
+    },
     maxDrawdownBps,
     positionCount: positions.length,
     settledCount: positions.filter((position) => position.status !== "open")

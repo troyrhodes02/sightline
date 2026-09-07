@@ -8,6 +8,10 @@ const DRY_RUN = readCode(join(SRC, "lib", "paper", "dry-run.ts"));
 const REPLAY = readCode(join(SRC, "lib", "paper", "replay.ts"));
 const READINESS = readCode(join(SRC, "lib", "paper", "readiness.ts"));
 const REVIEW = readCode(join(SRC, "lib", "paper", "review.ts"));
+const SETTLEMENT_PIPELINE = readCode(
+  join(SRC, "lib", "pipeline", "paper-settlement.ts"),
+);
+const CYCLE_PIPELINE = readCode(join(SRC, "lib", "pipeline", "paper-cycle.ts"));
 
 /**
  * The three boundaries this pitch is most likely to cross by ordinary
@@ -205,5 +209,35 @@ describe("no module outside review and replay reads a replay result", () => {
       /(prisma|tx)\.paperReplay(ModeResult)?\./.test(readCode(file)),
     );
     expect(readers.map(relative).sort()).toEqual(["/lib/paper/replay.ts"]);
+  });
+});
+
+describe("the kill switch has exactly one owner", () => {
+  it("is never persisted as a breach by the settlement pass", () => {
+    // `engageKillSwitch` writes the campaign flag and a control event, and no
+    // `PaperBreach` — precisely so that `releaseKillSwitch` has nothing left
+    // behind to clear. A scheduled pass that opened an active `kill_switch`
+    // row would outlive the release: the flag clears, the row stays, the bot
+    // stays halted on a condition the operator already lifted, and recovery
+    // needs a Resume for something nobody tripped.
+    expect(SETTLEMENT_PIPELINE).toContain("killSwitchEngaged: false");
+    expect(SETTLEMENT_PIPELINE).not.toContain(
+      "killSwitchEngaged: campaign.killSwitchEngaged",
+    );
+  });
+});
+
+describe("a pipeline run row is always closed out", () => {
+  it("finishes the run even when the cycle loop throws", () => {
+    // `readHealth` selects the paper-cycle signal by `status: "succeeded"`, so
+    // a row stranded in `running` makes the health surface keep reporting the
+    // last good run's timestamp while nothing is actually running. That is the
+    // exact failure the surface exists to expose, hidden by the surface.
+    const finishes = [...CYCLE_PIPELINE.matchAll(/finishRun\(/g)];
+    expect(finishes.length).toBeGreaterThanOrEqual(4);
+    expect(CYCLE_PIPELINE).toMatch(/finishRun\(\s*runId,\s*"failed"/);
+    // And the error is re-thrown, not swallowed: a constraint violation is a
+    // bug and belongs in a red Actions run, unlike a Kalshi outage.
+    expect(CYCLE_PIPELINE).toContain("throw error;");
   });
 });

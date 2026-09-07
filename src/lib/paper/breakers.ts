@@ -46,8 +46,18 @@ export type CalibrationSample = {
   rollingBrier: number | null;
   /** Stored backtest Brier for the same model version, or null. */
   backtestBrier: number | null;
-  /** Kalshi's Brier over the same contracts and window, or null. */
+  /** Kalshi's Brier over the contracts it actually priced, or null. */
   marketBrier: number | null;
+  /**
+   * The MODEL's Brier over exactly those same contracts, or null.
+   *
+   * The market arm compares this against `marketBrier`, never `rollingBrier`.
+   * The rolling figure covers the whole window — most of which Kalshi never
+   * priced — so using it here would compare two different samples and let a
+   * pure sample difference either excuse a real regression or halt a healthy
+   * bot.
+   */
+  modelBrierOnMarketContracts: number | null;
   /** Graded observations backing `rollingBrier`. */
   observations: number;
   /** Graded observations backing the market comparison. */
@@ -177,8 +187,10 @@ export function calibrationVerdict(
 
   if (
     sample.marketBrier !== null &&
+    sample.modelBrierOnMarketContracts !== null &&
     sample.marketObservations >= CALIBRATION_MIN_OBSERVATIONS &&
-    sample.rollingBrier > sample.marketBrier + CALIBRATION_MARKET_TOLERANCE
+    sample.modelBrierOnMarketContracts >
+      sample.marketBrier + CALIBRATION_MARKET_TOLERANCE
   ) {
     return { state: "breached", arm: "market" };
   }
@@ -206,13 +218,16 @@ function evaluateCalibration(
     };
   }
 
+  // Reported from the MATCHED sample, the same one the arm judged, so the
+  // breach message cannot quote a number the decision did not use.
   const market = sample.marketBrier as number;
+  const model = sample.modelBrierOnMarketContracts as number;
   return {
     condition: "calibration",
-    measuredValue: rolling - market,
+    measuredValue: model - market,
     measuredDisplay:
-      `${rolling.toFixed(3)} model against ${market.toFixed(3)} market ` +
-      `(+${(rolling - market).toFixed(3)} over ${sample.marketObservations} shared contracts)`,
+      `${model.toFixed(3)} model against ${market.toFixed(3)} market ` +
+      `(+${(model - market).toFixed(3)} over ${sample.marketObservations} shared contracts)`,
     thresholdValue: CALIBRATION_MARKET_TOLERANCE,
     thresholdDisplay: `+${CALIBRATION_MARKET_TOLERANCE.toFixed(3)}`,
   };

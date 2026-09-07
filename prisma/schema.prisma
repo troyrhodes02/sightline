@@ -1408,7 +1408,13 @@ model PaperCycleCandidate {
   netPriceCents          Int? @map("net_price_cents") // per-contract, fee-adjusted, rounded up
   topOfBookSizeContracts Int? @map("top_of_book_size_contracts")
 
-  kellyEdge            Decimal? @map("kelly_edge") @db.Decimal(7, 6)
+  /// Unbounded below: `p - q*c/(1-c)` grows without limit as the fee-adjusted
+  /// price approaches a dollar, and the edge is stored for every priced
+  /// candidate INCLUDING the ones rejected for having none. A thin book quoting
+  /// only lowball bids on both sides yields asks near 96c and an edge past -12,
+  /// which a narrower column cannot hold — and the overflow would roll back the
+  /// whole cycle transaction rather than dropping one row.
+  kellyEdge            Decimal? @map("kelly_edge") @db.Decimal(12, 6)
   kellyFractionApplied Decimal? @map("kelly_fraction_applied") @db.Decimal(5, 4)
 
   intendedStakeCents Int @default(0) @map("intended_stake_cents")

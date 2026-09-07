@@ -60,6 +60,7 @@ function healthyCampaign() {
     rollingBrier: 0.215,
     backtestBrier: 0.213,
     marketBrier: 0.221,
+    modelBrierOnMarketContracts: 0.215,
     observations: 118,
     marketObservations: 118,
   });
@@ -167,6 +168,7 @@ describe("an unevaluable criterion is never met", () => {
       rollingBrier: 0.2,
       backtestBrier: 0.213,
       marketBrier: 0.221,
+      modelBrierOnMarketContracts: 0.2,
       observations: 12,
       marketObservations: 12,
     });
@@ -187,6 +189,7 @@ describe("an unevaluable criterion is never met", () => {
       rollingBrier: 0.2,
       backtestBrier: 0.213,
       marketBrier: null,
+      modelBrierOnMarketContracts: null,
       observations: 118,
       marketObservations: 0,
     });

@@ -147,52 +147,75 @@ export async function runPaperCycle(
   };
   let failed = false;
 
-  for (const game of games) {
-    const lastCycle = await prisma.paperCycle.findFirst({
-      where: { campaignId: campaign.id, gameId: game.id },
-      orderBy: { startedAt: "desc" },
-      select: { startedAt: true },
-    });
-    const action = decidePaperCycleAction({
-      kickoffAt: game.kickoffAt,
-      lastCycleStartedAt: lastCycle?.startedAt ?? null,
-      now,
-    });
-    if (action === "not_in_window" || action === "coalesced") continue;
-
-    result.windowsEvaluated += 1;
-    const startedAt = new Date();
-
-    try {
-      const cycle = await evaluateOneGame({
-        campaign,
-        config,
-        game,
+  // The loop runs inside try/catch so the run row is ALWAYS closed out. An
+  // unexpected throw — a check-constraint violation, a Prisma validation error,
+  // anything that is not a Kalshi outage — used to escape before `finishRun`,
+  // leaving the row stuck in `running` forever. `readHealth` selects the
+  // paper-cycle signal by `status: "succeeded"`, so a stranded row makes the
+  // health surface keep reporting the last good run's timestamp while nothing
+  // is actually running: the exact failure the health surface exists to expose,
+  // hidden by the surface itself.
+  //
+  // The error is re-thrown after the row is closed, deliberately. A Kalshi
+  // outage is a 200 with `degraded: true` because it is expected weather; a
+  // constraint violation is a bug and should be a red Actions run and a 500.
+  // Games later in the list go unevaluated, which the ten-minute cadence
+  // recovers from on the next tick.
+  try {
+    for (const game of games) {
+      const lastCycle = await prisma.paperCycle.findFirst({
+        where: { campaignId: campaign.id, gameId: game.id },
+        orderBy: { startedAt: "desc" },
+        select: { startedAt: true },
+      });
+      const action = decidePaperCycleAction({
+        kickoffAt: game.kickoffAt,
+        lastCycleStartedAt: lastCycle?.startedAt ?? null,
         now,
-        invocationId: input.invocationId,
-        pipelineRunId: runId,
-        startedAt,
       });
-      result.cycles.push(cycle);
-      if (cycle.outcome === "failed") failed = true;
-    } catch (error) {
-      const degraded =
-        error instanceof KalshiUnavailableError ||
-        error instanceof KalshiRateLimitError;
-      if (!degraded) throw error;
-      result.degraded = true;
-      failed = true;
-      result.cycles.push({
-        cycleId: null,
-        gameId: game.id,
-        outcome: "failed",
-        // The client's message is already sanitized: no URL, no header, no key.
-        skipReason: (error as Error).message,
-        candidatesEvaluated: 0,
-        candidatesFilled: 0,
-        stakedCents: 0,
-      });
+      if (action === "not_in_window" || action === "coalesced") continue;
+
+      result.windowsEvaluated += 1;
+      const startedAt = new Date();
+
+      try {
+        const cycle = await evaluateOneGame({
+          campaign,
+          config,
+          game,
+          now,
+          invocationId: input.invocationId,
+          pipelineRunId: runId,
+          startedAt,
+        });
+        result.cycles.push(cycle);
+        if (cycle.outcome === "failed") failed = true;
+      } catch (error) {
+        const degraded =
+          error instanceof KalshiUnavailableError ||
+          error instanceof KalshiRateLimitError;
+        if (!degraded) throw error;
+        result.degraded = true;
+        failed = true;
+        result.cycles.push({
+          cycleId: null,
+          gameId: game.id,
+          outcome: "failed",
+          // The client's message is already sanitized: no URL, no header, no key.
+          skipReason: (error as Error).message,
+          candidatesEvaluated: 0,
+          candidatesFilled: 0,
+          stakedCents: 0,
+        });
+      }
     }
+  } catch (error) {
+    await finishRun(
+      runId,
+      "failed",
+      "the cycle run stopped on an unexpected error",
+    );
+    throw error;
   }
 
   await finishRun(
@@ -332,8 +355,11 @@ async function evaluateOneGame(args: {
     availableBankrollCents: settledBalanceCents,
     slateExposureCents,
     gameExposureCents,
-    heldContractsByContractId: Object.fromEntries(
-      openPositions.map((p) => [p.contractId, p.contracts]),
+    heldByContractId: Object.fromEntries(
+      openPositions.map((p) => [
+        p.contractId,
+        { side: p.side, contracts: p.contracts },
+      ]),
     ),
     candidates: candidates.rows,
     haltingBreaches: halting,

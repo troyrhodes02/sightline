@@ -36,6 +36,7 @@ export async function calibrationSample(): Promise<CalibrationSample> {
       rollingBrier: null,
       backtestBrier: null,
       marketBrier: null,
+      modelBrierOnMarketContracts: null,
       observations: 0,
       marketObservations: 0,
     };
@@ -71,6 +72,39 @@ export async function calibrationSample(): Promise<CalibrationSample> {
 
   const marketBrier = await marketBrierFor(marketLinked);
 
+  // The model's OWN Brier over exactly the contracts the market was scored on.
+  //
+  // `rollingBrier` covers the whole window, most of which Kalshi never priced,
+  // so comparing it against `marketBrier` compares two different samples: the
+  // model can be strong on the predictions the market never made and weak on
+  // the ones it did, and the arm would pass a comparison it should fail — or
+  // halt the bot on a gap that is nothing but a sample difference. One grade
+  // per contract, newest first, mirroring the `distinct` on the snapshot side,
+  // so neither figure double-counts a contract the other counts once.
+  const scoredOnce = new Map<
+    string,
+    { statedProbability: unknown; outcome: boolean }
+  >();
+  for (const grade of marketLinked) {
+    const contractId = grade.contractId as string;
+    if (!marketBrier.scoredContractIds.has(contractId)) continue;
+    if (!scoredOnce.has(contractId)) {
+      scoredOnce.set(contractId, {
+        statedProbability: grade.statedProbability,
+        outcome: grade.outcome,
+      });
+    }
+  }
+  const matched = [...scoredOnce.values()];
+  const modelBrierOnMarketContracts =
+    matched.length > 0
+      ? matched.reduce((sum, grade) => {
+          const stated = Number(grade.statedProbability);
+          const actual = grade.outcome ? 1 : 0;
+          return sum + (stated - actual) ** 2;
+        }, 0) / matched.length
+      : null;
+
   const backtest = await prisma.backtestRun.findFirst({
     where: { modelVersion: latest.modelVersion, status: "completed" },
     orderBy: { startedAt: "desc" },
@@ -81,6 +115,7 @@ export async function calibrationSample(): Promise<CalibrationSample> {
     rollingBrier,
     backtestBrier: readBacktestBrier(backtest?.aggregates),
     marketBrier: marketBrier.brier,
+    modelBrierOnMarketContracts,
     observations: grades.length,
     marketObservations: marketBrier.observations,
   };
@@ -95,11 +130,18 @@ export async function calibrationSample(): Promise<CalibrationSample> {
  */
 async function marketBrierFor(
   grades: Array<{ contractId: string | null; outcome: boolean }>,
-): Promise<{ brier: number | null; observations: number }> {
+): Promise<{
+  brier: number | null;
+  observations: number;
+  /** Exactly the contracts scored, so the model side can match the sample. */
+  scoredContractIds: Set<string>;
+}> {
   const contractIds = grades
     .map((grade) => grade.contractId)
     .filter((id): id is string => id !== null);
-  if (contractIds.length === 0) return { brier: null, observations: 0 };
+  if (contractIds.length === 0) {
+    return { brier: null, observations: 0, scoredContractIds: new Set() };
+  }
 
   const snapshots = await prisma.recommendationSnapshot.findMany({
     where: { contractId: { in: contractIds }, trigger: "final_pre_kickoff" },
@@ -117,6 +159,7 @@ async function marketBrierFor(
 
   let total = 0;
   let count = 0;
+  const scoredContractIds = new Set<string>();
   for (const contractId of new Set(contractIds)) {
     const snapshot = byContract.get(contractId);
     const outcome = outcomeByContract.get(contractId);
@@ -124,6 +167,7 @@ async function marketBrierFor(
     // A voided market has no truth to score against and is excluded rather
     // than counted as either side.
     if (!outcome || outcome.result === "voided") continue;
+    scoredContractIds.add(contractId);
 
     const impliedYes =
       snapshot.side === "yes"
@@ -134,7 +178,11 @@ async function marketBrierFor(
     count += 1;
   }
 
-  return { brier: count > 0 ? total / count : null, observations: count };
+  return {
+    brier: count > 0 ? total / count : null,
+    observations: count,
+    scoredContractIds,
+  };
 }
 
 /**

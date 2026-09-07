@@ -220,3 +220,27 @@ describe("controls", () => {
     expect(CONTROLS).not.toMatch(/input\.(userId|actorUserId|role)/);
   });
 });
+
+describe("the ledger's running balance is read inside the transaction", () => {
+  it("seeds from the database, not from the pre-transaction snapshot", () => {
+    // The cycle cron (*/10) and the settlement pass (:20) can overlap, and
+    // settlement moves the settled balance. Seeding the running total from a
+    // snapshot taken before the transaction would leave `balanceAfterCents`
+    // no longer equal to the cumulative sum of `amountCents` — the single
+    // property the ledger's integrity rests on.
+    expect(EXECUTE).toContain(
+      "let balance = await currentBalance(tx, input.campaignId)",
+    );
+    expect(EXECUTE).not.toContain(
+      "let balance = input.snapshot.settledBalanceCents",
+    );
+  });
+
+  it("still records what the planner saw on the cycle row", () => {
+    // The snapshot's copy is a record of the state the decision was made
+    // against, which is a different question from where the ledger continues.
+    expect(EXECUTE).toContain(
+      "settledBalanceCents: input.snapshot.settledBalanceCents",
+    );
+  });
+});

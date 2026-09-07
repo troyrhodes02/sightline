@@ -96,7 +96,7 @@ export async function runDryRun(
     availableBankrollCents: state.settledBalanceCents,
     slateExposureCents: state.openExposureCents,
     gameExposureCents: 0,
-    heldContractsByContractId: {},
+    heldByContractId: {},
     candidates: candidates.rows,
     haltingBreaches: halting,
     markToMarketUnavailable: !state.mark.available,

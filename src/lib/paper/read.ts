@@ -200,12 +200,18 @@ export async function readAutonomyOverview(): Promise<AutonomyOverviewDto | null
     });
   }
 
-  const history = await prisma.paperLedgerEntry.findMany({
-    where: { campaignId: state.campaignId },
-    orderBy: [{ occurredAt: "asc" }, { id: "asc" }],
-    take: 500,
-    select: { occurredAt: true, balanceAfterCents: true },
-  });
+  // Newest 500, then reversed for the chart. Ascending with a `take` returns
+  // the OLDEST 500, so a campaign past that many entries — a couple of Sundays
+  // at two entries a fill plus settlement credits — would freeze the bankroll
+  // chart at the opening weeks while the balance beside it kept moving.
+  const history = (
+    await prisma.paperLedgerEntry.findMany({
+      where: { campaignId: state.campaignId },
+      orderBy: [{ occurredAt: "desc" }, { id: "desc" }],
+      take: 500,
+      select: { occurredAt: true, balanceAfterCents: true },
+    })
+  ).reverse();
 
   const cycles = await prisma.paperCycle.findMany({
     where: { campaignId: state.campaignId },

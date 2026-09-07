@@ -2,7 +2,11 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import type { RiskMode } from "../../../generated/prisma/enums";
-import { PROBABILITY_CEILING, RISK_PRESETS } from "./config";
+import {
+  GAME_DURATION_ALLOWANCE_HOURS,
+  PROBABILITY_CEILING,
+  RISK_PRESETS,
+} from "./config";
 import { feeCents, netPriceCents } from "./fees";
 import {
   appliedKellyFraction,
@@ -146,9 +150,13 @@ export async function runReplay(
     where: { id: campaignId },
     select: { startingBankrollCents: true },
   });
+  // Newest first, as every other read of this append-only table does. The
+  // oldest version would report whatever mode the campaign was CREATED with as
+  // `actualMode`, so a campaign that switched to aggressive in week 3 would see
+  // week 5 replayed with the aggressive run presented as a road not taken.
   const config = await prisma.paperRiskConfig.findFirst({
     where: { campaignId },
-    orderBy: { effectiveFrom: "asc" },
+    orderBy: { effectiveFrom: "desc" },
     select: { mode: true, withdrawalCeilingMultiple: true },
   });
 
@@ -197,6 +205,9 @@ export async function runReplay(
 
 type ReplayCycle = Awaited<ReturnType<typeof cyclesForPeriod>>[number];
 
+const GAME_DURATION_ALLOWANCE_MS =
+  GAME_DURATION_ALLOWANCE_HOURS * 60 * 60 * 1000;
+
 /**
  * One mode's alternate history.
  *
@@ -219,7 +230,6 @@ function simulateMode(inputs: {
   let highWater = inputs.startingBankrollCents;
   let maxDrawdownBps = 0;
   let withdrawn = 0;
-  let positionCount = 0;
   let breakerTrips = 0;
   let halted = false;
 
@@ -228,16 +238,85 @@ function simulateMode(inputs: {
   const held = new Map<string, number>();
   const openCost = new Map<string, number>();
   const openSide = new Map<string, "yes" | "no">();
+  // When each held contract's game kicks off, so a position is not settled out
+  // from under the cycles that were still evaluating it. See `settleFinished`.
+  const kickoffByContract = new Map<string, Date>();
+  const gameByContract = new Map<string, string>();
+  // Distinct contracts opened, not fills. Live, a second increment accumulates
+  // onto the existing position row rather than creating a second one, so
+  // counting fills would report more positions than the run could have held.
+  const opened = new Set<string>();
+
+  /**
+   * Credit the outcome of every held contract whose game had finished by
+   * `asOf`, or of every held contract when `asOf` is null (the final sweep).
+   *
+   * The timing is the whole point. Settling the instant an outcome merely
+   * EXISTS would clear `held` after the first cycle of a game window — and a
+   * period is only replayable once all of its positions have settled, so the
+   * outcome always exists from the first iteration. Three cycles pricing the
+   * same contract at T-6h, T-5.5h and T-5h would then open the full desired
+   * stake three times instead of once, tripling exposure and position count
+   * against a live run that added nothing on cycles two and three.
+   *
+   * A game is treated as finished four hours after kickoff, which is longer
+   * than an NFL game runs. Returning the cash late is the conservative
+   * direction: it can only reduce what later cycles are able to stake.
+   */
+  function settleFinished(asOf: Date | null): void {
+    for (const [contractId, contracts] of [...held]) {
+      const kickoff = kickoffByContract.get(contractId);
+      if (asOf !== null) {
+        if (!kickoff) continue;
+        const finishedAt = new Date(
+          kickoff.getTime() + GAME_DURATION_ALLOWANCE_MS,
+        );
+        if (asOf < finishedAt) continue;
+      }
+
+      const outcome = inputs.outcomeByContract.get(contractId);
+      if (!outcome) continue;
+      const side = openSide.get(contractId);
+      const cost = openCost.get(contractId);
+      if (!side || cost === undefined) continue;
+
+      const { proceedsCents } = settlementProceedsCents({
+        side,
+        contracts,
+        costBasisCents: cost,
+        feesPaidCents: 0,
+        result: outcome.result,
+      });
+      settled += proceedsCents;
+      held.delete(contractId);
+      openCost.delete(contractId);
+      openSide.delete(contractId);
+      kickoffByContract.delete(contractId);
+      gameByContract.delete(contractId);
+    }
+  }
 
   for (const cycle of inputs.cycles) {
     if (halted) continue;
+
+    // What has finished as of this cycle, before it sizes anything.
+    settleFinished(cycle.startedAt);
 
     const activeBankroll =
       settled + [...openCost.values()].reduce((a, b) => a + b, 0);
     const slateCapacity = capacityCents(activeBankroll, preset.perSlateCapPct);
     const gameCapacity = capacityCents(activeBankroll, preset.perGameCapPct);
     let slateUsed = [...openCost.values()].reduce((a, b) => a + b, 0);
-    let gameUsed = 0;
+    // Exposure already open on THIS game, carried across cycles exactly as the
+    // live path carries `gameExposureCents`. Resetting it to zero each cycle
+    // would let the replay stake the full per-game cap again every thirty
+    // minutes — a counterfactual staking more than the campaign it is a
+    // counterfactual of, which is the flattering direction of error.
+    let gameUsed = [...openCost].reduce(
+      (sum, [contractId, cost]) =>
+        gameByContract.get(contractId) === cycle.game.id ? sum + cost : sum,
+      0,
+    );
     let available = settled;
 
     for (const candidate of cycle.candidates) {
@@ -311,33 +390,14 @@ function simulateMode(inputs: {
         (openCost.get(candidate.contractId) ?? 0) + cost + fee,
       );
       openSide.set(candidate.contractId, candidate.side);
-      positionCount += 1;
+      kickoffByContract.set(candidate.contractId, cycle.game.kickoffAt);
+      gameByContract.set(candidate.contractId, cycle.game.id);
+      opened.add(candidate.contractId);
     }
 
-    // Settle everything this cycle opened whose outcome is known, then judge
-    // drawdown on the resulting balance. Marks are not available historically,
-    // so the replay's drawdown is measured on settled balance and labelled as
-    // such rather than approximated from prices that were never recorded.
-    for (const [contractId, contracts] of held) {
-      const outcome = inputs.outcomeByContract.get(contractId);
-      if (!outcome) continue;
-      const side = openSide.get(contractId);
-      const cost = openCost.get(contractId);
-      if (!side || cost === undefined) continue;
-
-      const { proceedsCents } = settlementProceedsCents({
-        side,
-        contracts,
-        costBasisCents: cost,
-        feesPaidCents: 0,
-        result: outcome.result,
-      });
-      settled += proceedsCents;
-      held.delete(contractId);
-      openCost.delete(contractId);
-      openSide.delete(contractId);
-    }
-
+    // Drawdown is judged on the settled balance. Marks are not available
+    // historically, so the replay measures on settled balance and is labelled
+    // as such rather than approximated from prices that were never recorded.
     highWater = nextHighWaterMark({
       currentCents: highWater,
       markCents: settled,
@@ -365,6 +425,23 @@ function simulateMode(inputs: {
     }
   }
 
+  // The final sweep. A period is only replayable once every position in it has
+  // settled, so the counterfactual must settle everything too — leaving a
+  // position open at cost would report a P&L for an alternative history that
+  // never finished, against an actual one that did.
+  settleFinished(null);
+  for (;;) {
+    const excess = withdrawalCents(
+      settled,
+      inputs.startingBankrollCents,
+      inputs.ceilingMultiple,
+    );
+    if (excess <= 0) break;
+    settled -= excess;
+    withdrawn += excess;
+    highWater = settled;
+  }
+
   const endingActiveCents =
     settled + [...openCost.values()].reduce((a, b) => a + b, 0);
 
@@ -374,7 +451,7 @@ function simulateMode(inputs: {
     netPnlCents: endingActiveCents + withdrawn - inputs.startingBankrollCents,
     withdrawnCents: withdrawn,
     maxDrawdownBps,
-    positionCount,
+    positionCount: opened.size,
     breakerTrips,
   };
 }

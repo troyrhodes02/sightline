@@ -168,7 +168,10 @@ CREATE TABLE "paper_cycle_candidates" (
     "fee_cents" INTEGER,
     "net_price_cents" INTEGER,
     "top_of_book_size_contracts" INTEGER,
-    "kelly_edge" DECIMAL(7,6),
+    -- Unbounded below: the Kelly edge is stored for every priced candidate,
+    -- including rejected ones, and grows without limit as the fee-adjusted
+    -- price approaches a dollar. An overflow here rolls back a whole cycle.
+    "kelly_edge" DECIMAL(12,6),
     "kelly_fraction_applied" DECIMAL(5,4),
     "intended_stake_cents" INTEGER NOT NULL DEFAULT 0,
     "intended_contracts" INTEGER NOT NULL DEFAULT 0,
