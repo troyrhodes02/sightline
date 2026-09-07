@@ -173,7 +173,8 @@ actually executed; the outcomes are as printed.
 | Unit + integration | `npx jest` | **807 passed**, 1 failure — pre-existing and local-only, see below |
 | Schema invariants | `npm run test:schema` | **29 passed** |
 | Build | `npm run build` | pass — all nine autonomy pages and nine routes dynamic |
-| Python | `uv run pytest` | **363 passed** |
+| Python | `TEST_DATABASE_URL=... uv run pytest` | **363 passed** in 7m20s, against a migrated local Postgres. The audit changed no Python file at all — the diff over the audit commits under `python/` is empty. |
+| CI on PR #56 | GitHub Actions | all jobs pass — web app (lint, types, unit, build, e2e), Python ingest (unit + DB integration), Prisma schema invariants, Vercel |
 | End-to-end | `npx playwright test` | **44 passed, 36 skipped** — the skips are auth suites needing seeded-account credentials, which run in CI |
 
 The three checks the run instruction named specifically:

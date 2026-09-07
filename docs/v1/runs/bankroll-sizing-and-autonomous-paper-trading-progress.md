@@ -149,10 +149,13 @@ warning is left alone), and two structural assertions in `boundaries.test.ts`
 | `npx jest` | **807 passed**, 1 pre-existing local-only failure (below) |
 | `npm run test:schema` | **29 passed** |
 | `npm run build` | pass — all nine autonomy pages dynamic |
-| `uv run pytest` | **363 passed** |
+| `uv run pytest` (TEST_DATABASE_URL set) | **363 passed** |
 | `npx playwright test` | **44 passed, 36 skipped** |
 
-**Step 15 next, and last: the run report. The branch is NOT merged and must not
+CI on PR #56 is green on the final commit `4822584`: web app, Python ingest
+(unit + DB integration), Prisma schema invariants, Vercel.
+
+**Step 15 done — the run report is written. The branch is NOT merged and must not
 be merged by this run.**
 
 **Known pre-existing failure, local only:** `src/lib/pipeline/auth.test.ts ›
