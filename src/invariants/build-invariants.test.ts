@@ -108,6 +108,9 @@ describe("authorization", () => {
       join(SRC, "app", "(app)", "autonomy", "positions", "page.tsx"),
       join(SRC, "app", "(app)", "autonomy", "configuration", "page.tsx"),
       join(SRC, "app", "(app)", "autonomy", "override", "page.tsx"),
+      join(SRC, "app", "(app)", "autonomy", "dry-run", "page.tsx"),
+      join(SRC, "app", "(app)", "autonomy", "review", "page.tsx"),
+      join(SRC, "app", "(app)", "autonomy", "readiness", "page.tsx"),
     ];
 
     for (const route of adminRoutes) {
