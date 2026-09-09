@@ -173,6 +173,53 @@ instead of erroring on a refused connection.
 Additional: this pitch does NOT run a Dry Run or enable autonomous paper trading —
 both remain downstream human-triggered gates in the staking pitch.
 
+## Steps 10-11 — merge ticket PRs + full verification (done)
+
+**Step 10.** #65 (SIG-66) was squash-merged into the feature branch. That
+produced the classic chained-branch conflict on #66 (later ticket branches carry
+SIG-66's original commit, which clashes with the squash commit). Rather than
+resolve six cumulative conflicts, the feature branch was fast-forwarded to
+`feat/SIG-72-ts-integration` — which IS the clean linear 7-ticket history (docs →
+SIG-66 → … → SIG-72, one clean commit per ticket), i.e. exactly what seven
+in-order squash-merges produce. Force-pushed `feat/SIG-72`'s content onto
+`feat/simulation-engine`. All seven ticket PRs (#65–#71) then show **MERGED**
+(their head commits are ancestors of the feature branch); feature PR #64 remains
+**OPEN into main**. (Operational note for the report: an aborted `git checkout`
+briefly force-pushed the docs-only tip; corrected immediately by pushing
+`feat/SIG-72`→`feat/simulation-engine`.)
+
+**Step 11 — full verification on the feature branch (all green):**
+
+| Check | Result |
+| --- | --- |
+| `npm run typecheck` | pass |
+| `npx jest` | **824 passed** (62 suites) |
+| `npm run test:schema` | **29 passed**, 0 fail |
+| `npm run build` | pass |
+| `npm run lint` | clean (4 errors are the pre-existing UNTRACKED `prisma/seed-dev-game.ts`, not on this branch) |
+| `uv run pytest` | **459 passed** (clean isolated run) |
+
+Pitch-specific checks, all present and green:
+- **Temporal leakage** — existing suite passes unchanged; new adversarial cases:
+  `test_no_season_aggregate_reaches_a_midseason_game` (game-env full-season
+  aggregate blocked — sums to 66 not 165); `test_usage_features_have_no_current_roster_read_path`
+  + `test_usage_features_attribute_traded_player_to_his_team_at_the_game`
+  + `test_team_trailing_volume_follows_the_team_not_current_roster` (current-roster
+  backward-join blocked); `test_usage_features_ignore_injury_designation_known_after_cutoff`
+  + `test_late_injury_fact_is_unreachable_at_prior_cutoff` (an availability
+  timestamp resolving earlier than its conservative Friday-evening window would
+  flip these assertions → caught).
+- **Import-graph** — `test_import_graph.py` extended to sweep all three layers,
+  the sim core, backtest, live path, promote, seed; planted simulation-layer
+  price references trip the guard.
+- **Reproducibility** — `test_two_runs_produce_byte_identical_stored_distributions`
+  + `test_simulation_run_reproduces_all_three_digests`.
+- **Vectorization** — `test_simulate_game_has_no_per_draw_python_loop`
+  + `test_draw_axis_is_a_single_dimension_of_length_draw_count`.
+- **Model-version attribution** — `test_promoting_one_stat_type_does_not_change_another_baseline_attribution`.
+- **Golden parity** — TS↔Python `probAtLeast` parity over 142 fixture cases
+  (Python-generated), asserted in jest.
+
 ## Resolved Decisions (accumulating)
 
 _The spec's Resolved Decisions table (RD-SIM-1…9) is authoritative; new ones made
