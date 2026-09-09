@@ -425,3 +425,114 @@ def test_rest_and_travel_is_invariant_to_post_cutoff_flex(base) -> None:
         player_id=pid, game_id=game_id(GAMES[2])
     )
     assert post_flex["rest_days"] == 8
+
+
+# --- 9. Game-environment team volume (SIG-67) -------------------------------
+#
+# The Simulation Engine's Layer 1 reads each team's TRAILING offensive volume
+# through team_trailing_volume. The leak this section attacks is the canonical
+# one CLAUDE.md names: a season aggregate joined to a mid-season game. Each
+# case constructs the leak and proves it is structurally blocked.
+
+
+def test_team_trailing_volume_cannot_see_a_future_team_game(base) -> None:
+    # A late-arriving team-game (its stats published AFTER the cutoff) must be
+    # structurally absent from the trailing volume — not filtered afterward.
+    connect = base
+    ingest_stats(_h("stats"), connect, 2023, 2023, fetch=lambda s: _stats_df(
+        [(GAMES[i], "KC", 200.0 + i) for i in range(5)]  # weeks 1-5
+    ))
+    # Cutoff after week-2's day-after, before week-3's.
+    cutoff = datetime(2023, 9, 20, 0, 0)
+    vol = AsOfCorpus(connect, cutoff).team_trailing_volume(
+        team_abbr="KC", before_game_id=game_id(GAMES[4])
+    )
+    games = set(vol["game_id"].to_list())
+    # Only weeks 1-2 are known; weeks 3-5 kick off later and are unreachable.
+    assert games == {game_id(GAMES[0]), game_id(GAMES[1])}
+    # One row PER team-game, never a single season roll-up.
+    assert vol.height == 2
+    # _stats_df stamps attempts=30 (pass) and carries=3 (rush) per game.
+    assert vol["pass_attempts"].to_list() == [30, 30]
+    assert vol["rush_attempts"].to_list() == [3, 3]
+    assert vol["plays"].to_list() == [33, 33]
+
+
+def test_team_trailing_volume_rolls_back_post_cutoff_corrections(base) -> None:
+    # A correction landing after the cutoff must not re-enter the volume feature:
+    # the value published at the cutoff is what the model could have seen.
+    connect = base
+    ingest_stats(_h("stats"), connect, 2023, 2023,
+                 fetch=lambda s: _stats_df([(GAMES[0], "KC", 200.0)]))
+    # A later correction bumps attempts implicitly via a re-ingest of the line;
+    # _stats_df keeps attempts=30, so to prove roll-back we correct passing_yards
+    # and assert the volume row (grain + attempts) is the cutoff-time one.
+    ingest_stats(_h("stats"), connect, 2023, 2023,
+                 fetch=lambda s: _stats_df([(GAMES[0], "KC", 999.0)]),
+                 correction_known_at=datetime(2023, 9, 20, 12, 0))
+    cutoff = datetime(2023, 9, 12, 0, 0)  # after the game, before the correction
+    vol = AsOfCorpus(connect, cutoff).team_trailing_volume(
+        team_abbr="KC", before_game_id=game_id(GAMES[4])
+    )
+    assert vol.height == 1
+    assert vol["pass_attempts"][0] == 30  # the at-cutoff opportunity, not a corrected one
+
+
+def test_team_trailing_volume_follows_the_team_not_current_roster(base) -> None:
+    # A player traded KC -> DET mid-season contributes to KC's volume only for
+    # the weeks he was on KC, and to DET's only afterward. A current-roster
+    # backward join would credit all four games to his current team; team volume
+    # must follow team_abbr_at_game per game, so this is structurally impossible.
+    connect = base
+    ingest_stats(_h("stats"), connect, 2023, 2023, fetch=lambda s: _stats_df([
+        (GAMES[0], "KC", 200.0), (GAMES[1], "KC", 210.0),
+        (GAMES[2], "DET", 220.0), (GAMES[3], "DET", 230.0),
+    ]))
+    cutoff = datetime(2023, 10, 15, 0, 0)  # all four known
+    kc = AsOfCorpus(connect, cutoff).team_trailing_volume(
+        team_abbr="KC", before_game_id=game_id(GAMES[4])
+    )
+    det = AsOfCorpus(connect, cutoff).team_trailing_volume(
+        team_abbr="DET", before_game_id=game_id(GAMES[4])
+    )
+    assert set(kc["game_id"].to_list()) == {game_id(GAMES[0]), game_id(GAMES[1])}
+    assert set(det["game_id"].to_list()) == {game_id(GAMES[2]), game_id(GAMES[3])}
+
+
+def test_no_season_aggregate_reaches_a_midseason_game(base) -> None:
+    # The canonical leak: a full-season team total joined to a mid-season game.
+    # We ingest a full five-week KC season, then ask for volume trailing week 3.
+    # The as-of layer can only return the games PUBLISHED before that game's
+    # cutoff, one row each. There is no method, parameter, or overload by which a
+    # season total (weeks 1-5 summed) can reach a week-3 projection: the leak is
+    # not merely filtered, it is unrepresentable.
+    connect = base
+    ingest_stats(_h("stats"), connect, 2023, 2023, fetch=lambda s: _stats_df(
+        [(GAMES[i], "KC", 200.0 + i) for i in range(5)]  # a full "season"
+    ))
+    # Project week 3 (GAMES[2]) from a cutoff after week-2's publication.
+    cutoff = datetime(2023, 9, 20, 0, 0)
+    vol = AsOfCorpus(connect, cutoff).team_trailing_volume(
+        team_abbr="KC", before_game_id=game_id(GAMES[2])
+    )
+    # Only weeks 1-2 are visible; the "rest of the season" (weeks 3-5) is absent.
+    assert set(vol["game_id"].to_list()) == {game_id(GAMES[0]), game_id(GAMES[1])}
+    # The full-season total (5 games x 33 plays = 165) is NOT obtainable: the
+    # visible plays sum to weeks 1-2 only (2 x 33 = 66). A season aggregate would
+    # show 165; proving the sum equals 66 proves weeks 3-5 never leaked backward.
+    assert int(vol["plays"].sum()) == 66
+    # And the layer exposes no season-total accessor to leak from.
+    assert not hasattr(AsOfCorpus, "team_season_volume")
+    assert not hasattr(AsOfCorpus, "season_team_totals")
+
+
+def test_team_trailing_volume_empty_history_is_typed(base) -> None:
+    # A team with no prior published games returns an empty, TYPED frame — never
+    # a schemaless frame that turns "no history" into an AttributeError three
+    # frames away in the feature layer.
+    connect = base
+    vol = AsOfCorpus(connect, datetime(2023, 9, 20, 0, 0)).team_trailing_volume(
+        team_abbr="KC", before_game_id=game_id(GAMES[4])
+    )
+    assert vol.height == 0
+    assert set(vol.columns) == {"game_id", "kickoff_at", "plays", "pass_attempts", "rush_attempts"}

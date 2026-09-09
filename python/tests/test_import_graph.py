@@ -244,6 +244,12 @@ def test_sweep_covers_the_simulation_engine_modules() -> None:
     assert any(
         "simulation" in p and p.endswith("seed.py") for p in scanned
     ), "the import-graph sweep does not reach sightline_model/simulation/seed.py"
+    # SIG-67: Layer 1 (game environment) is the first module that assembles
+    # features and could reach for a price to "sanity-check" volume. Assert it
+    # is covered explicitly so moving the module can never silently drop it.
+    assert any(
+        "simulation" in p and p.endswith("game_environment.py") for p in scanned
+    ), "the import-graph sweep does not reach sightline_model/simulation/game_environment.py"
 
 
 def test_sweep_catches_a_price_reference_planted_in_a_simulation_module() -> None:

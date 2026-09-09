@@ -9,6 +9,7 @@ dependencies = [
     # do not add it. (Declared now; datasets are ingested from SIG-7 onward.)
     "nflreadpy>=0.1.0",
     # Primary DataFrame library, following nflreadpy's native output.
+    "numpy>=1.26",
     "polars>=1.0.0",
     # Postgres client for the direct (non-pooled) connection.
     "psycopg[binary]>=3.2.0",
@@ -16,6 +17,7 @@ dependencies = [
     "python-dotenv>=1.0.0",
     # HTTP client for the Open-Meteo weather API (weather ingest).
     "requests>=2.31.0",
+    "scikit-learn>=1.4",
 ]
 
 [project.scripts]
