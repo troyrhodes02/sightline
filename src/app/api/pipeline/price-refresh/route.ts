@@ -8,6 +8,9 @@ import { prisma } from "@/lib/prisma";
 import type { MarketSyncStatus } from "../../../../../generated/prisma/enums";
 
 export const dynamic = "force-dynamic";
+// Kalshi sync fetches all open NFL markets; 60s gives the API room to respond.
+// Vercel Hobby caps at 60s; Pro/Enterprise can go higher if needed.
+export const maxDuration = 60;
 
 /**
  * Scheduled price maintenance (RD-P4, RD-20). The 15-minute cron calls this

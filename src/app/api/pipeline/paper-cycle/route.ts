@@ -8,6 +8,7 @@ import {
 export type { PipelinePaperCycleResult } from "@/lib/pipeline/paper-cycle";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 /**
  * The scheduled autonomous paper cycle (SIG-63).
