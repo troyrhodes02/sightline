@@ -275,6 +275,20 @@ def test_sweep_covers_the_simulation_engine_modules() -> None:
     assert any(
         "simulation" in p and p.endswith("backtest.py") for p in scanned
     ), "the import-graph sweep does not reach sightline_model/simulation/backtest.py"
+    # SIG-71: the live production path routes projection by ModelSelection,
+    # runs the joint engine, and persists — a module tempted to read a price to
+    # "sanity-check" what it is about to write to the slate the user reads.
+    # Assert coverage explicitly.
+    assert any(
+        "simulation" in p and p.endswith("live.py") for p in scanned
+    ), "the import-graph sweep does not reach sightline_model/simulation/live.py"
+    # SIG-71: the promotion tool reads two backtest runs' aggregates and writes
+    # model_selections. It must grade the engine on its OWN calibration, never on
+    # price-derived profitability; a price reference here would corrupt exactly
+    # the evidence a promotion rests on. Assert coverage explicitly.
+    assert any(
+        "simulation" in p and p.endswith("promote.py") for p in scanned
+    ), "the import-graph sweep does not reach sightline_model/simulation/promote.py"
 
 
 def test_sweep_catches_a_price_reference_planted_in_a_simulation_module() -> None:

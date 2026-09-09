@@ -30,6 +30,83 @@ reviewed, audited, green, and its PR left open for human review.
   file from before this run, not on any branch) has 4 `no-console` errors; my
   committed changes are lint-clean and CI never sees the uncommitted file.
 
+- **SIG-67 (Layer 1, game environment)** — branch `feat/SIG-67-game-environment`,
+  PR [#66](https://github.com/troyrhodes02/sightline/pull/66). `AsOfCorpus.team_trailing_volume`
+  (leakage-safe per-team-game grain, reuses publication-cutoff SQL + rollback);
+  `simulation/game_environment.py` (as-of features, `GameEnvironmentModel` on
+  HistGradientBoostingRegressor, vectorized `sample_team_volumes` with shared
+  game-pace + pass-lean latents, `game_environment_mae`). numpy + scikit-learn
+  added (gradient boosting = sklearn HistGradientBoosting; recorded decision).
+  Tests: 12 unit + 5 adversarial leakage (season-aggregate blocked: sums to 66
+  not 165) + import-graph coverage. Full pytest **391 passed**.
+- **SIG-68 (Layer 2, usage allocation)** — branch `feat/SIG-68-usage-allocation`,
+  PR [#67](https://github.com/troyrhodes02/sightline/pull/67). `usage_allocation.py`
+  (as-of features via team_abbr_at_game; within-team softmax over available
+  players + structural absence redistribution + replacement pool; vectorized
+  Multinomial opportunity draws; `usage_share_mae`). 50 targeted + 3 adversarial
+  roster-leak cases.
+- **SIG-69 (Layer 3 + joint simulation core)** — branch `feat/SIG-69-simulation-core`,
+  PR [#68](https://github.com/troyrhodes02/sightline/pull/68). `efficiency.py`
+  (shrunk to walk-forward position priors, separate from usage) + `core.py`
+  (`simulate_game`: seeded, vectorized, single draw axis, no per-draw loop;
+  compact quantile-grid/PMF derivation discarding raw draws; ordinal confidence
+  not inflated by draw count; structural drivers; insufficient-evidence decline;
+  `compute_correlations` Spearman joint outcomes). 79 tests incl. byte-identical
+  reproducibility, vectorization, sparse/zero-evidence, low-count zero mass,
+  QB↔WR positive + two-backs negative correlation.
+- **SIG-70 (backtest integration)** — branch `feat/SIG-70-backtest-integration`,
+  PR [#69](https://github.com/troyrhodes02/sightline/pull/69). `simulation/backtest.py`
+  (game-level path through the existing harness, reusing persist/metrics/digests;
+  `BacktestRun` model_version/seed/rng_draws); per-layer aggregate blocks
+  (aggregatesVersion→3); pure `meets_promotion_bar` (RD-1) + per-stat comparison.
+  Tests: reproducibility digests, promotion-bar truth table, model-version
+  attribution. **Full suite 450 passed** after resolving a test-DB concurrency
+  storm (see the test-ordering note above).
+- **SIG-71 (live path + promotion + recalibration handoff)** — branch
+  `feat/SIG-71-live-path`. `simulation/live.py` (ModelSelection-driven routing;
+  per-game joint projection persisting projections+drivers, declines,
+  game_simulations + correlations; idempotent uuid5 ids); `project_live.py`
+  wired to split baseline-routed vs simulation-routed stats; `simulation/promote.py`
+  (`sightline-model-promote` console script, dry-run default, `--apply` gated on
+  the RD-1 bar). Recalibration handoff needs **no TS change** —
+  `modelVersionsToRefit()` discovers versions dynamically; the existing nightly
+  refit picks up `simulation-mc-0.1.0` once its backtest + graded projections
+  exist. **Full suite 459 passed.**
+  - **Seed/BIGINT finding (handled):** `derive_seed` returns unsigned 64-bit;
+    `game_simulations.seed` is signed BIGINT with `>=0` check. SIG-71 masks the
+    STORED seed to the non-negative signed range (`_storable_seed`), matching the
+    baseline's convention; `simulate_game` still seeds from the full value and
+    reproducibility derives the seed afresh from (game_id, model_version, cutoff),
+    so it is unaffected. `seed.py` comment corrected. Flag for review: consider
+    narrowing `derive_seed` to 63 bits in a follow-up so stored == actual (out of
+    scope here — it would change SIG-66/69 stored distributions/digests).
+- **Runbook (step 9) shipped** in SIG-71: `docs/v1/runbooks/simulation-engine-runbook.md`.
+  Verified command names against reality: promotion = `sightline-model-promote`
+  (`--simulation-run/--baseline-run/--apply`); the **simulation backtest is a
+  function** `run_simulation_backtest(...)` (NOT a CLI flag — no web trigger by
+  design; runbook shows the `python -` invocation and flags a thin CLI wrapper as
+  a follow-up); recalibration refit auto-discovers versions (route body `{}`).
+
+### Test-ordering note (pre-existing)
+
+`python/tests/test_harness.py` (and `test_verify.py`) have a **pre-existing
+test-ordering dependency**: run as a standalone file they fail with
+`UniqueViolation`/setup errors, but the FULL `uv run pytest` passes (deterministic
+fixture UUIDs + a truncation ordering that only holds across the whole session).
+Confirmed by stashing all SIG-70 work back to the SIG-69 tip and reproducing the
+same standalone failures — so it is NOT a regression. **Consequence: the reliable
+per-ticket check for DB-touching work is the FULL suite, not a file subset.**
+Also: never run two pytest invocations against the shared 5433 test DB
+concurrently (they contend and cross-contaminate). **A ticket subagent's own
+verification pytest counts as a concurrent run** — during SIG-70 the agent's
+still-running verification (a lingering `pytest test_simulation_backtest.py`
+process) deadlocked with the reviewer's full-suite runs and produced a cascade
+of `DeadlockDetected`/`OperationalError` across UNRELATED tests. `pkill -9` of a
+mid-run pytest also leaves Postgres backends holding locks until TCP timeout.
+Resolution: stop the agent task, kill all pytest/uv procs, `docker compose
+restart db`, confirm `pg_stat_activity` shows 0 idle-in-transaction, then run the
+full suite ONCE, uninterrupted. Clean run = **450 passed**.
+
 ### Test DB note
 
 `TEST_DATABASE_URL` → `localhost:5433/sightline`, a disposable Postgres container
@@ -98,8 +175,17 @@ both remain downstream human-triggered gates in the staking pitch.
 
 ## Resolved Decisions (accumulating)
 
-_The spec's Resolved Decisions table is authoritative; new ones appended there and
-summarized here as made._
+_The spec's Resolved Decisions table (RD-SIM-1…9) is authoritative; new ones made
+during implementation are appended here for the run report._
+
+- **RD-SIM-10 (implementation).** The architecture's "scikit-learn plus a
+  gradient-boosting library" is satisfied by scikit-learn's built-in
+  `HistGradientBoostingRegressor` rather than adding a separate lightgbm/xgboost
+  dependency. Rationale: minimal dependency surface at this scale (three users,
+  ~300 games), CLAUDE.md flags adding libraries as needing care, and
+  HistGradientBoosting is a genuine gradient-boosting implementation. `numpy` and
+  `scikit-learn` were added to `python/pyproject.toml` (architecture-mandated).
+  Flag for human review in the report.
 
 ## Ground truth from codebase research (step 1)
 

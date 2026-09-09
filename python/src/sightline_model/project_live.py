@@ -53,6 +53,7 @@ from sightline_ingest.pipeline import (
 from .priors import InsufficientPriorEvidence, Prior, fit_prior
 from .features import assemble_batch
 from .projection import ProjectionResult, Unprojectable, project_one
+from .simulation import live
 from .stat_types import spec
 
 _NS = uuid.UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8")  # RFC 4122 URL namespace
@@ -243,11 +244,24 @@ def _project_all(
         corpus = AsOfCorpus(connect, cutoff)
         prior_cache: dict[tuple[int, str, str], Prior | None] = {}
 
+        # The active model per stat type is a data fact (spec §Per-game
+        # production lifecycle, RD-SIM-2). Read once for the whole run; six rows,
+        # so a plain fetch is correct. A stat type absent from the registry
+        # defaults to the baseline — the seed ships every stat on the baseline,
+        # so an absent row can only mean a stat type not yet registered, which is
+        # exactly the baseline's job.
+        selections = live.load_model_selections(conn)
+
         by_game: dict[str, dict[str, list[str]]] = {}
         for t in triples:
             by_game.setdefault(t["game_id"], {}).setdefault(
                 t["stat_type"], []
             ).append(t["player_id"])
+
+        # Fitted simulation models are loaded lazily, and only if some stat type
+        # in this run actually routes to the simulation engine — a run that
+        # touches only baseline-routed stats never reaches for the artefacts.
+        sim_models = _load_sim_models_if_needed(selections, by_game)
 
         failed_games = 0
         for game_id in sorted(by_game):
@@ -270,11 +284,18 @@ def _project_all(
                 )
                 continue
 
+            game_stats = by_game[game_id]
+            sim_stats = live.simulation_stats(selections, set(game_stats))
+            sim_stat_set = set(sim_stats)
+
             game_projected = 0
             try:
                 with conn.transaction():
-                    for stat_name in sorted(by_game[game_id]):
-                        player_ids = by_game[game_id][stat_name]
+                    # Baseline-routed stats: the unchanged per-player path.
+                    for stat_name in sorted(game_stats):
+                        if stat_name in sim_stat_set:
+                            continue
+                        player_ids = game_stats[stat_name]
                         game_projected += _project_game_stat(
                             conn,
                             corpus,
@@ -286,6 +307,22 @@ def _project_all(
                             seasons_by_game=seasons_by_game,
                             cutoff=cutoff,
                             now=now,
+                            totals=totals,
+                        )
+                    # Simulation-routed stats: one joint per-game run for all of
+                    # them at once (the engine is inherently per-game/joint).
+                    if sim_stats:
+                        game_projected += _project_game_simulation(
+                            conn,
+                            corpus,
+                            game=game,
+                            game_id=game_id,
+                            sim_stats=sim_stats,
+                            game_stats=game_stats,
+                            seasons_by_game=seasons_by_game,
+                            cutoff=cutoff,
+                            now=now,
+                            models=sim_models,
                             totals=totals,
                         )
             except Exception as exc:  # noqa: BLE001 - recorded per game; cycle continues
@@ -365,6 +402,70 @@ def _project_game_stat(
         totals["projected"] += 1
         projected += 1
     return projected
+
+
+def _load_sim_models_if_needed(
+    selections: dict[str, str], by_game: dict[str, dict[str, list[str]]]
+) -> live.SimulationModels | None:
+    """Load the fitted simulation models iff any stat in the run routes to them.
+
+    A run that touches only baseline-routed stats must never reach for the
+    simulation artefacts (and never fail on their absence). If a simulation route
+    exists but the artefacts are missing, the load raises — an unfitted-model
+    condition is an explicit failure, not a silent skip.
+    """
+    all_stats = {stat for stats in by_game.values() for stat in stats}
+    if not live.simulation_stats(selections, all_stats):
+        return None
+    return live.load_simulation_models()
+
+
+def _project_game_simulation(
+    conn,
+    corpus: AsOfCorpus,
+    *,
+    game: dict,
+    game_id: str,
+    sim_stats: list[str],
+    game_stats: dict[str, list[str]],
+    seasons_by_game: dict[str, int],
+    cutoff: datetime,
+    now: datetime,
+    models: live.SimulationModels | None,
+    totals: dict[str, int],
+) -> int:
+    """Run and persist one joint simulation for a game's simulation-routed stats.
+
+    Runs inside the caller's per-game transaction. Delegates the assembly,
+    simulation, and persistence to :mod:`sightline_model.simulation.live`; here we
+    only bridge the ``by_game`` shape and fold the outcome into the run totals.
+    Candidate accounting matches the baseline path: each requested (player, stat)
+    counts as a candidate, resolving to projected or unprojectable.
+    """
+    if models is None:  # pragma: no cover - guarded by _load_sim_models_if_needed
+        raise RuntimeError("simulation-routed stats present but no models loaded")
+
+    player_ids_by_stat = {stat: game_stats[stat] for stat in sim_stats}
+    # Each requested (player, stat) is a candidate, exactly as the baseline path
+    # counts them; the joint run resolves each into projected or unprojectable.
+    for stat in sim_stats:
+        totals["candidates"] += len(set(player_ids_by_stat[stat]))
+
+    counts = live.project_game_simulation(
+        conn,
+        corpus,
+        game=game,
+        game_id=game_id,
+        stat_names=sim_stats,
+        player_ids_by_stat=player_ids_by_stat,
+        seasons_by_game=seasons_by_game,
+        cutoff=cutoff,
+        computed_at=now,
+        models=models,
+    )
+    totals["projected"] += counts["projected"]
+    totals["unprojectable"] += counts["declined"]
+    return counts["projected"]
 
 
 def _prior(

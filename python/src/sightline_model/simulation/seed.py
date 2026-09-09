@@ -19,8 +19,13 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from hashlib import blake2b
 
-# 8 bytes -> a 64-bit unsigned seed, comfortably inside NumPy's accepted range
-# and matching the ``BIGINT`` column that stores it on ``GameSimulation``.
+# 8 bytes -> a 64-bit UNSIGNED seed, comfortably inside NumPy's accepted range.
+# Note this can exceed a signed Postgres BIGINT (top bit set), so the persistence
+# layer masks it to the non-negative signed-BIGINT range before storing it on
+# ``GameSimulation.seed`` (which carries a ``seed >= 0`` check). That stored value
+# is provenance only — it is never read back to re-seed. Reproducibility derives
+# the seed afresh from (game_id, model_version, information_cutoff), so the full
+# 64-bit value here is what actually seeds the simulation.
 _SEED_BYTES = 8
 
 
