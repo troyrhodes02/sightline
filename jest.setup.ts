@@ -13,3 +13,7 @@ process.env.NEXT_PUBLIC_SUPABASE_URL ??= "https://test-project.supabase.co";
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= "test-anon-key";
 process.env.SUPABASE_SERVICE_ROLE_KEY ??= "test-service-role-key";
 process.env.APP_URL ??= "http://localhost:3000";
+
+// PIPELINE_SCHEDULER_TOKEN is optional and must not bleed from .env.local into
+// tests — auth.test.ts explicitly tests the "unconfigured" path with undefined.
+delete process.env.PIPELINE_SCHEDULER_TOKEN;

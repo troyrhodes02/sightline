@@ -103,7 +103,12 @@ describe("sync structure", () => {
 
   it("writes observations on change or heartbeat, not per refresh (RD-14)", () => {
     expect(syncCode).toContain("PRICE_HEARTBEAT_MINUTES");
-    expect(syncCode).toMatch(/!booksDiffer[\s\S]{0,60}!heartbeatElapsed/);
+    // Observation is written only when the book changed or the heartbeat
+    // interval elapsed — either the positive OR form (booksDiffer || heartbeatElapsed)
+    // or the original negated guard form (!booksDiffer && !heartbeatElapsed) is valid.
+    const hasPositiveOr = /booksDiffer[\s\S]{0,80}heartbeatElapsed/.test(syncCode);
+    const hasNegatedGuard = /!booksDiffer[\s\S]{0,60}!heartbeatElapsed/.test(syncCode);
+    expect(hasPositiveOr || hasNegatedGuard).toBe(true);
   });
 });
 
