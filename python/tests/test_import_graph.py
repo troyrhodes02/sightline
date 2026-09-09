@@ -256,6 +256,18 @@ def test_sweep_covers_the_simulation_engine_modules() -> None:
     assert any(
         "simulation" in p and p.endswith("usage_allocation.py") for p in scanned
     ), "the import-graph sweep does not reach sightline_model/simulation/usage_allocation.py"
+    # SIG-69: Layer 3 (efficiency) turns opportunity into a stat line and could
+    # reach for a price to "sanity-check" a rate. Assert it is covered explicitly
+    # so moving the module can never silently drop it from the guard.
+    assert any(
+        "simulation" in p and p.endswith("efficiency.py") for p in scanned
+    ), "the import-graph sweep does not reach sightline_model/simulation/efficiency.py"
+    # SIG-69: the vectorised joint simulation core composes all three layers and
+    # is the module a price would most tempt into a "does this beat the market?"
+    # check. Assert coverage explicitly.
+    assert any(
+        "simulation" in p and p.endswith("core.py") for p in scanned
+    ), "the import-graph sweep does not reach sightline_model/simulation/core.py"
 
 
 def test_sweep_catches_a_price_reference_planted_in_a_simulation_module() -> None:
