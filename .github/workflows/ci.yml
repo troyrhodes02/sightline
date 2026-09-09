@@ -64,7 +64,13 @@ jobs:
 
       - name: Install Playwright browsers
         run: |
-          sudo apt-get clean
+          # Remove Google Chrome's apt source — it has intermittent hash
+          # mismatches on GitHub Actions runners. We install Chromium through
+          # Playwright, not system Chrome, so the source is not needed.
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list \
+                     /etc/apt/sources.list.d/google-chrome.list.save \
+                     /etc/apt/sources.list.d/google.list
+          sudo apt-get update -qq
           npx playwright install --with-deps chromium
       # The authenticated suites (adversarial role enforcement, revocation
       # across devices, credential-failure parity) require a provisioned
