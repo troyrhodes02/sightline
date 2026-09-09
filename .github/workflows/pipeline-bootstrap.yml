@@ -1,0 +1,52 @@
+name: Pipeline bootstrap (historical ingest)
+
+# One-shot historical data load. Runs the full ingest pipeline for prior
+# seasons so the projection model has training data. Safe to re-run —
+# every step is idempotent.
+
+on:
+  workflow_dispatch:
+    inputs:
+      seasons:
+        description: "Season range to ingest (e.g. 2022-2025)"
+        required: false
+        default: "2022-2025"
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      INGEST_DATABASE_URL: ${{ secrets.PIPELINE_DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Sync Python deps
+        run: uv sync
+        working-directory: python
+
+      - name: Ingest schedule (${{ inputs.seasons }})
+        run: uv run sightline-ingest schedule --seasons ${{ inputs.seasons }}
+        working-directory: python
+
+      - name: Ingest play-by-play (${{ inputs.seasons }})
+        run: uv run sightline-ingest pbp --seasons ${{ inputs.seasons }}
+        working-directory: python
+
+      - name: Ingest player stats (${{ inputs.seasons }})
+        run: uv run sightline-ingest stats --seasons ${{ inputs.seasons }}
+        working-directory: python
+
+      - name: Ingest context — snaps + injuries (${{ inputs.seasons }})
+        run: uv run sightline-ingest context --seasons ${{ inputs.seasons }}
+        working-directory: python
+
+      - name: Recompute projections
+        run: >
+          uv run sightline-model project
+          --invocation-id "gh:${{ github.run_id }}:${{ github.run_attempt }}"
+        working-directory: python
