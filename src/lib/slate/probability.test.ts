@@ -115,7 +115,12 @@ describe("empirical_quantiles", () => {
   };
   const at = (t: number) =>
     probAtLeast(
-      { distributionKind: "empirical_quantiles", params: {}, pmf: null, quantiles: grid },
+      {
+        distributionKind: "empirical_quantiles",
+        params: {},
+        pmf: null,
+        quantiles: grid,
+      },
       t,
     );
 
@@ -138,9 +143,24 @@ describe("empirical_quantiles", () => {
   });
 
   it("handles a non-strictly-increasing grid by nudging to monotonicity", () => {
-    const flat = { q01: 0, q05: 0, q10: 0, q25: 3, q50: 11, q75: 24, q90: 42, q95: 55, q99: 88 };
+    const flat = {
+      q01: 0,
+      q05: 0,
+      q10: 0,
+      q25: 3,
+      q50: 11,
+      q75: 24,
+      q90: 42,
+      q95: 55,
+      q99: 88,
+    };
     const p = probAtLeast(
-      { distributionKind: "empirical_quantiles", params: {}, pmf: null, quantiles: flat },
+      {
+        distributionKind: "empirical_quantiles",
+        params: {},
+        pmf: null,
+        quantiles: flat,
+      },
       1,
     );
     expect(p).not.toBeNull();
@@ -151,7 +171,12 @@ describe("empirical_quantiles", () => {
   it("yields null when the grid is missing", () => {
     expect(
       probAtLeast(
-        { distributionKind: "empirical_quantiles", params: {}, pmf: null, quantiles: null },
+        {
+          distributionKind: "empirical_quantiles",
+          params: {},
+          pmf: null,
+          quantiles: null,
+        },
         10,
       ),
     ).toBeNull();
@@ -180,7 +205,10 @@ describe("empirical_pmf", () => {
 
   it("yields null when the PMF is missing", () => {
     expect(
-      probAtLeast({ distributionKind: "empirical_pmf", params: {}, pmf: null }, 1),
+      probAtLeast(
+        { distributionKind: "empirical_pmf", params: {}, pmf: null },
+        1,
+      ),
     ).toBeNull();
   });
 });

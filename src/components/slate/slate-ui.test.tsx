@@ -130,7 +130,9 @@ describe("SlateRow", () => {
     expect(screen.queryByText("simulation-mc-0.1.0")).not.toBeInTheDocument();
     unmount();
 
-    renderThemed(<SlateRow row={row({ modelVersion: "baseline-zil-0.1.0" })} />);
+    renderThemed(
+      <SlateRow row={row({ modelVersion: "baseline-zil-0.1.0" })} />,
+    );
     expect(screen.getByText("BASE")).toBeInTheDocument();
     expect(screen.queryByText("baseline-zil-0.1.0")).not.toBeInTheDocument();
   });

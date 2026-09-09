@@ -194,7 +194,10 @@ export function ContractDetail({
             {detail.declineReason ??
               "The active model declined to produce a projection for this contract for lack of relevant history."}
           </Typography>
-          <Typography variant="caption" sx={{ color: "text.secondary", mt: 1, display: "block" }}>
+          <Typography
+            variant="caption"
+            sx={{ color: "text.secondary", mt: 1, display: "block" }}
+          >
             The market price above is shown for reference; with no projection
             there is no edge.
           </Typography>

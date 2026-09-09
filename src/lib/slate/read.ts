@@ -398,10 +398,8 @@ export async function readContractDetail(
         ),
       ) ?? undefined)
     : undefined;
-  const { state: detailProjectionState, declineReason } = resolveProjectionState(
-    projection !== null,
-    detailDeclineReason,
-  );
+  const { state: detailProjectionState, declineReason } =
+    resolveProjectionState(projection !== null, detailDeclineReason);
 
   const drivers = projection
     ? (
@@ -703,7 +701,8 @@ export async function insufficientEvidenceDeclines(
   for (const row of rows) {
     if (activeByStat.get(row.statType) !== row.modelVersion) continue;
     const key = projectionKey(row.playerId, row.gameId, row.statType);
-    if (!byKey.has(key)) byKey.set(key, DECLINE_REASON_TEXT.insufficient_evidence);
+    if (!byKey.has(key))
+      byKey.set(key, DECLINE_REASON_TEXT.insufficient_evidence);
   }
   return byKey;
 }

@@ -207,10 +207,14 @@ async function calibrationSeries(
     // Model-vs-model: a version-scoped live series per permanent model version.
     const series = await Promise.all(
       COMPARE_VERSIONS.map((version) =>
-        liveSeries(scope, { ...filters, version }, {
-          modelVersion: version,
-          labelPrefix: provenanceName(version),
-        }),
+        liveSeries(
+          scope,
+          { ...filters, version },
+          {
+            modelVersion: version,
+            labelPrefix: provenanceName(version),
+          },
+        ),
       ),
     );
     return series;

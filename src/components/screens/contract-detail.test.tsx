@@ -184,10 +184,10 @@ describe("ContractDetail — resolved", () => {
       />,
     );
     expect(screen.getByText("SIM")).toBeInTheDocument();
-    expect(screen.getByText(/Simulation Engine · computed/)).toBeInTheDocument();
     expect(
-      screen.queryByText(/simulation-mc-0\.1\.0/),
-    ).not.toBeInTheDocument();
+      screen.getByText(/Simulation Engine · computed/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/simulation-mc-0\.1\.0/)).not.toBeInTheDocument();
   });
 
   it("renders a PMF bar chart for empirical_pmf and a quantile curve otherwise", () => {
