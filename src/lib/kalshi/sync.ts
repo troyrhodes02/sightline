@@ -127,11 +127,12 @@ async function executeSync(): Promise<SyncResult> {
     data: { status: "failed", startedAt: now },
   });
 
-  let marketsDiscovered = 0;
-  let contractsUpserted = 0;
-  let observationsWritten = 0;
+  // --- Phase 1: Discover all markets from Kalshi ---
+  // All four series are fetched first so we can bulk-preload DB state in
+  // one round trip rather than one findUnique per market (2500+ sequential
+  // queries was exceeding the function timeout).
+  const allMarkets: Array<{ market: KalshiMarket; seriesTicker: string }> = [];
   const failures: string[] = [];
-  const seenTickers: string[] = [];
 
   for (const seriesTicker of NFL_SERIES_TICKERS) {
     let markets: KalshiMarket[];
@@ -139,30 +140,176 @@ async function executeSync(): Promise<SyncResult> {
       markets = await listOpenMarkets(seriesTicker);
     } catch (error) {
       failures.push(`${seriesTicker}: ${sanitizeErrorMessage(error)}`);
-      // A rate-limit response ends the run rather than retrying in a loop;
-      // the next refresh (outside the coalescing window) tries again.
       if (error instanceof KalshiRateLimitError) break;
       if (error instanceof KalshiUnavailableError) continue;
       throw error;
     }
-
-    marketsDiscovered += markets.length;
-
     for (const market of markets) {
-      try {
-        const written = await upsertOneMarket(market, seriesTicker);
-        contractsUpserted += 1;
-        observationsWritten += written ? 1 : 0;
-        seenTickers.push(market.ticker);
-      } catch (error) {
-        // One malformed market never blocks the slate (pitch no-go). It is
-        // counted, named, and the run marked partial.
-        failures.push(`${market.ticker}: ${sanitizeErrorMessage(error)}`);
-      }
+      allMarkets.push({ market, seriesTicker });
     }
   }
 
-  const completeDiscovery = failures.length === 0;
+  const marketsDiscovered = allMarkets.length;
+  const allTickers = allMarkets.map(({ market }) => market.ticker);
+
+  // --- Phase 2: Bulk-preload existing DB state (2 queries total) ---
+  const [existingContracts, latestObservations] = await Promise.all([
+    // All contracts we already know about for the discovered tickers.
+    prisma.contract.findMany({
+      where: { kalshiTicker: { in: allTickers } },
+      select: { id: true, kalshiTicker: true, resolutionStatus: true },
+    }),
+    // Latest price observation per contract, for the heartbeat/diff check.
+    // DISTINCT ON is not available via Prisma; use a raw query.
+    allTickers.length > 0
+      ? prisma.$queryRaw<
+          Array<{
+            contract_id: string;
+            yes_bid_cents: number | null;
+            yes_ask_cents: number | null;
+            no_bid_cents: number | null;
+            no_ask_cents: number | null;
+            observed_at: Date;
+          }>
+        >`
+          SELECT DISTINCT ON (po.contract_id)
+            po.contract_id, po.yes_bid_cents, po.yes_ask_cents,
+            po.no_bid_cents, po.no_ask_cents, po.observed_at
+          FROM price_observations po
+          JOIN contracts c ON c.id = po.contract_id
+          WHERE c.kalshi_ticker = ANY(${allTickers})
+          ORDER BY po.contract_id, po.observed_at DESC
+        `
+      : Promise.resolve([]),
+  ]);
+
+  const contractCache = new Map(
+    existingContracts.map((c) => [c.kalshiTicker, c]),
+  );
+  const observationCache = new Map(
+    latestObservations.map((o) => [o.contract_id, o]),
+  );
+
+  // --- Phase 3: Upsert contracts and accumulate price observations ---
+  const observedAt = now;
+  const heartbeatMs = env.PRICE_HEARTBEAT_MINUTES * 60 * 1000;
+  let contractsUpserted = 0;
+  const pendingObservations: Array<{
+    contractId: string;
+    syncRunId: string;
+    observedAt: Date;
+    yesBidCents: number | null;
+    yesAskCents: number | null;
+    noBidCents: number | null;
+    noAskCents: number | null;
+  }> = [];
+  const seenTickers: string[] = [];
+
+  for (const { market, seriesTicker } of allMarkets) {
+    const parsed = parseMarket(market, seriesTicker);
+
+    try {
+      let contractId: string;
+      const existing = contractCache.get(parsed.kalshiTicker);
+
+      if (!existing) {
+        const resolution = await resolveContract(parsed, prisma);
+        const created = await prisma.contract.create({
+          data: {
+            kalshiTicker: parsed.kalshiTicker,
+            kalshiEventTicker: parsed.kalshiEventTicker,
+            kalshiSeriesTicker: seriesTicker,
+            title: parsed.title,
+            kalshiPlayerName: parsed.playerName,
+            playerId: resolution.playerId,
+            gameId: resolution.gameId,
+            statType: resolution.statType,
+            threshold: resolution.threshold,
+            resolutionStatus: resolution.resolutionStatus,
+            resolutionNote: resolution.resolutionNote,
+            status: "active",
+            closeTime: parsed.closeTime,
+            firstSeenAt: observedAt,
+            lastSeenAt: observedAt,
+          },
+        });
+        contractId = created.id;
+        // Add to cache so a duplicate ticker in the same run hits the cache.
+        contractCache.set(parsed.kalshiTicker, {
+          id: contractId,
+          kalshiTicker: parsed.kalshiTicker,
+          resolutionStatus: resolution.resolutionStatus,
+        });
+      } else {
+        contractId = existing.id;
+        const needsResolution =
+          existing.resolutionStatus === "unresolved" ||
+          existing.resolutionStatus === "ambiguous";
+        const resolution = needsResolution
+          ? await resolveContract(parsed, prisma)
+          : null;
+
+        await prisma.contract.update({
+          where: { id: contractId },
+          data: {
+            status: "active",
+            lastSeenAt: observedAt,
+            closeTime: parsed.closeTime,
+            ...(resolution
+              ? {
+                  playerId: resolution.playerId,
+                  gameId: resolution.gameId,
+                  statType: resolution.statType,
+                  threshold: resolution.threshold,
+                  resolutionStatus: resolution.resolutionStatus,
+                  resolutionNote: resolution.resolutionNote,
+                }
+              : {}),
+          },
+        });
+      }
+
+      contractsUpserted += 1;
+      seenTickers.push(market.ticker);
+
+      // Decide whether to write a price observation using cached state.
+      const book = {
+        yesBidCents: toCents(market.yes_bid),
+        yesAskCents: toCents(market.yes_ask),
+        noBidCents: toCents(market.no_bid),
+        noAskCents: toCents(market.no_ask),
+      };
+      const lastObs = observationCache.get(contractId);
+      const heartbeatElapsed =
+        !lastObs ||
+        observedAt.getTime() - lastObs.observed_at.getTime() >= heartbeatMs;
+
+      const lastObsBook = lastObs
+        ? {
+            yesBidCents: lastObs.yes_bid_cents,
+            yesAskCents: lastObs.yes_ask_cents,
+            noBidCents: lastObs.no_bid_cents,
+            noAskCents: lastObs.no_ask_cents,
+          }
+        : null;
+      if (!lastObsBook || booksDiffer(book, lastObsBook) || heartbeatElapsed) {
+        pendingObservations.push({
+          contractId,
+          syncRunId: run.id,
+          observedAt,
+          ...book,
+        });
+      }
+    } catch (error) {
+      failures.push(`${market.ticker}: ${sanitizeErrorMessage(error)}`);
+    }
+  }
+
+  // --- Phase 4: Batch-write all price observations in one query ---
+  if (pendingObservations.length > 0) {
+    await prisma.priceObservation.createMany({ data: pendingObservations });
+  }
+  const observationsWritten = pendingObservations.length;
 
   // Delist pass: an active contract in a governed series that a COMPLETE
   // discovery no longer returned has left the market. Partial discoveries
@@ -172,6 +319,7 @@ async function executeSync(): Promise<SyncResult> {
   // indistinguishable from here, and started games leave the slate via the
   // kickoff boundary regardless, so the conservative reading costs only a
   // cosmetic status. History is retained; nothing is deleted.
+  const completeDiscovery = failures.length === 0;
   if (completeDiscovery && marketsDiscovered > 0) {
     await prisma.contract.updateMany({
       where: {
@@ -215,113 +363,4 @@ async function executeSync(): Promise<SyncResult> {
     observationsWritten,
     finishedAt: finishedAt.toISOString(),
   };
-
-  /**
-   * Upserts one market's contract and, when the book changed or the
-   * heartbeat elapsed (RD-14), appends a price observation. Returns whether
-   * an observation was written.
-   */
-  async function upsertOneMarket(
-    market: KalshiMarket,
-    seriesTicker: string,
-  ): Promise<boolean> {
-    const parsed = parseMarket(market, seriesTicker);
-    const observedAt = new Date();
-
-    const existing = await prisma.contract.findUnique({
-      where: { kalshiTicker: parsed.kalshiTicker },
-      select: { id: true, resolutionStatus: true },
-    });
-
-    let contractId: string;
-    if (!existing) {
-      const resolution = await resolveContract(parsed, prisma);
-      const created = await prisma.contract.create({
-        data: {
-          kalshiTicker: parsed.kalshiTicker,
-          kalshiEventTicker: parsed.kalshiEventTicker,
-          kalshiSeriesTicker: seriesTicker,
-          title: parsed.title,
-          kalshiPlayerName: parsed.playerName,
-          playerId: resolution.playerId,
-          gameId: resolution.gameId,
-          statType: resolution.statType,
-          threshold: resolution.threshold,
-          resolutionStatus: resolution.resolutionStatus,
-          resolutionNote: resolution.resolutionNote,
-          status: "active",
-          closeTime: parsed.closeTime,
-          firstSeenAt: observedAt,
-          lastSeenAt: observedAt,
-        },
-      });
-      contractId = created.id;
-    } else {
-      contractId = existing.id;
-      // Re-resolution only for contracts still unresolved or ambiguous — a
-      // resolved or manually corrected mapping is settled history (RD-9).
-      const needsResolution =
-        existing.resolutionStatus === "unresolved" ||
-        existing.resolutionStatus === "ambiguous";
-      const resolution = needsResolution
-        ? await resolveContract(parsed, prisma)
-        : null;
-
-      await prisma.contract.update({
-        where: { id: contractId },
-        data: {
-          status: "active",
-          lastSeenAt: observedAt,
-          closeTime: parsed.closeTime,
-          ...(resolution
-            ? {
-                playerId: resolution.playerId,
-                gameId: resolution.gameId,
-                statType: resolution.statType,
-                threshold: resolution.threshold,
-                resolutionStatus: resolution.resolutionStatus,
-                resolutionNote: resolution.resolutionNote,
-              }
-            : {}),
-        },
-      });
-    }
-
-    const book = {
-      yesBidCents: toCents(market.yes_bid),
-      yesAskCents: toCents(market.yes_ask),
-      noBidCents: toCents(market.no_bid),
-      noAskCents: toCents(market.no_ask),
-    };
-
-    const lastObservation = await prisma.priceObservation.findFirst({
-      where: { contractId },
-      orderBy: { observedAt: "desc" },
-      select: {
-        yesBidCents: true,
-        yesAskCents: true,
-        noBidCents: true,
-        noAskCents: true,
-        observedAt: true,
-      },
-    });
-
-    const heartbeatElapsed =
-      !lastObservation ||
-      observedAt.getTime() - lastObservation.observedAt.getTime() >=
-        env.PRICE_HEARTBEAT_MINUTES * 60 * 1000;
-
-    if (
-      lastObservation &&
-      !booksDiffer(book, lastObservation) &&
-      !heartbeatElapsed
-    ) {
-      return false;
-    }
-
-    await prisma.priceObservation.create({
-      data: { contractId, syncRunId: run.id, observedAt, ...book },
-    });
-    return true;
-  }
 }
