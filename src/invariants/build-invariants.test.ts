@@ -98,6 +98,19 @@ describe("authorization", () => {
       join(SRC, "app", "(app)", "health", "page.tsx"),
       join(SRC, "app", "(app)", "users", "page.tsx"),
       join(SRC, "app", "api", "users", "[id]", "decision", "route.ts"),
+      // Autonomy (SIG-64). Every surface in this section is private: a viewer
+      // must not be able to infer that a bankroll, a position, or a bot
+      // exists. The nav hides them, but the nav is a courtesy — these guards
+      // are the boundary.
+      join(SRC, "app", "(app)", "autonomy", "page.tsx"),
+      join(SRC, "app", "(app)", "autonomy", "cycles", "page.tsx"),
+      join(SRC, "app", "(app)", "autonomy", "cycles", "[cycleId]", "page.tsx"),
+      join(SRC, "app", "(app)", "autonomy", "positions", "page.tsx"),
+      join(SRC, "app", "(app)", "autonomy", "configuration", "page.tsx"),
+      join(SRC, "app", "(app)", "autonomy", "override", "page.tsx"),
+      join(SRC, "app", "(app)", "autonomy", "dry-run", "page.tsx"),
+      join(SRC, "app", "(app)", "autonomy", "review", "page.tsx"),
+      join(SRC, "app", "(app)", "autonomy", "readiness", "page.tsx"),
     ];
 
     for (const route of adminRoutes) {
@@ -163,6 +176,15 @@ describe("product boundaries", () => {
     // `/sign-up` IS a route now — account requests are how people get in.
     // What stays forbidden is anything that would grant access without an
     // admin decision, or that belongs to a later pitch.
+    //
+    // `/bankroll` STAYS forbidden, and deliberately so. Autonomous paper
+    // trading (SIG-60) ships a paper bankroll — but it does so under
+    // `/autonomy`, which names what it actually is: a bot that trades a
+    // simulated account and accounts for itself. The deferred V2 product is
+    // bankroll and PORTFOLIO MANAGEMENT — multiple bankrolls, allocation
+    // across strategies, tax lots — and a route at `/bankroll` is what that
+    // would arrive as. Keeping the entry means building it stays a decision
+    // rather than a drift.
     for (const forbidden of [
       "/reset-password",
       "/forgot-password",

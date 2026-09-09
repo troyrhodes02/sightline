@@ -41,6 +41,15 @@ export const OUTCOME_INGEST_LATE_AFTER_HOURS = 3;
  */
 export const GRADING_LATE_AFTER_HOURS = 26;
 
+/**
+ * Paper settlement is `late` past this many hours since its last success while
+ * positions await settlement. The pass runs hourly and reads only stored
+ * outcomes, so three cadences of quiet is the same tolerant multiple outcome
+ * ingest uses — enough to absorb GitHub Actions' scheduling slop without
+ * letting a genuinely stuck hourly job hide for a day.
+ */
+export const PAPER_SETTLEMENT_LATE_AFTER_HOURS = 3;
+
 /** Price refresh cadence during the game week, outside any kickoff window. */
 export const PRICE_IN_WEEK_CADENCE_MINUTES = 60;
 

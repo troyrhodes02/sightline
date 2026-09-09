@@ -11,6 +11,7 @@ describe("navigation sections", () => {
     expect(labels).toEqual([
       "Slate",
       "Accuracy",
+      "Autonomy",
       "Health",
       "Users",
       "Settings",

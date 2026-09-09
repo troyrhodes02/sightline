@@ -1,6 +1,8 @@
 import "server-only";
 
 import { prisma } from "@/lib/prisma";
+import { halts } from "@/lib/paper/breakers";
+import { PAPER_CYCLE_INTERVAL_MINUTES } from "@/lib/paper/config";
 import { formatAge } from "@/lib/slate/staleness";
 import type {
   HealthDto,
@@ -22,6 +24,7 @@ import {
   PRICE_LATE_CADENCE_MULTIPLIER,
   RECOMPUTE_LATE_AFTER_HOURS,
   REQUIRED_INGEST_SOURCES,
+  PAPER_SETTLEMENT_LATE_AFTER_HOURS,
   RUN_TIMEOUT_MINUTES,
   SEASON_LOOKAHEAD_DAYS,
 } from "./config";
@@ -80,6 +83,11 @@ export async function readHealth(): Promise<HealthDto> {
     gradingSuccess,
     settlementCandidates,
     gradingWork,
+    paperCycleAttempt,
+    paperCycleSuccess,
+    paperSettlementAttempt,
+    paperSettlementSuccess,
+    autonomy,
   ] = await Promise.all([
     prisma.game.findMany({
       where: {
@@ -134,6 +142,23 @@ export async function readHealth(): Promise<HealthDto> {
     // whether work exists.
     prisma.contract.count({ where: candidateContractWhere(now) }),
     readGradingWork(),
+    prisma.pipelineRun.findFirst({
+      where: { category: "paper_cycle" },
+      orderBy: { startedAt: "desc" },
+    }),
+    prisma.pipelineRun.findFirst({
+      where: { category: "paper_cycle", status: "succeeded" },
+      orderBy: { finishedAt: "desc" },
+    }),
+    prisma.pipelineRun.findFirst({
+      where: { category: "paper_settlement" },
+      orderBy: { startedAt: "desc" },
+    }),
+    prisma.pipelineRun.findFirst({
+      where: { category: "paper_settlement", status: "succeeded" },
+      orderBy: { finishedAt: "desc" },
+    }),
+    readAutonomyHealth(),
   ]);
 
   const kickoffs = upcomingGames.map((g) => g.kickoffAt);
@@ -178,6 +203,27 @@ export async function readHealth(): Promise<HealthDto> {
     latestAttempt: toAttempt(outcomeAttempt),
     lastSuccessAt: outcomeSuccess?.finishedAt ?? null,
     lateAfterMs: OUTCOME_INGEST_LATE_AFTER_HOURS * HOUR_MS,
+    runTimeoutMs,
+    now,
+  });
+  // Autonomy is expected only while a game window is open AND the bot is
+  // actually enabled. A disabled campaign produces no cycles by design, so the
+  // signal is dormant rather than late — the state chip beside it carries the
+  // fact that it is off.
+  const paperCycleState = deriveSignalState({
+    expected: gameday && autonomy.status === "active",
+    latestAttempt: toAttempt(paperCycleAttempt),
+    lastSuccessAt: paperCycleSuccess?.finishedAt ?? null,
+    lateAfterMs:
+      PAPER_CYCLE_INTERVAL_MINUTES * PRICE_LATE_CADENCE_MULTIPLIER * MINUTE_MS,
+    runTimeoutMs,
+    now,
+  });
+  const paperSettlementState = deriveSignalState({
+    expected: autonomy.openPositions > 0,
+    latestAttempt: toAttempt(paperSettlementAttempt),
+    lastSuccessAt: paperSettlementSuccess?.finishedAt ?? null,
+    lateAfterMs: PAPER_SETTLEMENT_LATE_AFTER_HOURS * HOUR_MS,
     runTimeoutMs,
     now,
   });
@@ -256,6 +302,39 @@ export async function readHealth(): Promise<HealthDto> {
           : `${GRADING_LATE_AFTER_HOURS}h of the last success`,
       ...attemptFields(toAttempt(gradingAttempt), now),
       awaitingGrades: gradingWork.awaitingGames,
+    },
+    {
+      key: "paper_cycle",
+      label: "Autonomous paper cycle",
+      // Game-relative, like the price cadence it runs alongside: a cycle is
+      // only expected while a game window is open, so the signal goes dormant
+      // on exactly the fact that stops the job recording a run.
+      state: paperCycleState,
+      ...successFields(paperCycleSuccess?.finishedAt ?? null, now),
+      expectedWithin:
+        paperCycleState === "not_expected"
+          ? null
+          : `${PAPER_CYCLE_INTERVAL_MINUTES}m per game while a window is open`,
+      ...attemptFields(toAttempt(paperCycleAttempt), now),
+      // Narrowed deliberately: `openPositions` drives the settlement signal's
+      // expectedness and is not something this chip shows. A DTO that carried
+      // every field the read happened to fetch would leak internals onto a
+      // surface by accident.
+      autonomyState: {
+        status: autonomy.status,
+        activeBreaches: autonomy.activeBreaches,
+      },
+    },
+    {
+      key: "paper_settlement",
+      label: "Paper settlement",
+      state: paperSettlementState,
+      ...successFields(paperSettlementSuccess?.finishedAt ?? null, now),
+      expectedWithin:
+        paperSettlementState === "not_expected"
+          ? null
+          : `${PAPER_SETTLEMENT_LATE_AFTER_HOURS}h while positions await settlement`,
+      ...attemptFields(toAttempt(paperSettlementAttempt), now),
     },
   ];
 
@@ -507,4 +586,45 @@ function keepaliveDto(lastActedAt: Date | null, now: Date) {
       : null,
     overdue: readiness.overdue,
   };
+}
+
+/**
+ * The autonomy state Health shows beside the cycle signal.
+ *
+ * Derived, never stored — the same derivation the Autonomy overview uses, so
+ * the two surfaces cannot disagree about whether the bot is halted.
+ */
+async function readAutonomyHealth(): Promise<{
+  status: "disabled" | "active" | "halted" | "killed";
+  activeBreaches: number;
+  openPositions: number;
+}> {
+  const campaign = await prisma.paperCampaign.findFirst({
+    orderBy: { startedAt: "asc" },
+    select: { id: true, autonomyEnabled: true, killSwitchEngaged: true },
+  });
+  if (!campaign) {
+    return { status: "disabled", activeBreaches: 0, openPositions: 0 };
+  }
+
+  const [breaches, openPositions] = await Promise.all([
+    prisma.paperBreach.findMany({
+      where: { campaignId: campaign.id, resolution: "active" },
+      select: { condition: true },
+    }),
+    prisma.paperPosition.count({
+      where: { campaignId: campaign.id, status: "open" },
+    }),
+  ]);
+
+  const halting = breaches.filter((breach) => halts(breach.condition)).length;
+  const status = campaign.killSwitchEngaged
+    ? "killed"
+    : !campaign.autonomyEnabled
+      ? "disabled"
+      : halting > 0
+        ? "halted"
+        : "active";
+
+  return { status, activeBreaches: breaches.length, openPositions };
 }

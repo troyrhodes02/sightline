@@ -15,6 +15,9 @@ jest.mock("@/lib/prisma", () => ({
     ingestRun: { findMany: jest.fn() },
     pipelineRunGame: { findMany: jest.fn() },
     contract: { count: jest.fn() },
+    paperCampaign: { findFirst: jest.fn() },
+    paperBreach: { findMany: jest.fn() },
+    paperPosition: { count: jest.fn() },
   },
 }));
 
@@ -29,6 +32,9 @@ const mockPrisma = prisma as unknown as {
   ingestRun: { findMany: jest.Mock };
   pipelineRunGame: { findMany: jest.Mock };
   contract: { count: jest.Mock };
+  paperCampaign: { findFirst: jest.Mock };
+  paperBreach: { findMany: jest.Mock };
+  paperPosition: { count: jest.Mock };
 };
 
 function emptyDb() {
@@ -43,6 +49,11 @@ function emptyDb() {
   mockPrisma.$queryRaw.mockResolvedValue([
     { awaiting_games: 0, pending_units: 0 },
   ]);
+  // No paper campaign: autonomy reads as `disabled`, which is dormant rather
+  // than late. Choosing not to run the bot is a decision, not a fault.
+  mockPrisma.paperCampaign.findFirst.mockResolvedValue(null);
+  mockPrisma.paperBreach.findMany.mockResolvedValue([]);
+  mockPrisma.paperPosition.count.mockResolvedValue(0);
 }
 
 /** Routes `pipelineRun.findFirst` per category/status, defaulting to null. */
@@ -78,7 +89,9 @@ describe("health read", () => {
     emptyDb();
   });
 
-  it("reports the five signals in fixed order", async () => {
+  it("reports the seven signals in fixed order", async () => {
+    // The order is the pipeline's own order: ingest, recompute, price, then
+    // the post-game jobs, then autonomy. Two signals joined with SIG-64.
     const { signals } = await readHealth();
     expect(signals.map((s) => s.key)).toEqual([
       "ingest",
@@ -86,6 +99,8 @@ describe("health read", () => {
       "price_refresh",
       "outcome_ingest",
       "grading",
+      "paper_cycle",
+      "paper_settlement",
     ]);
     expect(signals.map((s) => s.label)).toEqual([
       "Ingest",
@@ -93,7 +108,80 @@ describe("health read", () => {
       "Price refresh",
       "Outcome ingest",
       "Grading",
+      "Autonomous paper cycle",
+      "Paper settlement",
     ]);
+  });
+
+  it("reports a campaign that was never set up as disabled, not late", async () => {
+    // Health reports failures. Choosing not to run the bot is a decision, and
+    // an amber "disabled" would train the operator to ignore the colour.
+    const { signals } = await readHealth();
+    const cycle = signals.find((s) => s.key === "paper_cycle");
+    expect(cycle?.state).toBe("not_expected");
+    expect(cycle?.autonomyState).toEqual({
+      status: "disabled",
+      activeBreaches: 0,
+    });
+  });
+
+  it("reports a halted campaign with its breach count", async () => {
+    mockPrisma.paperCampaign.findFirst.mockResolvedValue({
+      id: "campaign-1",
+      autonomyEnabled: true,
+      killSwitchEngaged: false,
+    });
+    mockPrisma.paperBreach.findMany.mockResolvedValue([
+      { condition: "drawdown_halt" },
+      { condition: "drawdown_warning" },
+    ]);
+
+    const { signals } = await readHealth();
+    const cycle = signals.find((s) => s.key === "paper_cycle");
+    expect(cycle?.autonomyState).toEqual({
+      status: "halted",
+      activeBreaches: 2,
+    });
+  });
+
+  it("reports the kill switch as killed, outranking every other state", async () => {
+    mockPrisma.paperCampaign.findFirst.mockResolvedValue({
+      id: "campaign-1",
+      autonomyEnabled: true,
+      killSwitchEngaged: true,
+    });
+
+    const { signals } = await readHealth();
+    expect(
+      signals.find((s) => s.key === "paper_cycle")?.autonomyState?.status,
+    ).toBe("killed");
+  });
+
+  it("keeps paper settlement dormant with nothing open", async () => {
+    const { signals } = await readHealth();
+    expect(signals.find((s) => s.key === "paper_settlement")?.state).toBe(
+      "not_expected",
+    );
+  });
+
+  it("judges paper settlement against its bound once positions are open", async () => {
+    mockPrisma.paperCampaign.findFirst.mockResolvedValue({
+      id: "campaign-1",
+      autonomyEnabled: true,
+      killSwitchEngaged: false,
+    });
+    mockPrisma.paperPosition.count.mockResolvedValue(3);
+    routePipelineRuns({
+      paper_settlement: {
+        attempt: run("succeeded", 9),
+        success: run("succeeded", 9),
+      },
+    });
+
+    const { signals } = await readHealth();
+    expect(signals.find((s) => s.key === "paper_settlement")?.state).toBe(
+      "late",
+    );
   });
 
   it("derives not_expected for every signal when schedule and backlog are both empty", async () => {

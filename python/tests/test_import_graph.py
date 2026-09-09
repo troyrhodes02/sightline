@@ -36,6 +36,14 @@ GUARDED_PACKAGES = (sightline_ingest, sightline_model)
 # prose), so the guard matches the SQL forms that can actually name the
 # table, quoted or bare. Python reaches tables only through raw SQL, so a
 # statement touching the table must contain one of these spellings.
+#
+# The ``paper_*`` family and ``recalibration_fits`` (SIG-60) join the list for
+# two reasons. ``paper_cycle_candidates`` carries executable Kalshi prices and
+# top-of-book sizes, which makes it as barred as ``price_observations``
+# outright. The rest — the bankroll, the ledger, positions, fills, breaches —
+# are barred because the modelling runtime has no reason to know a bankroll
+# exists, and a feature that could see one could learn from its own P&L. Every
+# name here is distinctive enough to match bare, unlike ``outcomes``.
 FORBIDDEN = (
     "priceobservation",
     "recommendationsnapshot",
@@ -49,6 +57,31 @@ FORBIDDEN = (
     'join "outcomes"',
     'into "outcomes"',
     'update "outcomes"',
+    # Autonomous paper trading (SIG-60). Table names and Prisma model names.
+    "paper_campaign",
+    "paper_risk_config",
+    "paper_control_event",
+    "paper_ledger_entr",
+    "paper_cycle",
+    "paper_position",
+    "paper_fill",
+    "paper_desired_exposure",
+    "paper_breach",
+    "paper_dry_run",
+    "paper_replay",
+    "recalibration_fit",
+    "papercampaign",
+    "paperriskconfig",
+    "papercontrolevent",
+    "paperledgerentry",
+    "papercycle",
+    "paperposition",
+    "paperfill",
+    "paperdesiredexposure",
+    "paperbreach",
+    "paperdryrun",
+    "paperreplay",
+    "recalibrationfit",
 )
 
 
@@ -141,3 +174,69 @@ def test_both_packages_are_actually_covered() -> None:
     scanned = {p.parent.name for p in _package_python_files()}
     assert "sightline_ingest" in scanned
     assert "sightline_model" in scanned
+
+
+def test_sweep_catches_a_planted_paper_trading_reference() -> None:
+    # SIG-60. Same discipline as the settlement tokens: a blocklist is only
+    # worth what it catches, so plant a reference to every barred paper table
+    # and assert each one trips the sweep. If a token is dropped or typo'd in a
+    # future edit, this fails before a modelling module can read a bankroll.
+    planted = (
+        "select balance_after_cents from paper_ledger_entries",
+        'SELECT * FROM "paper_ledger_entries"',
+        "select * from paper_campaigns where id = %s",
+        "join paper_positions p on p.contract_id = c.id",
+        "select ask_cents from paper_cycle_candidates",
+        'INSERT INTO "paper_cycles" (game_id) VALUES (%s)',
+        "update paper_risk_configs set kelly_fraction = %s",
+        "select * from paper_fills",
+        "select * from paper_breaches where resolution = 'active'",
+        "select * from paper_desired_exposures",
+        "select * from paper_control_events",
+        "select * from paper_dry_runs",
+        "select * from paper_replays",
+        "select knots from recalibration_fits where is_active",
+        # Prisma model names, in case a future ORM path is ever added.
+        "from prisma.models import PaperPosition",
+        "PaperCampaign",
+        "RecalibrationFit",
+    )
+    for statement in planted:
+        assert _forbidden_tokens_in(statement), (
+            f"the sweep failed to catch a planted paper-trading reference: "
+            f"{statement!r}"
+        )
+
+
+def test_sweep_ignores_legitimate_modelling_vocabulary() -> None:
+    # The paper tokens are distinctive enough to match bare, but "paper" and
+    # "fill" are ordinary words and "cycle" is the ingest runtime's own
+    # vocabulary. Assert the guard does not fire on any of them, because a
+    # guard that false-positives gets loosened the first week it annoys
+    # someone, and a loosened guard protects nothing.
+    innocent = (
+        "See the pitch paper for the shrinkage rationale.",
+        "def run_cycle(as_of: datetime) -> RunOutcome:",
+        "the nightly recompute cycle",
+        "fill_missing_context(frame)",
+        "forward-fill the trailing window",
+        "positions in the depth chart",
+        "recalibrate the trailing-five baseline",  # not recalibration_fit
+        "paper trading is a downstream concern of the TypeScript runtime",
+    )
+    for text in innocent:
+        assert _forbidden_tokens_in(text) == [], (
+            f"the sweep false-positives on legitimate vocabulary: {text!r}"
+        )
+
+
+def test_forbidden_list_has_no_duplicates_or_empty_tokens() -> None:
+    # A duplicated token is harmless; an empty one would match every file and
+    # make the sweep permanently red, and a whitespace-only one would do the
+    # same silently. Both are cheap to rule out and expensive to debug.
+    assert all(token.strip() for token in FORBIDDEN), "empty token in FORBIDDEN"
+    assert len(set(FORBIDDEN)) == len(FORBIDDEN), "duplicate token in FORBIDDEN"
+    assert all(token == token.lower() for token in FORBIDDEN), (
+        "tokens are compared against lowercased text, so every token must be "
+        "lowercase or it can never match"
+    )
