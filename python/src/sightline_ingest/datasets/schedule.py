@@ -101,10 +101,15 @@ def ingest_schedule(
         tzinfo=None, microsecond=0
     )
 
+    # Commit every BATCH_SIZE games so no single transaction runs long enough
+    # to hit Supabase's statement_timeout during a bulk historical load.
+    BATCH_SIZE = 50
+
     written = updated = skipped = 0
     with connect() as conn:
         with conn.cursor() as cur:
             teams = _team_abbr_to_id(cur)
+            batch_count = 0
 
             for row in df.iter_rows(named=True):
                 kickoff = parse_kickoff(row["gameday"], row["gametime"])
@@ -170,24 +175,27 @@ def ingest_schedule(
                         },
                     )
                     written += 1
-                    continue
+                else:
+                    ex_kickoff, ex_venue, ex_status = existing
+                    if (kickoff, venue, status) != (ex_kickoff, ex_venue, ex_status):
+                        cur.execute(
+                            _UPDATE_GAME,
+                            {"id": gid, "kickoff": kickoff, "venue": venue, "status": status},
+                        )
+                        cur.execute(
+                            _INSERT_REVISION,
+                            {
+                                "game_id": gid, "kickoff": kickoff, "venue": venue,
+                                "status": status, "valid_at": rev_known, "known_at": rev_known,
+                                "run_id": handle.run_id,
+                            },
+                        )
+                        updated += 1
+                    # else: unchanged — no revision, no mutation (idempotent).
 
-                ex_kickoff, ex_venue, ex_status = existing
-                if (kickoff, venue, status) != (ex_kickoff, ex_venue, ex_status):
-                    cur.execute(
-                        _UPDATE_GAME,
-                        {"id": gid, "kickoff": kickoff, "venue": venue, "status": status},
-                    )
-                    cur.execute(
-                        _INSERT_REVISION,
-                        {
-                            "game_id": gid, "kickoff": kickoff, "venue": venue,
-                            "status": status, "valid_at": rev_known, "known_at": rev_known,
-                            "run_id": handle.run_id,
-                        },
-                    )
-                    updated += 1
-                # else: unchanged — no revision, no mutation (idempotent).
+                batch_count += 1
+                if batch_count % BATCH_SIZE == 0:
+                    conn.commit()
 
         conn.commit()
 

@@ -157,7 +157,12 @@ async function executeSync(): Promise<SyncResult> {
     // All contracts we already know about for the discovered tickers.
     prisma.contract.findMany({
       where: { kalshiTicker: { in: allTickers } },
-      select: { id: true, kalshiTicker: true, resolutionStatus: true, closeTime: true },
+      select: {
+        id: true,
+        kalshiTicker: true,
+        resolutionStatus: true,
+        closeTime: true,
+      },
     }),
     // Latest price observation per contract, for the heartbeat/diff check.
     // DISTINCT ON is not available via Prisma; use a raw query.
