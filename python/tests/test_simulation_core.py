@@ -324,3 +324,46 @@ def test_projections_carry_full_provenance() -> None:
         assert all(isinstance(d, str) and d for d in p.drivers)
     # asdict round-trips (dataclass, JSON-serialisable compact form).
     assert asdict(result.projections[0])
+
+
+def test_driver_omits_volume_sentence_for_untracked_team() -> None:
+    # Review fix: a player whose resolved team is absent from the game's
+    # environment gets team_volume_mean == 0. The driver must NOT fabricate a
+    # "Expected team volume 0 plays, 100% below the league" claim (the pitch's
+    # "driver theater" no-go); it omits the volume sentence and keeps the honest
+    # role-history / efficiency / projected-mean drivers.
+    from sightline_model.simulation.core import PlayerSimInput, _drivers
+
+    eff = PlayerEfficiency(
+        player_id="rb1", position="RB", n_eff=8, yards_per_carry=4.5
+    )
+    player = PlayerSimInput(
+        player_id="rb1",
+        team_abbr="XXX",
+        position="RB",
+        efficiency=eff,
+        n_eff=8,
+        requested_stats=("rushing_yards",),
+    )
+
+    untracked = _drivers(
+        stat_type="rushing_yards",
+        player=player,
+        team_volume_mean=0.0,
+        league_volume_ref=120.0,
+        player_stat_mean=55.0,
+    )
+    assert all(
+        "below the league" not in d and "0 plays" not in d for d in untracked
+    )
+    assert any("role-history" in d for d in untracked)  # honest drivers remain
+
+    # A player whose team WAS simulated still gets the volume sentence.
+    tracked = _drivers(
+        stat_type="rushing_yards",
+        player=player,
+        team_volume_mean=125.0,
+        league_volume_ref=120.0,
+        player_stat_mean=55.0,
+    )
+    assert any("Expected team volume" in d for d in tracked)

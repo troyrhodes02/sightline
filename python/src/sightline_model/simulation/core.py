@@ -270,8 +270,13 @@ def prob_at_least_from_pmf(pmf: list[float], threshold: float) -> float:
     if k <= 0:
         return 1.0
     if k >= len(pmf):
-        # At/above the tail bucket index: only the tail mass clears it.
-        return float(pmf[-1]) if k == len(pmf) - 1 else 0.0
+        # Past the last (K+1)+ tail bucket. Supported thresholds never reach here:
+        # each stat's PMF support K is chosen so every listed Kalshi threshold has
+        # ceil(t) <= K+1 (the tail index, len(pmf)-1), which the branch below sums.
+        # An out-of-range threshold would need resolution the compact PMF discarded
+        # into the tail; the residual mass beyond K+1 is negligible by construction,
+        # so 0.0 is the intended value, not a fabricated one.
+        return 0.0
     return float(sum(pmf[k:]))
 
 
@@ -326,13 +331,19 @@ def _drivers(
     stat. No football narration the model never consulted.
     """
     out: list[str] = []
-    ref = league_volume_ref if league_volume_ref > 0 else 1.0
-    delta = (team_volume_mean - ref) / ref * 100.0
-    direction = "above" if delta >= 0 else "below"
-    out.append(
-        f"Expected team volume {team_volume_mean:.0f} plays, "
-        f"{abs(delta):.0f}% {direction} the league reference of {ref:.0f}."
-    )
+    # Only emit the volume driver when the player's team was actually simulated.
+    # A player whose resolved team is absent from the game's environment gets
+    # team_volume_mean == 0; emitting "0 plays, 100% below the league" would be a
+    # fabricated quantitative claim (the pitch's "driver theater" no-go), so we
+    # omit the sentence rather than narrate a number the simulation did not use.
+    if team_volume_mean > 0 and league_volume_ref > 0:
+        delta = (team_volume_mean - league_volume_ref) / league_volume_ref * 100.0
+        direction = "above" if delta >= 0 else "below"
+        out.append(
+            f"Expected team volume {team_volume_mean:.0f} plays, "
+            f"{abs(delta):.0f}% {direction} the league reference of "
+            f"{league_volume_ref:.0f}."
+        )
     out.append(
         f"{player.n_eff} eligible role-history games establish the usage this "
         f"projection allocates opportunity from."

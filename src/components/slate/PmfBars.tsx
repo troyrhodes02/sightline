@@ -45,6 +45,12 @@ export function PmfBars({
     mass,
     atOrAbove: index >= cut,
   }));
+  // The XAxis is CATEGORICAL (band scale over the string labels), so a
+  // ReferenceLine must reference a category value, not a fractional numeric —
+  // `x={cut - 0.5}` matches no band and silently fails to render. Mark the first
+  // at-or-above bar by its label; if the cut is past the last bucket nothing
+  // clears, so there is no line to draw.
+  const cutLabel = cut >= 0 && cut < pmf.length ? data[cut].label : null;
 
   const summary =
     probability !== null
@@ -86,11 +92,13 @@ export function PmfBars({
                 />
               ))}
             </Bar>
-            <ReferenceLine
-              x={cut - 0.5}
-              stroke={theme.palette.text.secondary}
-              strokeDasharray="4 3"
-            />
+            {cutLabel !== null && (
+              <ReferenceLine
+                x={cutLabel}
+                stroke={theme.palette.text.secondary}
+                strokeDasharray="4 3"
+              />
+            )}
           </BarChart>
         </ResponsiveContainer>
       </Box>

@@ -206,8 +206,13 @@ export function probAtLeastFromPmf(
   const k = Math.ceil(threshold);
   if (k <= 0) return 1;
   if (k >= pmf.length) {
-    // At/above the tail-bucket index: only the tail mass clears it.
-    return k === pmf.length - 1 ? pmf[pmf.length - 1] : 0;
+    // Past the last (K+1)+ tail bucket. Supported thresholds never reach here:
+    // each stat's PMF support K is chosen so every listed Kalshi threshold has
+    // ceil(t) <= K+1 (the tail index, pmf.length-1), which the loop below sums.
+    // The residual mass beyond K+1 is negligible by construction, so 0 is the
+    // intended value, not a fabricated one. Kept identical to the Python twin
+    // (`prob_at_least_from_pmf`) for golden parity.
+    return 0;
   }
   let sum = 0;
   for (let i = k; i < pmf.length; i += 1) sum += pmf[i];

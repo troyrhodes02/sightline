@@ -152,6 +152,32 @@ def test_receiving_expected_yards_track_targets_times_ypt() -> None:
     assert out["receiving_yards"].mean() == pytest.approx(8 * 8.0, rel=0.05)
 
 
+def test_low_catch_rate_does_not_explode_receiving_yards() -> None:
+    # Review fix: a non-receiver whose catch rate shrinks to ~0 (clamped to the
+    # RATE_FLOOR) but with a positive yards-per-target must NOT produce an
+    # exploding per-reception yardage (ypt / RATE_FLOOR ~ 80,000). The receptions
+    # stay ~0 (so the expected total is ~0), and the rare reception that does draw
+    # must be physically bounded rather than corrupting the q99 grid / the mean.
+    eff = PlayerEfficiency(
+        player_id="ol1",
+        position="OL",
+        n_eff=10,
+        yards_per_target=8.0,
+        catch_rate=1e-6,  # clamped to RATE_FLOOR; a non-receiver
+        rec_td_rate=0.0,
+    )
+    rng = np.random.default_rng(11)
+    targets = np.full(20000, 6, dtype=np.int64)
+    out = sample_receiving(rng, targets=targets, efficiency=eff, draw_count=20000)
+    yards = out["receiving_yards"]
+    # Expected total is ~0 (a non-receiver catches almost nothing).
+    assert yards.mean() < 5.0
+    # And no draw is an absurd outlier: the divisor floor bounds a single
+    # reception's mean at ypt / YARDAGE_CATCH_FLOOR = 8 / 0.05 = 160, so even a
+    # long-tail LogNormal reception stays within a few hundred yards, not 80,000.
+    assert yards.max() < 2000.0
+
+
 def test_samplers_contain_no_python_loop_over_draws() -> None:
     source = (
         inspect.getsource(sample_receiving)

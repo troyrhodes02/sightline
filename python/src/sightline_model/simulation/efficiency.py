@@ -70,6 +70,17 @@ YARDAGE_SIGMA_FLOOR = 0.5
 RATE_FLOOR = 1e-4
 RATE_CEIL = 1.0 - 1e-4
 
+# Yards-per-reception is yards-per-TARGET divided by the catch rate. A catch rate
+# shrunk to the ``RATE_FLOOR`` (a non-receiver) would make that quotient explode
+# (e.g. 8 yds/target / 1e-4 = 80,000 yds per reception), so the rare reception a
+# non-receiver draws would corrupt the q95/q99 grid and the mean. The receptions
+# themselves stay correct (they use ``catch_rate``), so the expected total is
+# still ~0 for such a player; we only floor the DIVISOR here so a fluky reception
+# stays physically bounded. 0.05 is below any real receiver's catch rate, so
+# realistic players are unaffected and the ``targets * yards_per_target`` identity
+# holds for them exactly.
+YARDAGE_CATCH_FLOOR = 0.05
+
 
 @dataclass(frozen=True)
 class PlayerEfficiency:
@@ -323,7 +334,11 @@ def sample_receiving(
     # conditioning the per-reception mean on the catch keeps the expected total
     # equal to targets * yards_per_target.
     ypt = efficiency.yards_per_target or 0.0
-    yards_per_reception = ypt / catch_rate if ypt > 0.0 else 0.0
+    # Floor the divisor (not the Bernoulli's catch_rate) so a non-receiver's rare
+    # reception cannot blow up the yardage tail; see YARDAGE_CATCH_FLOOR.
+    yards_per_reception = (
+        ypt / max(catch_rate, YARDAGE_CATCH_FLOOR) if ypt > 0.0 else 0.0
+    )
     yards = _yardage_from_counts(
         rng,
         counts=receptions,
