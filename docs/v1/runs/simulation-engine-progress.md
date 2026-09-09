@@ -9,9 +9,33 @@ reviewed, audited, green, and its PR left open for human review.
 
 ## Current step
 
-**Step 6 in progress** — Linear milestone + tickets. Steps 1–5 complete:
-design doc, UI preview (67KB, standalone), and spec all written; open questions
-resolved (RD-1…9 from the instruction + RD-SIM-1…9 in the spec).
+**Step 8 in progress** — working tickets. Steps 1–7 complete. Feature branch
+`feat/simulation-engine`, feature PR #64 open against `main`.
+
+### Ticket log
+
+- **SIG-66 (Foundation)** — branch `feat/SIG-66-foundation` off `feat/simulation-engine`.
+  Schema: `ProjectionDecline`, `GameSimulation`, `PlayerOutcomeCorrelation`,
+  `ModelSelection` (+ enums), check constraints, composite index for
+  model-version-scoped freshest selection, `ModelSelection` seed (all six stat
+  types → `baseline-zil-0.1.0`). Single clean migration
+  `20260909191831_simulation_engine_foundation`. Python: `sightline_model/simulation/`
+  package (`config.py` — `SIMULATION_MODEL_VERSION=simulation-mc-0.1.0`,
+  DRAW_COUNT=5000, quantile grid, per-stat PMF support; `seed.py` — deterministic
+  per-game `derive_seed` canonicalized to UTC). Import-guard extended with
+  simulation-coverage + planted-price self-tests.
+  Verify: prisma:validate ✓, migrate applied clean ✓, test:schema 29 ✓,
+  typecheck ✓, build ✓, new pytest 10 ✓ + import-graph 20 ✓, full pytest (running).
+  **Local-only lint noise:** `prisma/seed-dev-game.ts` (pre-existing UNTRACKED
+  file from before this run, not on any branch) has 4 `no-console` errors; my
+  committed changes are lint-clean and CI never sees the uncommitted file.
+
+### Test DB note
+
+`TEST_DATABASE_URL` → `localhost:5433/sightline`, a disposable Postgres container
+(`docker compose up -d db`). Brought up and migrated (`DATABASE_URL=$TEST_DATABASE_URL
+DIRECT_URL=$TEST_DATABASE_URL npx prisma migrate deploy`) so DB-marked pytest runs
+instead of erroring on a refused connection.
 
 ## Pipeline checklist
 
@@ -121,6 +145,6 @@ Work these in order. Each is `blockedBy` the previous one.
 | 7 | SIG-72 | TS integration: provenance, insufficient-evidence, probAtLeast kinds + golden parity, ModelSelection-aware slate, accuracy split | off SIG-71 |
 
 Feature branch: `feat/simulation-engine`
-Feature PR: _(opened at step 7)_
+Feature PR: <https://github.com/troyrhodes02/sightline/pull/64> (docs-only at open; ticket PRs merge into it)
 
 Linear note: this team has no "In Review" state — convention is **In Progress + PR attached**.

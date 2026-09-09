@@ -184,6 +184,8 @@ model Player {
   contracts   Contract[]
   projections Projection[]
 
+  projectionDeclines ProjectionDecline[]
+
   @@index([fullName])
   @@map("players")
 }
@@ -251,6 +253,9 @@ model Game {
   pipelineRunGames PipelineRunGame[]
   paperCycles      PaperCycle[]
   paperDryRuns     PaperDryRun[]
+
+  projectionDeclines ProjectionDecline[]
+  gameSimulations    GameSimulation[]
 
   @@unique([season, week, seasonType, homeTeamId, awayTeamId])
   @@index([season, week])
@@ -600,6 +605,7 @@ model BacktestRun {
 
   calibrationBins   CalibrationBin[]
   recalibrationFits RecalibrationFit[]
+  modelSelections   ModelSelection[]
 
   @@index([status, startedAt(sort: Desc)])
   @@index([modelVersion, startedAt(sort: Desc)])
@@ -730,6 +736,17 @@ enum Confidence {
   high
   medium
   low
+}
+
+/// The reason the Simulation Engine explicitly declined to produce a projection.
+/// Distinct from the ordinary absence of any projection row. (Simulation Engine RD-4)
+enum ProjectionDeclineReason {
+  insufficient_evidence // zero relevant opportunity as of the information cutoff
+}
+
+/// Correlation method for persisted joint outcomes.
+enum CorrelationMethod {
+  spearman
 }
 
 enum ContractStatus {
@@ -891,6 +908,9 @@ model Projection {
   @@unique([playerId, gameId, statType, modelVersion, informationCutoff])
   @@index([gameId, statType, computedAt(sort: Desc)])
   @@index([playerId, gameId, statType, computedAt(sort: Desc)])
+  // ModelSelection-aware freshest-projection selection (slate hot path):
+  // freshest projection per (game, stat, active model_version).
+  @@index([gameId, statType, modelVersion, computedAt(sort: Desc)])
   @@map("projections")
 }
 
@@ -907,6 +927,94 @@ model ProjectionDriver {
 
   @@unique([projectionId, rank])
   @@map("projection_drivers")
+}
+
+/// A projection the Simulation Engine explicitly DECLINED to produce, for want
+/// of evidence. Distinct from the ordinary absence of any projection row: this
+/// is a decision the model made and states, so the slate/contract-detail can
+/// show "insufficient evidence to project" rather than an empty cell.
+/// (Simulation Engine RD-4 / RD-SIM-3)
+model ProjectionDecline {
+  id                String                  @id @default(uuid())
+  playerId          String                  @map("player_id")
+  gameId            String                  @map("game_id")
+  statType          StatType                @map("stat_type")
+  modelVersion      String                  @map("model_version")
+  reason            ProjectionDeclineReason
+  informationCutoff DateTime                @map("information_cutoff")
+  computedAt        DateTime                @map("computed_at")
+  createdAt         DateTime                @default(now()) @map("created_at")
+
+  player Player @relation(fields: [playerId], references: [id])
+  game   Game   @relation(fields: [gameId], references: [id])
+
+  @@unique([playerId, gameId, statType, modelVersion, informationCutoff])
+  @@index([gameId, statType])
+  @@map("projection_declines")
+}
+
+/// One vectorized joint game simulation. Metadata only — the raw draws are
+/// NEVER stored; the compact per-player distributions live on Projection and
+/// the joint structure on PlayerOutcomeCorrelation. (Simulation Engine RD-SIM-4)
+model GameSimulation {
+  id                String   @id @default(uuid())
+  gameId            String   @map("game_id")
+  modelVersion      String   @map("model_version")
+  informationCutoff DateTime @map("information_cutoff")
+  computedAt        DateTime @map("computed_at")
+  seed              BigInt // the derived per-game seed (Determinism R1)
+  drawCount         Int      @map("draw_count") // versioned config value (5000)
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  game         Game                       @relation(fields: [gameId], references: [id])
+  correlations PlayerOutcomeCorrelation[]
+
+  @@unique([gameId, modelVersion, informationCutoff])
+  @@index([gameId])
+  @@map("game_simulations")
+}
+
+/// A compact joint-outcome fact: the correlation between two player-stat
+/// marginals within one simulated game, bounded to the projected marginals.
+/// PRODUCED AND STORED, NOT CONSUMED BY POSITION SIZING in this pitch (RD-2).
+model PlayerOutcomeCorrelation {
+  id               String            @id @default(uuid())
+  gameSimulationId String            @map("game_simulation_id")
+  playerAId        String            @map("player_a_id")
+  statA            StatType          @map("stat_a")
+  playerBId        String            @map("player_b_id")
+  statB            StatType          @map("stat_b")
+  method           CorrelationMethod @default(spearman)
+  correlation      Decimal           @db.Decimal(6, 5) // [-1, 1]; check-constrained in migration
+
+  gameSimulation GameSimulation @relation(fields: [gameSimulationId], references: [id], onDelete: Cascade)
+
+  @@unique([gameSimulationId, playerAId, statA, playerBId, statB])
+  @@index([gameSimulationId])
+  @@map("player_outcome_correlations")
+}
+
+/// The active projection model PER STAT TYPE. Single source of truth read by
+/// BOTH runtimes to decide which model_version the application reads and the
+/// production pipeline runs. Changed ONLY by a reviewed script/migration gated
+/// on validated backtest evidence — never by the app. (RD-1 / RD-SIM-2)
+model ModelSelection {
+  statType     StatType @id @map("stat_type")
+  modelVersion String   @map("model_version")
+
+  // Evidence justifying the current selection (null while on the default baseline).
+  backtestRunId String?  @map("backtest_run_id")
+  brierDelta    Decimal? @map("brier_delta") @db.Decimal(6, 4) // baseline Brier − simulation Brier (positive = simulation better)
+  sampleSize    Int?     @map("sample_size")
+  note          String?
+
+  promotedAt DateTime @default(now()) @map("promoted_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  backtestRun BacktestRun? @relation(fields: [backtestRunId], references: [id])
+
+  @@index([modelVersion])
+  @@map("model_selections")
 }
 
 /// A recommendation as it existed at a meaningful moment (RD-4 triggers), so

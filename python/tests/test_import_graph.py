@@ -230,6 +230,40 @@ def test_sweep_ignores_legitimate_modelling_vocabulary() -> None:
         )
 
 
+def test_sweep_covers_the_simulation_engine_modules() -> None:
+    # SIG-66. The Simulation Engine is three new feature layers plus a
+    # vectorised sim core — three fresh chances to reach for a price to
+    # "sanity-check" a projection. The sweep is file-recursive over
+    # ``sightline_model``, so simulation modules are covered automatically; this
+    # asserts that coverage explicitly, so deleting or moving the package can
+    # never silently drop it from the guard.
+    scanned = [str(p) for p in _package_python_files()]
+    assert any(
+        "simulation" in p and p.endswith("config.py") for p in scanned
+    ), "the import-graph sweep does not reach sightline_model/simulation/config.py"
+    assert any(
+        "simulation" in p and p.endswith("seed.py") for p in scanned
+    ), "the import-graph sweep does not reach sightline_model/simulation/seed.py"
+
+
+def test_sweep_catches_a_price_reference_planted_in_a_simulation_module() -> None:
+    # SIG-66. A game-environment / usage / efficiency layer that read a price is
+    # the exact failure this invariant exists to prevent. Plant the shapes such
+    # a layer might use and assert each trips the sweep before it can leak.
+    planted = (
+        "select yes_ask_cents from price_observations where contract_id = %s",
+        'SELECT * FROM "price_observations"  -- weight the game-env prior',
+        "from prisma.models import PriceObservation  # just to sanity-check",
+        "join recommendation_snapshots r on r.game_id = g.id",
+        "RecommendationSnapshot  # smoke-test the usage layer against the market",
+    )
+    for statement in planted:
+        assert _forbidden_tokens_in(statement), (
+            f"the sweep failed to catch a planted simulation-layer price "
+            f"reference: {statement!r}"
+        )
+
+
 def test_forbidden_list_has_no_duplicates_or_empty_tokens() -> None:
     # A duplicated token is harmless; an empty one would match every file and
     # make the sweep permanently red, and a whitespace-only one would do the
