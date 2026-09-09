@@ -20,16 +20,26 @@ import type { CalibrationBucketDto } from "@/lib/dto/accuracy";
  * bucket table (via `aria-describedby`) rather than the SVG, and degenerate
  * data renders prose instead of a misleading picture.
  *
- * Compare mode is two labelled series on one set of axes — live in the model
- * accent, backtest muted — never one merged curve. Provisional buckets
- * (below the reporting floor) are hollow with dashed connecting segments:
- * shape carries the distinction, not colour alone.
+ * Compare mode is two labelled series on one set of axes — never one merged
+ * curve. Live-vs-backtest distinguishes by hue (live in the model accent,
+ * backtest muted). Model-vs-model (two live series) shares the model-accent hue
+ * and distinguishes by STROKE: the primary model solid, the reference model
+ * dashed — so the two survive greyscale on the same colour. Provisional buckets
+ * (below the reporting floor) are hollow with dashed connecting segments: shape
+ * carries the distinction, not colour alone.
  */
 
 export type ReliabilitySeries = {
   kind: "live" | "backtest";
+  modelVersion: string | "lifetime" | null;
   label: string;
   buckets: CalibrationBucketDto[];
+  /**
+   * Draw this series dashed even when its buckets are populated (the reference
+   * model in a model-vs-model overlay). Distinct from the provisional-bucket
+   * dashing, which is per-segment.
+   */
+  reference?: boolean;
 };
 
 type Point = {
@@ -127,20 +137,24 @@ export function ReliabilityCurve({
             strokeDasharray="4 4"
             ifOverflow="hidden"
           />
-          {plotted.flatMap((entry) => {
+          {plotted.flatMap((entry, seriesIndex) => {
             const color = colorFor(entry.kind);
-            const width = entry.kind === "live" ? 2 : 1.5;
+            const width = entry.kind === "live" && !entry.reference ? 2 : 1.5;
+            const seriesKey = `${entry.kind}-${entry.modelVersion ?? "none"}-${seriesIndex}`;
             const segments = entry.points.slice(0, -1).map((from, index) => {
               const to = entry.points[index + 1];
               const provisional = from.belowFloor || to.belowFloor;
+              // Reference model (model-vs-model overlay) is dashed throughout;
+              // provisional segments are dashed regardless of series.
+              const dashed = entry.reference || provisional;
               return (
                 <Line
-                  key={`${entry.kind}-segment-${index}`}
+                  key={`${seriesKey}-segment-${index}`}
                   data={[from, to]}
                   dataKey="y"
                   stroke={color}
                   strokeWidth={width}
-                  strokeDasharray={provisional ? "3 4" : undefined}
+                  strokeDasharray={dashed ? "3 4" : undefined}
                   dot={false}
                   isAnimationActive={false}
                 />
@@ -149,7 +163,7 @@ export function ReliabilityCurve({
             return [
               ...segments,
               <Line
-                key={`${entry.kind}-points`}
+                key={`${seriesKey}-points`}
                 data={entry.points}
                 dataKey="y"
                 stroke="none"
@@ -161,7 +175,7 @@ export function ReliabilityCurve({
                   payload?: Point;
                 }) => (
                   <circle
-                    key={`${entry.kind}-point-${props.index}`}
+                    key={`${seriesKey}-point-${props.index}`}
                     cx={props.cx}
                     cy={props.cy}
                     r={4}

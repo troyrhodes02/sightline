@@ -25,6 +25,17 @@ const POPULATION_LABELS: Record<AccuracyScope["population"], string> = {
   market_linked: "Market-linked",
 };
 
+/**
+ * Human model names for the version selector — the raw `model_version` string
+ * is developer vocabulary and is never shown to the user. An unrecognized
+ * version (a future model, or a deep link ahead of the mapping) falls back to
+ * the raw value rather than dropping it silently.
+ */
+const MODEL_NAMES: Record<string, string> = {
+  "simulation-mc-0.1.0": "Simulation Engine",
+  "baseline-zil-0.1.0": "Baseline",
+};
+
 const STAT_LABELS: Array<{ value: string; label: string }> = [
   { value: "passing_yards", label: "Passing yards" },
   { value: "rushing_yards", label: "Rushing yards" },
@@ -72,9 +83,11 @@ export function AccuracyScopeBar({
   // The current value always appears in its own list, even when it has no
   // graded data (a deep link ahead of the data), so the select stays honest
   // and controlled instead of snapping to a value the URL does not carry.
-  const versions = availableVersions.includes(scope.modelVersion)
-    ? availableVersions
-    : scope.modelVersion === "all"
+  // `all` and `lifetime` are rendered as fixed items below, never in this list.
+  const versions =
+    availableVersions.includes(scope.modelVersion) ||
+    scope.modelVersion === "all" ||
+    scope.modelVersion === "lifetime"
       ? availableVersions
       : [scope.modelVersion, ...availableVersions];
   const seasons =
@@ -114,10 +127,13 @@ export function AccuracyScopeBar({
           >
             {versions.map((version) => (
               <MenuItem key={version} value={version}>
-                {version}
+                {MODEL_NAMES[version] ?? version}
               </MenuItem>
             ))}
             <MenuItem value="all">All versions (deployed system)</MenuItem>
+            <MenuItem value="lifetime">
+              Sightline lifetime (spans versions)
+            </MenuItem>
           </Select>
         </FormControl>
 

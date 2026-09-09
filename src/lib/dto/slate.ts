@@ -20,6 +20,15 @@ import type {
  * absence is structural rather than a filter that could regress.
  */
 
+/**
+ * Which state a contract's projection is in for the ACTIVE model of its stat
+ * type (spec §UI Data Contracts). Three distinct states the UI must keep apart:
+ * a real projection; an explicit decline for lack of evidence (RD-4), rendered
+ * in the warning register and distinct from a loading dash; and the ordinary
+ * "no projection yet" absence.
+ */
+export type ProjectionState = "projected" | "insufficient_evidence" | "none";
+
 export type StalenessDto = {
   /**
    * Clearable (RD-22): ingested game-scoped facts postdate the displayed
@@ -68,6 +77,15 @@ export type SlateRowDto = {
   edgePoints: number | null;
   confidenceAdjustedEdge: number | null;
   isRecommended: boolean;
+
+  /**
+   * The raw model version behind the shown projection (`null` when there is no
+   * projection). Drives the SIM/BASE provenance chip via the provenance mapper;
+   * the raw string is NEVER rendered to the user.
+   */
+  modelVersion: string | null;
+  /** The active model's projection state for this contract (spec §UI Data Contracts). */
+  projectionState: ProjectionState;
 
   currentDisposition?: Disposition;
   decidedAt?: string;
@@ -131,6 +149,24 @@ export type OutcomeBlockDto = {
   decision?: { disposition: string; outcome: string };
 };
 
+/**
+ * Model provenance for the UI. The raw `model_version` string is developer
+ * vocabulary and is NEVER shown to the user (spec §UI Data Contracts, design
+ * doc §4.2); every surface renders `short`/`name` instead. An unknown version
+ * degrades to a neutral generic label rather than leaking the raw string.
+ */
+export type Provenance = { short: string; name: string };
+
+const PROVENANCE: Record<string, Provenance> = {
+  "simulation-mc-0.1.0": { short: "SIM", name: "Simulation Engine" },
+  "baseline-zil-0.1.0": { short: "BASE", name: "Baseline" },
+};
+
+export function provenanceFor(modelVersion: string | null): Provenance | null {
+  if (modelVersion === null) return null;
+  return PROVENANCE[modelVersion] ?? { short: "MODEL", name: "Model" };
+}
+
 export type ContractDetailDto = SlateRowDto & {
   /** Admin-only diagnostics for the unresolved variant; absent for viewers. */
   resolutionNote?: string;
@@ -141,10 +177,18 @@ export type ContractDetailDto = SlateRowDto & {
   intervalLow: number | null;
   intervalHigh: number | null;
   quantiles: Record<string, number> | null;
+  /** The explicit PMF for `empirical_pmf` / count families; drives the bar chart. */
+  pmf: number[] | null;
+  distributionKind: string | null;
   drivers: string[];
-  modelVersion: string | null;
   midCents: number | null;
   status: ContractStatus;
+  /**
+   * Human-readable decline reason, set ONLY when
+   * `projectionState === "insufficient_evidence"`. Feeds the warning-register
+   * block that replaces the projection.
+   */
+  declineReason: string | null;
 
   /** Present only once the contract's game is completed or cancelled. */
   outcomeBlock?: OutcomeBlockDto;

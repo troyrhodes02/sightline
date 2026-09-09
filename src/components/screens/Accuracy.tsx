@@ -130,11 +130,30 @@ function FreshnessLine({ accuracy }: { accuracy: AccuracyDto }) {
 // Calibration
 // ---------------------------------------------------------------------------
 
+const SIMULATION_VERSION = "simulation-mc-0.1.0";
+
+/** Whether a series is the dashed reference model in a model-vs-model overlay. */
+function isReferenceModel(
+  series: CalibrationSeriesDto,
+  scope: AccuracyScope,
+): boolean {
+  return (
+    scope.record === "compare" &&
+    series.kind === "live" &&
+    series.modelVersion !== SIMULATION_VERSION
+  );
+}
+
+/** A stable React key per series — two live series (compare) must not collide. */
+function seriesKey(series: CalibrationSeriesDto): string {
+  return `${series.kind}-${series.modelVersion ?? "none"}`;
+}
+
 function CalibrationPanel({ accuracy }: { accuracy: AccuracyDto }) {
   const bucketTableId = useId();
   const { scope } = accuracy;
   const series = accuracy.calibration;
-  const backtestExpected = scope.record !== "live";
+  const backtestExpected = scope.record === "backtest";
   const backtest = series.find((entry) => entry.kind === "backtest") ?? null;
   const populated = series.filter((entry) => entry.thresholdObservations > 0);
 
@@ -182,9 +201,10 @@ function CalibrationPanel({ accuracy }: { accuracy: AccuracyDto }) {
           <>
             {series.map((entry) => (
               <SeriesHeadline
-                key={entry.kind}
+                key={seriesKey(entry)}
                 series={entry}
                 named={series.length > 1}
+                scope={scope}
               />
             ))}
             {backtestMissingNote ? (
@@ -195,14 +215,16 @@ function CalibrationPanel({ accuracy }: { accuracy: AccuracyDto }) {
             <ReliabilityCurve
               series={populated.map((entry) => ({
                 kind: entry.kind,
+                modelVersion: entry.modelVersion,
                 label: entry.label,
                 buckets: entry.buckets,
+                reference: isReferenceModel(entry, scope),
               }))}
               ariaSummaryId={bucketTableId}
             />
             <Box id={bucketTableId}>
               {populated.map((entry) => (
-                <BucketTable key={entry.kind} series={entry} />
+                <BucketTable key={seriesKey(entry)} series={entry} />
               ))}
             </Box>
           </>
@@ -212,14 +234,35 @@ function CalibrationPanel({ accuracy }: { accuracy: AccuracyDto }) {
   );
 }
 
+const MODEL_NAMES: Record<string, string> = {
+  "simulation-mc-0.1.0": "Simulation Engine",
+  "baseline-zil-0.1.0": "Baseline",
+};
+
+/** The headline prefix — the model name in compare, otherwise the record. */
+function headlinePrefix(
+  series: CalibrationSeriesDto,
+  scope: AccuracyScope,
+): string {
+  if (scope.record === "compare" && series.modelVersion) {
+    return MODEL_NAMES[series.modelVersion] ?? "Model";
+  }
+  if (series.modelVersion === "lifetime") return "Sightline lifetime";
+  return series.kind === "live" ? "Live" : "Backtest";
+}
+
 function SeriesHeadline({
   series,
   named,
+  scope,
 }: {
   series: CalibrationSeriesDto;
   named: boolean;
+  scope: AccuracyScope;
 }) {
   const color = series.kind === "live" ? "primary.main" : "text.secondary";
+  const lifetime = series.modelVersion === "lifetime";
+  const showPrefix = named || lifetime;
   return (
     <Stack spacing={0.25}>
       <Stack
@@ -229,7 +272,7 @@ function SeriesHeadline({
         sx={{ alignItems: "baseline", flexWrap: "wrap" }}
       >
         <NumericText size={named ? "md" : "lg"} sx={{ color }}>
-          {named ? `${series.kind === "live" ? "Live" : "Backtest"} · ` : ""}
+          {showPrefix ? `${headlinePrefix(series, scope)} · ` : ""}
           Brier {series.brier === null ? "—" : series.brier.toFixed(3)}
         </NumericText>
         <SampleSizePair
@@ -237,6 +280,11 @@ function SeriesHeadline({
           projections={series.projectionCount}
         />
       </Stack>
+      {lifetime ? (
+        <Typography variant="caption" sx={{ color: "text.secondary" }}>
+          Combined across Baseline and Simulation Engine — spans model versions.
+        </Typography>
+      ) : null}
       {series.kind === "backtest" ? (
         <Typography variant="caption" sx={{ color: "text.secondary" }}>
           {series.label}

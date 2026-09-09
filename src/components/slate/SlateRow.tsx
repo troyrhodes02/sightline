@@ -15,8 +15,10 @@ import {
   DispositionChip,
   EdgeValue,
   formatEtTime,
+  InsufficientEvidenceChip,
   PriceValue,
   ProbabilityValue,
+  ProvenanceChip,
   RowTimestamps,
 } from "./values";
 
@@ -40,6 +42,7 @@ const STAT_LABELS: Record<SlateRowDto["statType"], string> = {
  * movement between rows is added by the client-side key handler on the list.
  */
 export function SlateRow({ row }: { row: SlateRowDto }) {
+  const insufficient = row.projectionState === "insufficient_evidence";
   const dimmed = !row.isRecommended;
   const textColor = dimmed ? "text.secondary" : "text.primary";
 
@@ -54,6 +57,9 @@ export function SlateRow({ row }: { row: SlateRowDto }) {
         color: "inherit",
         px: 2,
         py: 1.25,
+        // Insufficient-evidence rows are de-emphasised per the existing pattern
+        // but remain fully selectable (opening one explains why).
+        opacity: insufficient ? 0.75 : 1,
         borderLeft: "3px solid",
         borderLeftColor: row.isRecommended ? "primary.main" : "transparent",
         borderBottom: "1px solid",
@@ -99,12 +105,17 @@ export function SlateRow({ row }: { row: SlateRowDto }) {
           spacing={2}
           sx={{ alignItems: "baseline", flex: { md: "0 0 auto" } }}
         >
-          <ProbabilityValue value={row.modelProbability} />
+          {insufficient ? (
+            <InsufficientEvidenceChip />
+          ) : (
+            <ProbabilityValue value={row.modelProbability} />
+          )}
           <PriceValue
             cents={row.side === "no" ? row.noAskCents : row.yesAskCents}
           />
           <EdgeValue points={row.edgePoints} />
           <ConfidenceValue confidence={row.confidence} />
+          <ProvenanceChip modelVersion={row.modelVersion} />
         </Stack>
       </Stack>
       <Stack
@@ -115,7 +126,7 @@ export function SlateRow({ row }: { row: SlateRowDto }) {
         {row.isRecommended ? (
           <StatusChip label={`recommended · ${row.side ?? ""}`} tone="accent" />
         ) : null}
-        {row.modelProbability === null ? (
+        {row.projectionState === "none" ? (
           <StatusChip label="no projection" tone="caution" />
         ) : null}
         {row.currentDisposition ? (

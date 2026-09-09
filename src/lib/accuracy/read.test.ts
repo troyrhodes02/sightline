@@ -213,32 +213,47 @@ describe("readAccuracy — calibration records", () => {
     expect(live.label).toContain("412 projections");
   });
 
-  it("compare returns two labelled series and never merges them", async () => {
+  it("compare returns the two models as separate live series, never merged", async () => {
+    // Model-vs-model overlay (SIG-72): compare is two version-scoped live
+    // series — Simulation Engine first, then Baseline — each with its own Brier
+    // and both denominators. Nothing is pooled and no version is blended.
     emptyDb({
       buckets: [LIVE_BUCKET],
       headline: [{ observations: 214, projections: 118, brier: 0.241 }],
     });
-    mockPrisma.backtestRun.findFirst.mockResolvedValue(COMPLETED_RUN);
-    mockPrisma.calibrationBin.findMany.mockResolvedValue([
-      {
-        binIndex: 3,
-        predictedMean: 0.351,
-        observedRate: 0.339,
-        thresholdObservations: 20000,
-        projectionCount: 4100,
-        belowFloor: false,
-      },
-    ]);
     const dto = await readAccuracy(scope({ record: "compare" }), "viewer");
-    expect(dto.calibration.map((s) => s.kind)).toEqual(["live", "backtest"]);
-    const [live, backtest] = dto.calibration;
-    expect(live.buckets).not.toBe(backtest.buckets);
-    expect(live.label).not.toBe(backtest.label);
-    // Each series carries its own Brier and denominators — nothing pooled.
-    expect(live.brier).toBe(0.241);
-    expect(backtest.brier).toBe(0.131); // contract_like default population
-    expect(backtest.thresholdObservations).toBe(41210);
-    expect(backtest.projectionCount).toBe(9120);
+    expect(dto.calibration.map((s) => s.kind)).toEqual(["live", "live"]);
+    expect(dto.calibration.map((s) => s.modelVersion)).toEqual([
+      "simulation-mc-0.1.0",
+      "baseline-zil-0.1.0",
+    ]);
+    const [simulation, baseline] = dto.calibration;
+    expect(simulation.label).toContain("Simulation Engine");
+    expect(baseline.label).toContain("Baseline");
+    // The raw version string is never surfaced in the label.
+    expect(simulation.label).not.toContain("simulation-mc-0.1.0");
+    expect(baseline.label).not.toContain("baseline-zil-0.1.0");
+    expect(simulation.buckets).not.toBe(baseline.buckets);
+    // Each carries its own Brier and denominators.
+    expect(simulation.brier).toBe(0.241);
+    expect(baseline.brier).toBe(0.241);
+  });
+
+  it("combines across versions and labels it as lifetime, never the default", async () => {
+    emptyDb({
+      versions: [{ model_version: "simulation-mc-0.1.0" }],
+      buckets: [LIVE_BUCKET],
+      headline: [{ observations: 3349, projections: 800, brier: 0.226 }],
+    });
+    // Default resolves to the active model, never lifetime.
+    const defaulted = await readAccuracy(scope(), "viewer");
+    expect(defaulted.scope.modelVersion).toBe("simulation-mc-0.1.0");
+    // Lifetime only when explicitly requested; combined series, labelled.
+    const dto = await readAccuracy(scope({ version: "lifetime" }), "viewer");
+    expect(dto.scope.modelVersion).toBe("lifetime");
+    expect(dto.calibration).toHaveLength(1);
+    expect(dto.calibration[0].modelVersion).toBe("lifetime");
+    expect(dto.calibration[0].label).toContain("Combined across");
   });
 
   it("names the backtest run in its label and carries the era disclosure", async () => {

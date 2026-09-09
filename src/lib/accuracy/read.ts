@@ -33,6 +33,23 @@ import type { AccuracyScopeRequest } from "./scope";
 
 export type AccuracyRole = "admin" | "viewer";
 
+/**
+ * The two permanent model versions the surface splits by. Simulation first so
+ * Compare draws it as the solid primary series and Baseline as the dashed
+ * reference (design doc §Screen 3) — the baseline carries no visual demotion,
+ * only a stroke that distinguishes it from the newer model.
+ */
+const SIMULATION_VERSION = "simulation-mc-0.1.0";
+const BASELINE_VERSION = "baseline-zil-0.1.0";
+const COMPARE_VERSIONS = [SIMULATION_VERSION, BASELINE_VERSION] as const;
+
+/** The human model name for a label — never the raw version string. */
+function provenanceName(modelVersion: string): string {
+  if (modelVersion === SIMULATION_VERSION) return "Simulation Engine";
+  if (modelVersion === BASELINE_VERSION) return "Baseline";
+  return "Model";
+}
+
 type ScopeFilters = {
   /** Null means "all" on that axis — the always-present SQL params below. */
   stat: string | null;
@@ -54,22 +71,22 @@ export async function readAccuracy(
   const filters: ScopeFilters = {
     stat: scope.statType === "all" ? null : scope.statType,
     season: scope.season === "all" ? null : scope.season,
-    version: scope.modelVersion === "all" ? null : scope.modelVersion,
+    // Both `all` and `lifetime` combine across model versions (no version
+    // filter); a concrete version filters to itself.
+    version:
+      scope.modelVersion === "all" || scope.modelVersion === "lifetime"
+        ? null
+        : scope.modelVersion,
   };
 
-  const [live, backtest, errorPanel, market, freshness, exclusions] =
+  const [calibration, errorPanel, market, freshness, exclusions] =
     await Promise.all([
-      scope.record === "backtest" ? null : liveSeries(scope, filters),
-      scope.record === "live" ? null : backtestSeries(scope),
+      calibrationSeries(scope, filters),
       readErrorPanel(scope, filters),
       readMarketComparison(filters),
       readFreshness(now),
       readExclusions(filters),
     ]);
-
-  const calibration: CalibrationSeriesDto[] = [];
-  if (live) calibration.push(live);
-  if (backtest) calibration.push(backtest);
 
   const dto: AccuracyDto = {
     scope,
@@ -112,13 +129,19 @@ function resolveScope(
   availableVersions: string[],
   availableSeasons: number[],
 ): AccuracyScope {
+  // `all` and `lifetime` are explicit, honoured only when asked for; neither is
+  // ever the resolved default (spec §UI Data Contracts, RD-3). The default is
+  // the active model — the latest deployed version with graded data — so this
+  // surface and live-readiness agree on which record is "the" record.
   const modelVersion =
     request.modelVersion === "all"
       ? "all"
-      : request.modelVersion !== null &&
-          availableVersions.includes(request.modelVersion)
-        ? request.modelVersion
-        : (availableVersions[0] ?? "all");
+      : request.modelVersion === "lifetime"
+        ? "lifetime"
+        : request.modelVersion !== null &&
+            availableVersions.includes(request.modelVersion)
+          ? request.modelVersion
+          : (availableVersions[0] ?? "all");
   const season =
     request.season !== "all" && availableSeasons.includes(request.season)
       ? request.season
@@ -160,14 +183,80 @@ async function seasonsWithGradedData(): Promise<number[]> {
 // ---------------------------------------------------------------------------
 
 /**
+ * The calibration array for the requested record (spec §UI Data Contracts,
+ * RD-3). One or two series, always separate, never blended by default:
+ *
+ * - `live` → one live series for the resolved version. `lifetime`/`all` combine
+ *   across model versions with a labelled combined series; a concrete version
+ *   is that version's own record.
+ * - `backtest` → the stored backtest run.
+ * - `compare` → the two MODELS overlaid — Baseline and Simulation Engine as
+ *   separate live series, each with its own Brier and both denominators. The
+ *   chart draws Simulation solid and Baseline dashed (same hue); nothing pooled.
+ */
+async function calibrationSeries(
+  scope: AccuracyScope,
+  filters: ScopeFilters,
+): Promise<CalibrationSeriesDto[]> {
+  if (scope.record === "backtest") {
+    const backtest = await backtestSeries(scope);
+    return backtest ? [backtest] : [];
+  }
+
+  if (scope.record === "compare") {
+    // Model-vs-model: a version-scoped live series per permanent model version.
+    const series = await Promise.all(
+      COMPARE_VERSIONS.map((version) =>
+        liveSeries(scope, { ...filters, version }, {
+          modelVersion: version,
+          labelPrefix: provenanceName(version),
+        }),
+      ),
+    );
+    return series;
+  }
+
+  // Live: one series for the resolved scope. `lifetime`/`all` combine across
+  // versions (filters.version is already null in that case).
+  const combined =
+    scope.modelVersion === "lifetime" || scope.modelVersion === "all";
+  const seriesVersion =
+    scope.modelVersion === "lifetime"
+      ? "lifetime"
+      : scope.modelVersion === "all"
+        ? null
+        : scope.modelVersion;
+  const labelPrefix =
+    scope.modelVersion === "lifetime"
+      ? "Combined across Baseline and Simulation Engine — spans model versions"
+      : combined
+        ? "Live · all versions"
+        : "Live";
+  return [
+    await liveSeries(scope, filters, {
+      modelVersion: seriesVersion,
+      labelPrefix,
+    }),
+  ];
+}
+
+/**
  * Ten fixed buckets over `threshold_grades`, both denominators per bucket,
  * grouped in the database so the read moves ten rows, not ten thousand. The
  * top bucket is closed ([0.9, 1.0]) via `least(_, 9)`, matching the harness's
  * binning exactly — Compare must be a like-for-like overlay.
+ *
+ * `filters.version` is the SQL version filter (null = combine across versions);
+ * `identity.modelVersion` is what the DTO carries, and `identity.labelPrefix`
+ * heads the label so two series in Compare are never confusable.
  */
 async function liveSeries(
   scope: AccuracyScope,
   filters: ScopeFilters,
+  identity: {
+    modelVersion: string | "lifetime" | null;
+    labelPrefix: string;
+  },
 ): Promise<CalibrationSeriesDto> {
   const buckets = await prisma.$queryRaw<
     Array<{
@@ -218,7 +307,8 @@ async function liveSeries(
 
   return {
     kind: "live",
-    label: `Live · ${formatCount(observations)} obs · ${formatCount(projections)} projections`,
+    modelVersion: identity.modelVersion,
+    label: `${identity.labelPrefix} · ${formatCount(observations)} obs · ${formatCount(projections)} projections`,
     brier: headline[0]?.brier ?? null,
     thresholdObservations: observations,
     projectionCount: projections,
@@ -312,6 +402,7 @@ async function backtestSeries(
   const runName = run.label ?? run.modelVersion;
   return {
     kind: "backtest",
+    modelVersion: run.modelVersion,
     label: `Backtest ${runName} ${run.seasonFrom}–${run.seasonTo} · ${formatCount(observations)} obs · ${formatCount(projections)} projections`,
     brier,
     thresholdObservations: observations,

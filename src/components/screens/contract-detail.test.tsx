@@ -44,6 +44,8 @@ const detail = (
   edgePoints: 7.4,
   confidenceAdjustedEdge: 7.4,
   isRecommended: true,
+  modelVersion: "baseline-zil-0.1.0",
+  projectionState: "projected",
   projectedValue: 78.3,
   projectedMedian: 76.1,
   intervalLow: 41,
@@ -57,13 +59,15 @@ const detail = (
     q90: 118,
     q95: 139,
   },
+  pmf: null,
+  distributionKind: "zero_inflated_lognormal",
   drivers: [
     "14 eligible prior games; exponentially-weighted form 81.2 receiving yards.",
     "Shrunk 22% toward the WR prior for 2025.",
   ],
-  modelVersion: "baseline-zil-0.1.0",
   midCents: 53,
   status: "active",
+  declineReason: null,
   ...overrides,
 });
 
@@ -99,14 +103,16 @@ describe("ContractDetail — resolved", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows the Currency block: computed-at with age, cutoff, model version", () => {
+  it("shows the Currency block: computed-at with age, cutoff, model name (never the raw version)", () => {
     renderThemed(
       <ContractDetail detail={detail()} isAdmin isUnresolved={false} />,
     );
     expect(screen.getByText("Currency")).toBeInTheDocument();
     expect(screen.getByText(/\(2d 4h ago\)/)).toBeInTheDocument();
     expect(screen.getByText("information cutoff")).toBeInTheDocument();
-    expect(screen.getByText("baseline-zil-0.1.0")).toBeInTheDocument();
+    // The human name, not the developer version string.
+    expect(screen.getAllByText("Baseline").length).toBeGreaterThan(0);
+    expect(screen.queryByText("baseline-zil-0.1.0")).not.toBeInTheDocument();
   });
 
   it("a current projection renders no staleness explanation", () => {
@@ -168,6 +174,97 @@ describe("ContractDetail — resolved", () => {
       screen.getByText(/61\.4% of projected outcomes reach 74\.5/),
     ).toBeInTheDocument();
   });
+
+  it("shows the provenance line with the full model name, never the raw version", () => {
+    renderThemed(
+      <ContractDetail
+        detail={detail({ modelVersion: "simulation-mc-0.1.0" })}
+        isAdmin
+        isUnresolved={false}
+      />,
+    );
+    expect(screen.getByText("SIM")).toBeInTheDocument();
+    expect(screen.getByText(/Simulation Engine · computed/)).toBeInTheDocument();
+    expect(
+      screen.queryByText(/simulation-mc-0\.1\.0/),
+    ).not.toBeInTheDocument();
+  });
+
+  it("renders a PMF bar chart for empirical_pmf and a quantile curve otherwise", () => {
+    const { unmount } = renderThemed(
+      <ContractDetail
+        detail={detail({
+          statType: "receiving_tds",
+          threshold: 0.5,
+          distributionKind: "empirical_pmf",
+          quantiles: null,
+          pmf: [0.62, 0.24, 0.09, 0.03, 0.015, 0.005],
+          modelVersion: "simulation-mc-0.1.0",
+        })}
+        isAdmin
+        isUnresolved={false}
+      />,
+    );
+    // The bar-chart caption names the discrete cut, not a continuous area.
+    expect(screen.getByText(/filled bars at or above 1/)).toBeInTheDocument();
+    unmount();
+
+    renderThemed(
+      <ContractDetail
+        detail={detail({ distributionKind: "empirical_quantiles" })}
+        isAdmin
+        isUnresolved={false}
+      />,
+    );
+    expect(
+      screen.getByText(/The filled area at or above 74\.5 is the probability/),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("ContractDetail — insufficient evidence", () => {
+  it("replaces the projection block with a warning Alert, price shown, no edge", () => {
+    renderThemed(
+      <ContractDetail
+        detail={detail({
+          modelProbability: null,
+          confidence: null,
+          side: null,
+          edgePoints: null,
+          confidenceAdjustedEdge: null,
+          isRecommended: false,
+          projectedValue: null,
+          projectedMedian: null,
+          intervalLow: null,
+          intervalHigh: null,
+          quantiles: null,
+          pmf: null,
+          distributionKind: null,
+          drivers: [],
+          modelVersion: "simulation-mc-0.1.0",
+          projectionState: "insufficient_evidence",
+          declineReason:
+            "Sightline has no relevant history for this player in this role as of the information cutoff.",
+        })}
+        isAdmin
+        isUnresolved={false}
+      />,
+    );
+    // The disclosure replaces the projection, in plain English.
+    expect(
+      screen.getByText("Insufficient evidence to project"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/no relevant history for this player/),
+    ).toBeInTheDocument();
+    // No projection block, but the market price is still shown.
+    expect(screen.queryByText("Projection")).not.toBeInTheDocument();
+    expect(screen.getByText(/market ask/)).toBeInTheDocument();
+    // Distinct from the plain "no projection" language.
+    expect(
+      screen.queryByText(/Sightline has no projection/),
+    ).not.toBeInTheDocument();
+  });
 });
 
 describe("ContractDetail — variants", () => {
@@ -186,8 +283,11 @@ describe("ContractDetail — variants", () => {
           intervalLow: null,
           intervalHigh: null,
           quantiles: null,
+          pmf: null,
+          distributionKind: null,
           drivers: [],
           modelVersion: null,
+          projectionState: "none",
           projectionComputedAt: null,
           informationCutoff: null,
           staleness: null,
