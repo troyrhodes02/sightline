@@ -106,8 +106,12 @@ describe("sync structure", () => {
     // Observation is written only when the book changed or the heartbeat
     // interval elapsed — either the positive OR form (booksDiffer || heartbeatElapsed)
     // or the original negated guard form (!booksDiffer && !heartbeatElapsed) is valid.
-    const hasPositiveOr = /booksDiffer[\s\S]{0,80}heartbeatElapsed/.test(syncCode);
-    const hasNegatedGuard = /!booksDiffer[\s\S]{0,60}!heartbeatElapsed/.test(syncCode);
+    const hasPositiveOr = /booksDiffer[\s\S]{0,80}heartbeatElapsed/.test(
+      syncCode,
+    );
+    const hasNegatedGuard = /!booksDiffer[\s\S]{0,60}!heartbeatElapsed/.test(
+      syncCode,
+    );
     expect(hasPositiveOr || hasNegatedGuard).toBe(true);
   });
 });
