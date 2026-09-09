@@ -19,8 +19,14 @@ import type { StatType } from "../../../generated/prisma/enums";
 
 export type AccuracyScope = {
   record: "live" | "backtest" | "compare";
-  /** `"all"` is the labelled combined view: "All versions (deployed system)". */
-  modelVersion: string | "all";
+  /**
+   * A concrete model version, `"all"` (the labelled combined view "All versions
+   * (deployed system)"), or `"lifetime"` — the combined-across-model-versions
+   * view (Baseline + Simulation Engine), clearly labelled and NEVER the
+   * resolved default. Default is the active model (latest deployed with graded
+   * data), so live-readiness and this surface agree on the active record.
+   */
+  modelVersion: string | "all" | "lifetime";
   population: "contract_like" | "all" | "market_linked";
   statType: StatType | "all";
   season: number | "all";
@@ -40,6 +46,14 @@ export type CalibrationBucketDto = {
 
 export type CalibrationSeriesDto = {
   kind: "live" | "backtest";
+  /**
+   * The model version this series measures: a concrete version, `"lifetime"`
+   * (the combined-across-versions view), or `null` when a version is not
+   * meaningful (a pooled backtest run carries its version in the label). Never
+   * implied by the label alone — Compare renders two versions and must keep
+   * them apart structurally.
+   */
+  modelVersion: string | "lifetime" | null;
   /** Names the record and carries both denominators. */
   label: string;
   brier: number | null;

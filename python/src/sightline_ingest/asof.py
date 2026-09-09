@@ -342,6 +342,90 @@ class AsOfCorpus:
             )
             return _apply_rollbacks(cur)
 
+    def team_trailing_volume(
+        self, *, team_abbr: str, before_game_id: str
+    ) -> pl.DataFrame:
+        """The team's prior-game OFFENSIVE VOLUME, one row per prior team-game.
+
+        The game-environment layer (Simulation Engine, Layer 1) needs each team's
+        trailing offensive volume — plays, pass attempts, rush attempts — as it
+        was known at the cutoff. This is derived from the same box-score fact
+        table the player reads use: a team-game's pass attempts are the sum of
+        its players' ``passing_attempts``, its rush attempts the sum of their
+        ``carries``, and its offensive plays the sum of the two. Team membership
+        follows ``team_abbr_at_game`` — the team the player was on *that game* —
+        so a mid-season trade never back-fills a team with a player it did not
+        have at the time.
+
+        Every temporal guarantee the player-stat reads carry is carried here,
+        by construction rather than by re-derivation:
+
+        * The publication-time bound (``09:00 ET the day after the game``) and
+          the target-game kickoff bound are the SAME ``_TRAILING_SQL`` text, so a
+          future team-game can never contribute.
+        * Post-cutoff stat corrections are rolled back through the SAME
+          ``_apply_rollbacks`` path, so a corrected actual cannot re-enter a
+          volume feature.
+
+        **It returns one row per prior team-game, never a season aggregate.**
+        This is the load-bearing property: a season total joined to a mid-season
+        game is the canonical leak (it drags the rest of the season backwards
+        into a game that predates it). There is deliberately no parameter, no
+        overload, and no companion method that would sum these rows across a
+        season inside the as-of layer — the caller receives the per-game grain
+        and must window it under the same cutoff discipline it received them by.
+
+        Columns: ``game_id``, ``kickoff_at``, ``plays``, ``pass_attempts``,
+        ``rush_attempts`` — one row per prior game the team played, oldest-first.
+        A player-game whose ``passing_attempts``/``carries`` are null contributes
+        zero to that component (null is phase-absence, and a team's pass-attempt
+        total is a sum over the players who actually threw).
+        """
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                _TRAILING_SQL.format(
+                    extra_select="",
+                    player_predicate="pgs.team_abbr_at_game = %(team)s",
+                    order_by="g.kickoff_at",
+                ),
+                {"team": team_abbr, "before": before_game_id, "cutoff": self._cutoff},
+            )
+            per_player = _apply_rollbacks(cur)
+
+        # Empty history: return the typed, empty per-team-game frame so the
+        # caller sees "no prior team-games" rather than a schemaless frame.
+        empty = pl.DataFrame(
+            schema={
+                "game_id": pl.String,
+                "kickoff_at": pl.Datetime,
+                "plays": pl.Int64,
+                "pass_attempts": pl.Int64,
+                "rush_attempts": pl.Int64,
+            }
+        )
+        if per_player.height == 0:
+            return empty
+
+        # Aggregate the (rolled-back) player-game rows up to the team-game grain.
+        # This is a group-by over PRIOR games only — the SQL already excluded the
+        # target game and every future game — so the result is per-game, never a
+        # season roll-up. ``passing_attempts`` and ``carries`` are the two
+        # opportunity columns; their per-game team sums are the team's pass and
+        # rush attempts, and their total is offensive plays.
+        aggregated = (
+            per_player.group_by("game_id", "kickoff_at")
+            .agg(
+                pl.col("passing_attempts").fill_null(0).sum().alias("pass_attempts"),
+                pl.col("carries").fill_null(0).sum().alias("rush_attempts"),
+            )
+            .with_columns(
+                (pl.col("pass_attempts") + pl.col("rush_attempts")).alias("plays")
+            )
+            .select("game_id", "kickoff_at", "plays", "pass_attempts", "rush_attempts")
+            .sort("kickoff_at")
+        )
+        return aggregated
+
     def population_stats(
         self, *, before_season: int, position: str, column: str
     ) -> pl.DataFrame:

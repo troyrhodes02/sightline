@@ -36,6 +36,10 @@ PREDICTIONS = "predictions"
 THRESHOLDS = "thresholds"
 EXCLUSIONS = "exclusions"
 PRIORS = "priors"
+# Per-layer validation rows (SIG-70): one row per (game, layer) carrying that
+# game's game-environment / usage-allocation MAEs (RD-8). Written only by the
+# simulation backtest path; the baseline has no layers to validate.
+PER_LAYER = "per_layer"
 
 # Decimal places per column, applied before writing and before hashing. A
 # column absent from this map is written as-is (ids, strings, timestamps).

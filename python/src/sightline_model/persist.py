@@ -137,7 +137,7 @@ insert into backtest_runs (
     gen_random_uuid(), %(label)s, 'running', %(season_from)s, %(season_to)s,
     %(season_types)s, %(stat_types)s::"StatType"[], %(window)s::"EvaluationWindow",
     %(cutoff_policy)s, %(threshold_policy)s, %(grading_target)s,
-    %(model_version)s, %(code_version)s, %(code_dirty)s, %(seed)s, 0,
+    %(model_version)s, %(code_version)s, %(code_dirty)s, %(seed)s, %(rng_draws)s,
     %(engine_config)s, %(engine_config_digest)s, %(corpus_digest)s,
     %(artifact_path)s, %(started_at)s, %(started_at)s
 )
@@ -160,7 +160,16 @@ def insert_run(
     grading_target: str,
     artifact_path: str,
     started_at: datetime,
+    seed: int | None = None,
+    rng_draws: int = 0,
 ) -> str:
+    # ``seed`` defaults to the config's seed so the baseline call site is
+    # unchanged; the simulation engine (SIG-70) passes its own derived,
+    # non-zero seed and ``rng_draws = 5000``. A closed-form engine records
+    # ``rng_draws = 0`` — the default — so the stored value stays honest about
+    # whether the run drew anything.
+    if seed is None:
+        seed = config.seed
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
             _INSERT_RUN,
@@ -177,7 +186,8 @@ def insert_run(
                 "model_version": model_version,
                 "code_version": code_version,
                 "code_dirty": code_dirty,
-                "seed": config.seed,
+                "seed": seed,
+                "rng_draws": rng_draws,
                 "engine_config": json.dumps(engine_config, sort_keys=True),
                 "engine_config_digest": engine_config_digest,
                 "corpus_digest": corpus_digest,

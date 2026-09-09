@@ -31,7 +31,13 @@ _RESET_TABLES = (
     "pipeline_runs, pipeline_run_games, "
     # Outcome Scoring (SIG-52): grade tables. The settlement table is cleared
     # by the contracts cascade and is never named in Python package code.
-    "projection_grades, threshold_grades"
+    "projection_grades, threshold_grades, "
+    # Simulation Engine (SIG-66/71): declines, joint-sim metadata + correlations.
+    # player_outcome_correlations cascades from game_simulations, but both are
+    # named so a truncate never silently depends on the other's FK behaviour.
+    # model_selections is a seeded registry (not truncated) — tests that need a
+    # specific routing insert/upsert their own rows.
+    "projection_declines, game_simulations, player_outcome_correlations"
 )
 
 

@@ -15,6 +15,19 @@
 
 export const KIND_ZIL = "zero_inflated_lognormal";
 export const KIND_NB = "negative_binomial";
+export const KIND_EMPIRICAL_QUANTILES = "empirical_quantiles";
+export const KIND_EMPIRICAL_PMF = "empirical_pmf";
+
+/**
+ * The fixed percentile grid the Simulation Engine stores continuous stats on
+ * (`simulation/config.py::QUANTILE_GRID`). Keys are `q01..q99`. Kept in lockstep
+ * with Python: the golden-parity fixture is generated from the Python
+ * `prob_at_least_from_quantiles`, so any drift here fails that test.
+ */
+const QUANTILE_GRID = [0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99];
+const QUANTILE_KEYS = QUANTILE_GRID.map(
+  (q) => `q${String(Math.round(q * 100)).padStart(2, "0")}`,
+);
 
 /**
  * Complementary error function to near double precision — Maclaurin series
@@ -77,10 +90,18 @@ export function stdNormalCdf(z: number): number {
 
 export type StoredDistribution = {
   distributionKind: string;
-  /** ZIL: { p_zero, mu, sigma }. NB: { r, p } (pmf carries the shape). */
+  /** ZIL: { p_zero, mu, sigma }. NB: { r, p }. Empirical kinds: inspection-only. */
   params: Record<string, number>;
-  /** Present for count families; P(X = k) for k = 0..cap. */
+  /**
+   * Count families (`negative_binomial`, `empirical_pmf`): P(X = k) for
+   * k = 0..K plus one aggregated (K+1)+ tail bucket in the last slot.
+   */
   pmf: number[] | null;
+  /**
+   * Continuous empirical (`empirical_quantiles`): the stored 9-point grid keyed
+   * `q01..q99`. Absent for the analytic and count families.
+   */
+  quantiles?: Record<string, number> | null;
 };
 
 /**
@@ -120,5 +141,98 @@ export function probAtLeast(
     return 1 - below;
   }
 
+  if (distribution.distributionKind === KIND_EMPIRICAL_QUANTILES) {
+    return probAtLeastFromQuantiles(distribution.quantiles ?? null, threshold);
+  }
+
+  if (distribution.distributionKind === KIND_EMPIRICAL_PMF) {
+    return probAtLeastFromPmf(distribution.pmf, threshold);
+  }
+
   return null;
+}
+
+/**
+ * `P(X >= t)` for the empirical quantile grid — the exact twin of
+ * `sightline_model/simulation/core.py::prob_at_least_from_quantiles`.
+ *
+ * Builds the implied CDF from the stored `(percentile, value)` points and
+ * returns `1 - CDF(t)` by monotone piecewise-linear interpolation between the
+ * two bracketing points. At or below the lowest stored value the CDF clamps
+ * toward 0 (value floor 0 for non-negative stats); at or above the highest it
+ * clamps toward 1. Non-strictly-increasing grids are nudged to strict
+ * monotonicity first, so the interpolation is well defined on ties.
+ */
+export function probAtLeastFromQuantiles(
+  quantiles: Record<string, number> | null,
+  threshold: number,
+): number | null {
+  if (!quantiles) return null;
+  const percentiles = QUANTILE_GRID.slice();
+  const values: number[] = [];
+  for (const key of QUANTILE_KEYS) {
+    const value = quantiles[key];
+    if (!Number.isFinite(value)) return null;
+    values.push(value);
+  }
+  // Nudge to strictly increasing so the linear interpolation is well defined.
+  for (let i = 1; i < values.length; i += 1) {
+    if (values[i] <= values[i - 1]) values[i] = values[i - 1] + 1e-9;
+  }
+
+  let cdf: number;
+  if (threshold <= values[0]) {
+    cdf = threshold >= values[0] ? percentiles[0] : 0;
+  } else if (threshold >= values[values.length - 1]) {
+    cdf = 1;
+  } else {
+    cdf = interp(threshold, values, percentiles);
+  }
+  return Math.min(Math.max(1 - cdf, 0), 1);
+}
+
+/**
+ * `P(X >= t)` for the explicit PMF — the twin of
+ * `core.py::prob_at_least_from_pmf`. Sums the mass at indices `>= ceil(t)`. The
+ * tail bucket (last index, `(K+1)+`) contributes fully to any threshold at or
+ * before it. Kalshi count thresholds are `.5` values, so `ceil` maps `k.5` to
+ * `k + 1` and never ties an integer support point.
+ */
+export function probAtLeastFromPmf(
+  pmf: number[] | null,
+  threshold: number,
+): number | null {
+  if (!pmf || pmf.length === 0) return null;
+  const k = Math.ceil(threshold);
+  if (k <= 0) return 1;
+  if (k >= pmf.length) {
+    // Past the last (K+1)+ tail bucket. Supported thresholds never reach here:
+    // each stat's PMF support K is chosen so every listed Kalshi threshold has
+    // ceil(t) <= K+1 (the tail index, pmf.length-1), which the loop below sums.
+    // The residual mass beyond K+1 is negligible by construction, so 0 is the
+    // intended value, not a fabricated one. Kept identical to the Python twin
+    // (`prob_at_least_from_pmf`) for golden parity.
+    return 0;
+  }
+  let sum = 0;
+  for (let i = k; i < pmf.length; i += 1) sum += pmf[i];
+  return sum;
+}
+
+/**
+ * `numpy.interp` for a monotone-increasing x-grid: linear interpolation of `ys`
+ * at `x`, matching NumPy's default (and Python's `prob_at_least_from_quantiles`)
+ * so the two runtimes agree to golden tolerance.
+ */
+function interp(x: number, xs: number[], ys: number[]): number {
+  if (x <= xs[0]) return ys[0];
+  const last = xs.length - 1;
+  if (x >= xs[last]) return ys[last];
+  let hi = 1;
+  while (hi < last && xs[hi] < x) hi += 1;
+  const lo = hi - 1;
+  const span = xs[hi] - xs[lo];
+  if (span === 0) return ys[lo];
+  const t = (x - xs[lo]) / span;
+  return ys[lo] + t * (ys[hi] - ys[lo]);
 }

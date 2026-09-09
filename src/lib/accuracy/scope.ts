@@ -20,9 +20,11 @@ export type AccuracyScopeRequest = {
   season: number | "all";
   /**
    * `null` means "not requested": the read resolves it to the latest deployed
-   * version with graded data (the default), or `"all"` when nothing is graded.
+   * version with graded data (the active model — the default), or `"all"` when
+   * nothing is graded. `"lifetime"` (combined across model versions) and
+   * `"all"` are explicit and never the resolved default.
    */
-  modelVersion: string | "all" | null;
+  modelVersion: string | "all" | "lifetime" | null;
 };
 
 export type SearchParams = Record<string, string | string[] | undefined>;
@@ -59,6 +61,13 @@ export function parseAccuracyScope(params: SearchParams): AccuracyScopeRequest {
       : "contract_like",
     statType: stat && STAT_TYPES.has(stat) ? (stat as StatType) : "all",
     season: season && /^\d{4}$/.test(season) ? Number(season) : "all",
-    modelVersion: version === "all" ? "all" : version ? version : null,
+    modelVersion:
+      version === "all"
+        ? "all"
+        : version === "lifetime"
+          ? "lifetime"
+          : version
+            ? version
+            : null,
   };
 }

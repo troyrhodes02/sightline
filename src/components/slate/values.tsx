@@ -1,11 +1,13 @@
 import Box from "@mui/material/Box";
 import Chip from "@mui/material/Chip";
 import Stack from "@mui/material/Stack";
+import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import {
   NumericText,
   type NumericSize,
 } from "@/components/primitives/NumericText";
+import { provenanceFor } from "@/lib/dto/slate";
 import type { Confidence, Disposition } from "../../../generated/prisma/enums";
 
 /**
@@ -84,6 +86,54 @@ export function EdgeValue({
       {positive ? "▲ +" : "▼ −"}
       {Math.abs(points).toFixed(1)}
     </NumericText>
+  );
+}
+
+/**
+ * The model-provenance indicator: a quiet neutral outlined monospace chip
+ * (SIM/BASE) beside confidence. Provenance is NEVER encoded by colour — both
+ * models wear the same neutral tone, distinguished only by the label — and the
+ * raw `model_version` string is never shown; the tooltip expands to the full
+ * human name. Renders nothing when there is no projection.
+ */
+export function ProvenanceChip({
+  modelVersion,
+}: {
+  modelVersion: string | null;
+}) {
+  const provenance = provenanceFor(modelVersion);
+  if (!provenance) return null;
+  return (
+    <Tooltip title={provenance.name}>
+      <Chip
+        size="small"
+        variant="outlined"
+        label={provenance.short}
+        aria-label={provenance.name}
+        sx={{
+          color: "text.secondary",
+          borderColor: "border.strong",
+          fontFamily: (theme) => theme.typography.numericSm.fontFamily,
+          letterSpacing: "0.04em",
+        }}
+      />
+    </Tooltip>
+  );
+}
+
+/**
+ * The insufficient-evidence chip: an amber outlined disclosure that occupies
+ * the probability slot for that state (RD-4, design doc §Screen 1). A disclosure,
+ * not an error — a fabricated number would be worse than an admitted absence.
+ */
+export function InsufficientEvidenceChip() {
+  return (
+    <Chip
+      size="small"
+      variant="outlined"
+      label="insufficient evidence"
+      sx={{ color: "warning.main", borderColor: "warning.main" }}
+    />
   );
 }
 

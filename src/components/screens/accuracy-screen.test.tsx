@@ -55,6 +55,7 @@ const populatedBuckets: CalibrationBucketDto[] = Array.from(
 
 const liveSeries: CalibrationSeriesDto = {
   kind: "live",
+  modelVersion: "simulation-mc-0.1.0",
   label: "Live · 1,847 obs · 412 projections",
   brier: 0.213,
   thresholdObservations: 1847,
@@ -65,6 +66,7 @@ const liveSeries: CalibrationSeriesDto = {
 
 const backtestSeries: CalibrationSeriesDto = {
   kind: "backtest",
+  modelVersion: "baseline-zil-0.1.0",
   label: "Backtest harness-2026 2019–2024 · 223,671 obs · 28,852 projections",
   brier: 0.126,
   thresholdObservations: 223671,
@@ -72,6 +74,40 @@ const backtestSeries: CalibrationSeriesDto = {
   buckets: populatedBuckets,
   eraDisclosure:
     "Reanalysis era (pre-2021) reported separately: model MAE 21.4 — accepted look-ahead leak, see Backtesting Harness.",
+};
+
+const simulationLive: CalibrationSeriesDto = {
+  kind: "live",
+  modelVersion: "simulation-mc-0.1.0",
+  label: "Simulation Engine · 1,847 obs · 412 projections",
+  brier: 0.213,
+  thresholdObservations: 1847,
+  projectionCount: 412,
+  buckets: populatedBuckets,
+  eraDisclosure: null,
+};
+
+const baselineLive: CalibrationSeriesDto = {
+  kind: "live",
+  modelVersion: "baseline-zil-0.1.0",
+  label: "Baseline · 1,502 obs · 388 projections",
+  brier: 0.241,
+  thresholdObservations: 1502,
+  projectionCount: 388,
+  buckets: populatedBuckets,
+  eraDisclosure: null,
+};
+
+const lifetimeLive: CalibrationSeriesDto = {
+  kind: "live",
+  modelVersion: "lifetime",
+  label:
+    "Combined across Baseline and Simulation Engine — spans model versions · 3,349 obs · 800 projections",
+  brier: 0.226,
+  thresholdObservations: 3349,
+  projectionCount: 800,
+  buckets: populatedBuckets,
+  eraDisclosure: null,
 };
 
 function dto(overrides: Partial<AccuracyDto> = {}): AccuracyDto {
@@ -171,24 +207,50 @@ describe("Accuracy screen — populated", () => {
 });
 
 describe("Accuracy screen — compare and records", () => {
-  it("renders compare as two labelled series, never merged", () => {
+  it("renders compare as the two models, each with its own Brier and denominators, never merged", () => {
     const { container } = renderThemed(
       <Accuracy
         accuracy={dto({
           scope: {
             record: "compare",
-            modelVersion: "v1",
+            modelVersion: "simulation-mc-0.1.0",
             population: "contract_like",
             statType: "all",
             season: "all",
           },
-          calibration: [liveSeries, backtestSeries],
+          calibration: [simulationLive, baselineLive],
         })}
       />,
     );
-    expect(container.textContent).toContain("Live · Brier 0.213");
-    expect(container.textContent).toContain("Backtest · Brier 0.126");
-    expect(container.textContent).toContain("223,671 obs");
+    // Named by model, never by the raw version string.
+    expect(container.textContent).toContain("Simulation Engine · Brier 0.213");
+    expect(container.textContent).toContain("Baseline · Brier 0.241");
+    expect(container.textContent).not.toContain("simulation-mc-0.1.0");
+    expect(container.textContent).not.toContain("baseline-zil-0.1.0");
+    // Both denominators, per model — nothing pooled.
+    expect(container.textContent).toContain("1,847 obs · 412 projections");
+    expect(container.textContent).toContain("1,502 obs · 388 projections");
+  });
+
+  it("labels the lifetime combined view and marks it as spanning versions", () => {
+    const { container } = renderThemed(
+      <Accuracy
+        accuracy={dto({
+          scope: {
+            record: "live",
+            modelVersion: "lifetime",
+            population: "contract_like",
+            statType: "all",
+            season: "all",
+          },
+          calibration: [lifetimeLive],
+        })}
+      />,
+    );
+    expect(container.textContent).toContain("Sightline lifetime · Brier 0.226");
+    expect(container.textContent).toContain(
+      "Combined across Baseline and Simulation Engine — spans model versions",
+    );
   });
 
   it("carries the era-split disclosure whenever the backtest record renders", () => {
@@ -291,7 +353,14 @@ describe("ReliabilityCurve", () => {
   it("is an image described by the bucket table, never animated", () => {
     renderThemed(
       <ReliabilityCurve
-        series={[{ kind: "live", label: "Live", buckets: points }]}
+        series={[
+          {
+            kind: "live",
+            modelVersion: "simulation-mc-0.1.0",
+            label: "Live",
+            buckets: points,
+          },
+        ]}
         ariaSummaryId="bucket-table"
       />,
     );
@@ -305,6 +374,7 @@ describe("ReliabilityCurve", () => {
         series={[
           {
             kind: "live",
+            modelVersion: "simulation-mc-0.1.0",
             label: "Live",
             buckets: [
               bucket(0, {

@@ -9,6 +9,7 @@ dependencies = [
     # do not add it. (Declared now; datasets are ingested from SIG-7 onward.)
     "nflreadpy>=0.1.0",
     # Primary DataFrame library, following nflreadpy's native output.
+    "numpy>=1.26",
     "polars>=1.0.0",
     # Postgres client for the direct (non-pooled) connection.
     "psycopg[binary]>=3.2.0",
@@ -16,6 +17,7 @@ dependencies = [
     "python-dotenv>=1.0.0",
     # HTTP client for the Open-Meteo weather API (weather ingest).
     "requests>=2.31.0",
+    "scikit-learn>=1.4",
 ]
 
 [project.scripts]
@@ -28,6 +30,10 @@ sightline-backtest = "sightline_model.cli:main"
 # Projection persistence (Pitch 4): computes and stores current projections
 # for contract-listed players. Manual until Pitch 5 schedules it.
 sightline-model = "sightline_model.project_live:main"
+# Reviewed Simulation-Engine promotion (Pitch 7): flips a stat type's
+# ModelSelection from baseline to simulation, gated on the promotion bar.
+# Dry-run by default; --apply writes. A human-run, out-of-app action only.
+sightline-model-promote = "sightline_model.simulation.promote:main"
 
 [dependency-groups]
 dev = [

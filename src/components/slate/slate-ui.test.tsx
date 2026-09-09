@@ -49,6 +49,8 @@ const row = (overrides: Partial<SlateRowDto> = {}): SlateRowDto => ({
   edgePoints: 7.4,
   confidenceAdjustedEdge: 7.4,
   isRecommended: true,
+  modelVersion: "baseline-zil-0.1.0",
+  projectionState: "projected",
   ...overrides,
 });
 
@@ -111,11 +113,47 @@ describe("SlateRow", () => {
           isRecommended: false,
           projectionComputedAt: null,
           informationCutoff: null,
+          modelVersion: null,
+          projectionState: "none",
         })}
       />,
     );
     expect(screen.getByText("no projection")).toBeInTheDocument();
     expect(screen.getByLabelText("no projection")).toHaveTextContent("—");
+  });
+
+  it("shows the neutral SIM/BASE provenance chip, never the raw version string", () => {
+    const { unmount } = renderThemed(
+      <SlateRow row={row({ modelVersion: "simulation-mc-0.1.0" })} />,
+    );
+    expect(screen.getByText("SIM")).toBeInTheDocument();
+    expect(screen.queryByText("simulation-mc-0.1.0")).not.toBeInTheDocument();
+    unmount();
+
+    renderThemed(
+      <SlateRow row={row({ modelVersion: "baseline-zil-0.1.0" })} />,
+    );
+    expect(screen.getByText("BASE")).toBeInTheDocument();
+    expect(screen.queryByText("baseline-zil-0.1.0")).not.toBeInTheDocument();
+  });
+
+  it("renders the insufficient-evidence chip in the probability slot, distinct from no-projection", () => {
+    renderThemed(
+      <SlateRow
+        row={row({
+          modelProbability: null,
+          confidence: null,
+          side: null,
+          edgePoints: null,
+          isRecommended: false,
+          modelVersion: null,
+          projectionState: "insufficient_evidence",
+        })}
+      />,
+    );
+    expect(screen.getByText("insufficient evidence")).toBeInTheDocument();
+    // Distinct from the "no projection" caution chip.
+    expect(screen.queryByText("no projection")).not.toBeInTheDocument();
   });
 
   it("shows a disposition chip only when the payload carries one", () => {

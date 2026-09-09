@@ -280,7 +280,10 @@ def test_a_completed_run_carries_its_reproducibility_evidence(
     assert stored["calibration_digest"]
     assert stored["finished_at"] is not None
     assert stored["rng_draws"] == 0
-    assert stored["aggregates"]["aggregatesVersion"] == 2
+    assert stored["aggregates"]["aggregatesVersion"] == 3
+    # A baseline run emits no per-layer block: it has no game-environment or
+    # usage-allocation layer to validate. The block is a simulation-run artefact.
+    assert "perLayer" not in stored["aggregates"]
 
 
 def test_calibration_bins_land_with_the_run(corpus, artifact_base) -> None:

@@ -4,6 +4,8 @@
 // ReactNode slot.
 "use client";
 
+import Alert from "@mui/material/Alert";
+import AlertTitle from "@mui/material/AlertTitle";
 import Divider from "@mui/material/Divider";
 import Link from "next/link";
 import Paper from "@mui/material/Paper";
@@ -12,6 +14,7 @@ import Typography from "@mui/material/Typography";
 import { NumericText } from "@/components/primitives/NumericText";
 import { StatusChip } from "@/components/primitives/StatusChip";
 import { DistributionSummary } from "@/components/slate/DistributionSummary";
+import { PmfBars } from "@/components/slate/PmfBars";
 import {
   ResolveControl,
   type ResolveCandidate,
@@ -23,8 +26,13 @@ import {
   formatEt,
   PriceValue,
   ProbabilityValue,
+  ProvenanceChip,
 } from "@/components/slate/values";
-import type { ContractDetailDto, OutcomeBlockDto } from "@/lib/dto/slate";
+import {
+  provenanceFor,
+  type ContractDetailDto,
+  type OutcomeBlockDto,
+} from "@/lib/dto/slate";
 
 const STAT_SENTENCE: Record<ContractDetailDto["statType"], string> = {
   passing_yards: "passing yards",
@@ -69,8 +77,11 @@ export function ContractDetail({
   }
 
   const statSentence = STAT_SENTENCE[detail.statType];
-  const hasProjection = detail.modelProbability !== null;
+  const insufficient = detail.projectionState === "insufficient_evidence";
+  const hasProjection = detail.modelProbability !== null && !insufficient;
   const hasPrice = detail.yesAskCents !== null || detail.noAskCents !== null;
+  const provenance = provenanceFor(detail.modelVersion);
+  const isPmf = detail.distributionKind === "empirical_pmf";
 
   return (
     <Stack spacing={3}>
@@ -88,7 +99,10 @@ export function ContractDetail({
               tone="accent"
             />
           ) : null}
-          {!hasProjection ? (
+          {insufficient ? (
+            <StatusChip label="insufficient evidence" tone="caution" icon />
+          ) : null}
+          {!hasProjection && !insufficient ? (
             <StatusChip label="no projection" tone="caution" />
           ) : null}
           {detail.staleness?.isStale ? (
@@ -106,6 +120,24 @@ export function ContractDetail({
           {detail.kickoffAt ? `${formatEt(detail.kickoffAt)} ET · ` : ""}
           {statSentence} ≥ {detail.threshold}
         </Typography>
+        {provenance ? (
+          <Stack
+            direction="row"
+            spacing={1}
+            sx={{ alignItems: "center", flexWrap: "wrap" }}
+          >
+            <ProvenanceChip modelVersion={detail.modelVersion} />
+            <Typography variant="body2" sx={{ color: "text.secondary" }}>
+              {provenance.name}
+              {detail.projectionComputedAt
+                ? ` · ${insufficient ? "evaluated" : "computed"} ${formatEt(detail.projectionComputedAt)} ET`
+                : ""}
+              {detail.informationCutoff
+                ? ` · cutoff ${formatEt(detail.informationCutoff)} ET`
+                : ""}
+            </Typography>
+          </Stack>
+        ) : null}
       </Stack>
 
       <Paper sx={{ p: 2.5 }}>
@@ -147,13 +179,30 @@ export function ContractDetail({
             </Typography>
           </HeadlineCell>
         </Stack>
-        {!hasProjection ? (
+        {!hasProjection && !insufficient ? (
           <Typography variant="body2" sx={{ color: "text.secondary", mt: 2 }}>
             Sightline has no projection for this contract — insufficient
             eligible history.
           </Typography>
         ) : null}
       </Paper>
+
+      {insufficient ? (
+        <Alert severity="warning" variant="outlined">
+          <AlertTitle>Insufficient evidence to project</AlertTitle>
+          <Typography variant="body2">
+            {detail.declineReason ??
+              "The active model declined to produce a projection for this contract for lack of relevant history."}
+          </Typography>
+          <Typography
+            variant="caption"
+            sx={{ color: "text.secondary", mt: 1, display: "block" }}
+          >
+            The market price above is shown for reference; with no projection
+            there is no edge.
+          </Typography>
+        </Alert>
+      ) : null}
 
       {hasProjection ? (
         <Section title="Projection">
@@ -181,7 +230,14 @@ export function ContractDetail({
               </NumericText>
             </Stack>
           </Stack>
-          {detail.quantiles ? (
+          {isPmf && detail.pmf ? (
+            <PmfBars
+              pmf={detail.pmf}
+              threshold={detail.threshold}
+              probability={detail.modelProbability}
+              unitLabel={statSentence}
+            />
+          ) : detail.quantiles ? (
             <DistributionSummary
               quantiles={detail.quantiles}
               threshold={detail.threshold}
@@ -256,7 +312,7 @@ export function ContractDetail({
                   : "—"
               }
             />
-            <CurrencyLine label="model" value={detail.modelVersion ?? "—"} />
+            <CurrencyLine label="model" value={provenance?.name ?? "—"} />
           </Stack>
           {detail.staleness?.isStale ? (
             <Typography variant="caption" sx={{ color: "text.secondary" }}>

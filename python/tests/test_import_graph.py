@@ -230,6 +230,85 @@ def test_sweep_ignores_legitimate_modelling_vocabulary() -> None:
         )
 
 
+def test_sweep_covers_the_simulation_engine_modules() -> None:
+    # SIG-66. The Simulation Engine is three new feature layers plus a
+    # vectorised sim core — three fresh chances to reach for a price to
+    # "sanity-check" a projection. The sweep is file-recursive over
+    # ``sightline_model``, so simulation modules are covered automatically; this
+    # asserts that coverage explicitly, so deleting or moving the package can
+    # never silently drop it from the guard.
+    scanned = [str(p) for p in _package_python_files()]
+    assert any(
+        "simulation" in p and p.endswith("config.py") for p in scanned
+    ), "the import-graph sweep does not reach sightline_model/simulation/config.py"
+    assert any(
+        "simulation" in p and p.endswith("seed.py") for p in scanned
+    ), "the import-graph sweep does not reach sightline_model/simulation/seed.py"
+    # SIG-67: Layer 1 (game environment) is the first module that assembles
+    # features and could reach for a price to "sanity-check" volume. Assert it
+    # is covered explicitly so moving the module can never silently drop it.
+    assert any(
+        "simulation" in p and p.endswith("game_environment.py") for p in scanned
+    ), "the import-graph sweep does not reach sightline_model/simulation/game_environment.py"
+    # SIG-68: Layer 2 (usage allocation) assembles per-player usage features and
+    # could reach for a price to "sanity-check" a share. Assert it is covered
+    # explicitly so moving the module can never silently drop it from the guard.
+    assert any(
+        "simulation" in p and p.endswith("usage_allocation.py") for p in scanned
+    ), "the import-graph sweep does not reach sightline_model/simulation/usage_allocation.py"
+    # SIG-69: Layer 3 (efficiency) turns opportunity into a stat line and could
+    # reach for a price to "sanity-check" a rate. Assert it is covered explicitly
+    # so moving the module can never silently drop it from the guard.
+    assert any(
+        "simulation" in p and p.endswith("efficiency.py") for p in scanned
+    ), "the import-graph sweep does not reach sightline_model/simulation/efficiency.py"
+    # SIG-69: the vectorised joint simulation core composes all three layers and
+    # is the module a price would most tempt into a "does this beat the market?"
+    # check. Assert coverage explicitly.
+    assert any(
+        "simulation" in p and p.endswith("core.py") for p in scanned
+    ), "the import-graph sweep does not reach sightline_model/simulation/core.py"
+    # SIG-70: the backtest-integration module runs the joint engine under the
+    # harness discipline and grades against actuals — the module most tempted to
+    # "sanity-check" a projection against the market it is trying to beat. Assert
+    # coverage explicitly so moving it can never silently drop it from the guard.
+    assert any(
+        "simulation" in p and p.endswith("backtest.py") for p in scanned
+    ), "the import-graph sweep does not reach sightline_model/simulation/backtest.py"
+    # SIG-71: the live production path routes projection by ModelSelection,
+    # runs the joint engine, and persists — a module tempted to read a price to
+    # "sanity-check" what it is about to write to the slate the user reads.
+    # Assert coverage explicitly.
+    assert any(
+        "simulation" in p and p.endswith("live.py") for p in scanned
+    ), "the import-graph sweep does not reach sightline_model/simulation/live.py"
+    # SIG-71: the promotion tool reads two backtest runs' aggregates and writes
+    # model_selections. It must grade the engine on its OWN calibration, never on
+    # price-derived profitability; a price reference here would corrupt exactly
+    # the evidence a promotion rests on. Assert coverage explicitly.
+    assert any(
+        "simulation" in p and p.endswith("promote.py") for p in scanned
+    ), "the import-graph sweep does not reach sightline_model/simulation/promote.py"
+
+
+def test_sweep_catches_a_price_reference_planted_in_a_simulation_module() -> None:
+    # SIG-66. A game-environment / usage / efficiency layer that read a price is
+    # the exact failure this invariant exists to prevent. Plant the shapes such
+    # a layer might use and assert each trips the sweep before it can leak.
+    planted = (
+        "select yes_ask_cents from price_observations where contract_id = %s",
+        'SELECT * FROM "price_observations"  -- weight the game-env prior',
+        "from prisma.models import PriceObservation  # just to sanity-check",
+        "join recommendation_snapshots r on r.game_id = g.id",
+        "RecommendationSnapshot  # smoke-test the usage layer against the market",
+    )
+    for statement in planted:
+        assert _forbidden_tokens_in(statement), (
+            f"the sweep failed to catch a planted simulation-layer price "
+            f"reference: {statement!r}"
+        )
+
+
 def test_forbidden_list_has_no_duplicates_or_empty_tokens() -> None:
     # A duplicated token is harmless; an empty one would match every file and
     # make the sweep permanently red, and a whitespace-only one would do the

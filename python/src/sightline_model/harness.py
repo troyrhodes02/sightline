@@ -162,23 +162,76 @@ def weather_era(corpus: AsOfCorpus, *, game_id: str, season: int) -> tuple[str, 
 # --- Run --------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class RunModel:
+    """The identity and per-game execution of one backtest engine.
+
+    The chronological lifecycle — insert-running, flush, summarise, complete,
+    manifest, marker, and the interrupted/failed paths — is identical for every
+    engine; only the model's identity (version, seed, draw count, config) and
+    what it does per game differ. ``RunModel`` captures exactly that difference,
+    so :func:`run_backtest` runs the baseline and the simulation engine through
+    the *same* scaffold rather than a forked copy.
+
+    ``execute`` is handed the connection, config, writer, totals, the
+    interrupt flag, and the run's ``started`` timestamp — the same arguments the
+    baseline ``_execute`` already took — and is responsible for writing the
+    prediction / threshold / exclusion rows (and, for the simulation engine, the
+    per-layer validation rows) exactly as the baseline path does. ``per_layer``
+    names the optional per-layer validation dataset the model writes; ``None``
+    for an engine with no layers (the baseline).
+    """
+
+    model_version: str
+    seed: int
+    rng_draws: int
+    engine_config: dict
+    execute: object  # callable(connect, config, writer, totals, interrupted, started)
+    per_layer_dataset: str | None = None
+
+
+def _baseline_model(config: RunConfig) -> RunModel:
+    """The baseline engine as a :class:`RunModel` — closed-form, seedless, no layers."""
+    return RunModel(
+        model_version=MODEL_VERSION,
+        # The baseline is closed-form; its seed is inert (the harness test proves
+        # it). Carried through unchanged so the stored value matches prior runs.
+        seed=config.seed,
+        rng_draws=0,
+        engine_config=engine_config(),
+        execute=_execute,
+        per_layer_dataset=None,
+    )
+
+
 def run_backtest(
     connect: ConnectionFactory,
     config: RunConfig,
     *,
     persist,
     now: datetime | None = None,
+    model: RunModel | None = None,
 ) -> RunOutcome:
-    """Execute one backtest end to end. ``persist`` is the run-record writer."""
+    """Execute one backtest end to end. ``persist`` is the run-record writer.
+
+    ``model`` selects the engine; the default is the baseline (SIG-17). The
+    simulation engine (SIG-70) supplies its own :class:`RunModel` via
+    :func:`sightline_model.simulation.backtest.run_simulation_backtest`, which
+    reuses this exact lifecycle — the game enumeration, cutoff derivation,
+    grading, artefact writing, summarising, and digesting — differing only in
+    the per-game ``execute`` and the model identity.
+    """
+    if model is None:
+        model = _baseline_model(config)
     started = now or datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
     base = config.artifact_base or art.default_artifact_base()
 
     sha, dirty = code_version(), code_dirty()
-    engine_cfg = engine_config()
+    engine_cfg = model.engine_config
     run_id = persist.insert_run(
         connect,
         config=config,
-        model_version=MODEL_VERSION,
+        model_version=model.model_version,
         code_version=sha,
         code_dirty=dirty,
         engine_config=engine_cfg,
@@ -189,6 +242,8 @@ def run_backtest(
         grading_target=GRADING_TARGET,
         artifact_path=str(art.run_root(base, "pending")),
         started_at=started,
+        seed=model.seed,
+        rng_draws=model.rng_draws,
     )
     root = art.run_root(base, run_id)
     writer = art.ArtifactWriter(root=root)
@@ -210,7 +265,7 @@ def run_backtest(
             pass
 
     try:
-        _execute(connect, config, writer, totals, interrupted, started)
+        model.execute(connect, config, writer, totals, interrupted, started)
         if interrupted["flag"]:
             counts = writer.flush()
             persist.finish_run(
@@ -229,11 +284,17 @@ def run_backtest(
             writer.rows(art.PREDICTIONS),
             sort_keys=["game_id", "player_id", "stat_type"],
         )
+        per_layer = (
+            art.read_dataset(root, model.per_layer_dataset)
+            if model.per_layer_dataset and model.per_layer_dataset in counts
+            else None
+        )
         summary = summarise(
             art.read_dataset(root, art.PREDICTIONS),
             art.read_dataset(root, art.THRESHOLDS),
             totals,
             art.read_dataset(root, art.EXCLUSIONS),
+            per_layer,
         )
         persist.complete_run(
             connect, run_id, totals=totals, aggregates=summary.aggregates,
@@ -247,7 +308,7 @@ def run_backtest(
             {
                 "runId": run_id,
                 "config": config.as_dict(),
-                "modelVersion": MODEL_VERSION,
+                "modelVersion": model.model_version,
                 "codeVersion": sha,
                 "cutoffPolicy": CUTOFF_POLICY,
                 "thresholdPolicyVersion": THRESHOLD_POLICY_VERSION,
@@ -508,16 +569,21 @@ def _prior_for(corpus, writer, cache, season, stat, position) -> Prior | None:
 
 
 def _prediction_id(
-    game_id: str, player_id: str, stat_type: str, information_cutoff: datetime
+    game_id: str, player_id: str, stat_type: str, information_cutoff: datetime,
+    model_version: str = MODEL_VERSION,
 ) -> str:
     from .digests import digest_strings
 
     # The cutoff is part of the identity (spec: prediction_id digest recipe).
     # A schedule flex changes the cutoff, the visible corpus, and potentially
     # the projection — two materially different predictions must not share an
-    # id across runs.
+    # id across runs. ``model_version`` is part of the identity too: the baseline
+    # and the simulation engine both project the same (player, game, stat, cutoff)
+    # and their predictions must never collide (spec: the compound projection key
+    # already includes model_version). Defaults to the baseline so the SIG-17
+    # call sites are unchanged.
     return digest_strings(
-        [game_id, player_id, stat_type, MODEL_VERSION,
+        [game_id, player_id, stat_type, model_version,
          information_cutoff.isoformat()]
     )[:32]
 
@@ -623,7 +689,7 @@ def _games_in_scope(connect, config: RunConfig) -> list[dict]:
     order would depend on the planner.
     """
     sql = """
-        select g.id, g.season, g.week, g.season_type, g.kickoff_at,
+        select g.id, g.season, g.week, g.season_type, g.kickoff_at, g.is_dome,
                ht.nflverse_abbr as home_abbr, at.nflverse_abbr as away_abbr
         from games g
         join teams ht on ht.id = g.home_team_id

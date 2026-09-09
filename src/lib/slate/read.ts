@@ -1,5 +1,6 @@
 import "server-only";
 
+import { cache } from "react";
 import { prisma } from "@/lib/prisma";
 import type { Prisma, PrismaClient } from "../../../generated/prisma/client";
 import type {
@@ -9,6 +10,7 @@ import type {
 } from "../../../generated/prisma/enums";
 import type {
   ContractDetailDto,
+  ProjectionState,
   SlateDto,
   SlateRowDto,
   UnresolvedRowDto,
@@ -96,13 +98,15 @@ export async function readSlate(role: SlateRole): Promise<SlateDto> {
       contract.resolutionStatus === "ambiguous",
   );
 
-  const projections = await freshestProjections(
-    resolved.map((contract) => ({
-      playerId: contract.playerId as string,
-      gameId: contract.gameId as string,
-      statType: contract.statType as StatType,
-    })),
-  );
+  const resolvedKeys = resolved.map((contract) => ({
+    playerId: contract.playerId as string,
+    gameId: contract.gameId as string,
+    statType: contract.statType as StatType,
+  }));
+  const [projections, declines] = await Promise.all([
+    freshestProjections(resolvedKeys),
+    insufficientEvidenceDeclines(resolvedKeys),
+  ]);
 
   // One batched fact-recency read for every game on the slate (RD-22);
   // per-game scoping is inherent — each game gets only its own facts.
@@ -131,6 +135,15 @@ export async function readSlate(role: SlateRole): Promise<SlateDto> {
     );
     const observation = latestObservations.get(contract.id) ?? null;
     const threshold = Number(contract.threshold);
+    const key = projectionKey(
+      contract.playerId as string,
+      contract.gameId as string,
+      contract.statType as StatType,
+    );
+    const { state: projectionState } = resolveProjectionState(
+      projection !== undefined,
+      declines.get(key),
+    );
 
     const modelProbability = projection
       ? probAtLeast(
@@ -138,6 +151,8 @@ export async function readSlate(role: SlateRole): Promise<SlateDto> {
             distributionKind: projection.distributionKind,
             params: projection.params as Record<string, number>,
             pmf: (projection.pmf as number[] | null) ?? null,
+            quantiles:
+              (projection.quantiles as Record<string, number> | null) ?? null,
           },
           threshold,
         )
@@ -185,6 +200,8 @@ export async function readSlate(role: SlateRole): Promise<SlateDto> {
       edgePoints: edge.edgePoints,
       confidenceAdjustedEdge: edge.confidenceAdjustedEdge,
       isRecommended: edge.isRecommended,
+      modelVersion: projection?.modelVersion ?? null,
+      projectionState,
     });
 
     snapshotInputs.push({
@@ -350,16 +367,21 @@ export async function readContractDetail(
     contract.statType !== null &&
     contract.threshold !== null;
 
+  const detailKey = isResolved
+    ? [
+        {
+          playerId: contract.playerId as string,
+          gameId: contract.gameId as string,
+          statType: contract.statType as StatType,
+        },
+      ]
+    : [];
+  const [detailProjections, detailDeclines] = await Promise.all([
+    freshestProjections(detailKey),
+    insufficientEvidenceDeclines(detailKey),
+  ]);
   const projection = isResolved
-    ? ((
-        await freshestProjections([
-          {
-            playerId: contract.playerId as string,
-            gameId: contract.gameId as string,
-            statType: contract.statType as StatType,
-          },
-        ])
-      ).get(
+    ? (detailProjections.get(
         projectionKey(
           contract.playerId as string,
           contract.gameId as string,
@@ -367,6 +389,17 @@ export async function readContractDetail(
         ),
       ) ?? null)
     : null;
+  const detailDeclineReason = isResolved
+    ? (detailDeclines.get(
+        projectionKey(
+          contract.playerId as string,
+          contract.gameId as string,
+          contract.statType as StatType,
+        ),
+      ) ?? undefined)
+    : undefined;
+  const { state: detailProjectionState, declineReason } =
+    resolveProjectionState(projection !== null, detailDeclineReason);
 
   const drivers = projection
     ? (
@@ -387,6 +420,8 @@ export async function readContractDetail(
             distributionKind: projection.distributionKind,
             params: projection.params as Record<string, number>,
             pmf: (projection.pmf as number[] | null) ?? null,
+            quantiles:
+              (projection.quantiles as Record<string, number> | null) ?? null,
           },
           threshold,
         )
@@ -460,6 +495,8 @@ export async function readContractDetail(
     edgePoints: edge.edgePoints,
     confidenceAdjustedEdge: edge.confidenceAdjustedEdge,
     isRecommended: edge.isRecommended,
+    modelVersion: projection?.modelVersion ?? null,
+    projectionState: detailProjectionState,
     projectedValue: projection ? Number(projection.projectedValue) : null,
     projectedMedian: projection ? Number(projection.projectedMedian) : null,
     intervalLow: projection ? Number(projection.intervalLow) : null,
@@ -467,10 +504,12 @@ export async function readContractDetail(
     quantiles: projection
       ? (projection.quantiles as Record<string, number>)
       : null,
+    pmf: projection ? ((projection.pmf as number[] | null) ?? null) : null,
+    distributionKind: projection?.distributionKind ?? null,
     drivers,
-    modelVersion: projection?.modelVersion ?? null,
     midCents,
     status: contract.status,
+    declineReason,
   };
 
   // The outcome block exists only once the game is completed (or cancelled,
@@ -553,9 +592,28 @@ type FreshProjection = {
 };
 
 /**
- * Freshest projection per (player, game, stat type) — greatest `computedAt`,
- * any model version. Fetched in one query and reduced in memory; a slate is
- * tens of keys, not thousands.
+ * The active model version per stat type, from `ModelSelection`. One read per
+ * request (six rows), cached on the request via React `cache`. A stat type
+ * absent from the table has no active model and therefore no projection is
+ * selected for it — the seed migration ships all six, so the map is complete in
+ * practice, but the read never assumes so.
+ */
+export const modelSelectionMap = cache(
+  async (): Promise<Map<StatType, string>> => {
+    const rows = await prisma.modelSelection.findMany({
+      select: { statType: true, modelVersion: true },
+    });
+    return new Map(rows.map((row) => [row.statType, row.modelVersion]));
+  },
+);
+
+/**
+ * Freshest projection per (player, game, stat type) whose `modelVersion` equals
+ * the ACTIVE model for that stat type (RD-1 / spec §freshest projection) —
+ * greatest `computedAt` among those. Model selection is per stat type, so two
+ * contracts on one slate may be priced by different models; a projection from
+ * an inactive model is never shown. Fetched in one query and reduced in memory;
+ * a slate is tens of keys, not thousands.
  */
 export async function freshestProjections(
   keys: Array<{ playerId: string; gameId: string; statType: StatType }>,
@@ -566,6 +624,7 @@ export async function freshestProjections(
   >
 > {
   if (keys.length === 0) return new Map();
+  const activeByStat = await modelSelectionMap();
   const rows = await prisma.projection.findMany({
     where: {
       OR: keys.map((key) => ({
@@ -599,10 +658,74 @@ export async function freshestProjections(
     FreshProjection & { playerId: string; gameId: string; statType: StatType }
   >();
   for (const row of rows) {
+    const active = activeByStat.get(row.statType);
+    // Only the active model's projections are eligible. A projection from an
+    // inactive model version is never the freshest even if it is more recent.
+    if (active === undefined || row.modelVersion !== active) continue;
     const key = projectionKey(row.playerId, row.gameId, row.statType);
     if (!freshest.has(key)) freshest.set(key, row);
   }
   return freshest;
+}
+
+/**
+ * Which (player, game, stat) keys carry a persisted `insufficient_evidence`
+ * decline for their ACTIVE model version (RD-4). Read alongside
+ * `freshestProjections`: a key with neither a projection nor a decline is
+ * `none`; a key with a decline (and no active-model projection) is
+ * `insufficient_evidence`. One batched query for the whole slate.
+ */
+export async function insufficientEvidenceDeclines(
+  keys: Array<{ playerId: string; gameId: string; statType: StatType }>,
+): Promise<Map<string, string>> {
+  if (keys.length === 0) return new Map();
+  const activeByStat = await modelSelectionMap();
+  const rows = await prisma.projectionDecline.findMany({
+    where: {
+      reason: "insufficient_evidence",
+      OR: keys.map((key) => ({
+        playerId: key.playerId,
+        gameId: key.gameId,
+        statType: key.statType,
+      })),
+    },
+    orderBy: { computedAt: "desc" },
+    select: {
+      playerId: true,
+      gameId: true,
+      statType: true,
+      modelVersion: true,
+    },
+  });
+  const byKey = new Map<string, string>();
+  for (const row of rows) {
+    if (activeByStat.get(row.statType) !== row.modelVersion) continue;
+    const key = projectionKey(row.playerId, row.gameId, row.statType);
+    if (!byKey.has(key))
+      byKey.set(key, DECLINE_REASON_TEXT.insufficient_evidence);
+  }
+  return byKey;
+}
+
+/** Plain-English decline copy — never the raw enum, never a model internal. */
+const DECLINE_REASON_TEXT: Record<string, string> = {
+  insufficient_evidence:
+    "Sightline has no relevant history for this player in this role as of the information cutoff, so the active model declined to project rather than fabricate a distribution.",
+};
+
+/**
+ * Resolve the projection state for one key given the freshest active-model
+ * projection and the decline map. `projected` when a projection exists,
+ * `insufficient_evidence` when a decline exists, `none` otherwise.
+ */
+function resolveProjectionState(
+  hasProjection: boolean,
+  declineReason: string | undefined,
+): { state: ProjectionState; declineReason: string | null } {
+  if (hasProjection) return { state: "projected", declineReason: null };
+  if (declineReason !== undefined)
+    return { state: "insufficient_evidence", declineReason };
+  return { state: "none", declineReason: null };
 }
 
 type LatestObservation = {
