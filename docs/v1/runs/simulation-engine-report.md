@@ -3,20 +3,39 @@
 Slug: `simulation-engine` · Linear project: **Sightline V1** · Milestone: **Simulation Engine**
 Mode: Autonomous Pipeline Policy (`CLAUDE.md`)
 
-## Status: awaiting human review — NOT merged
+## Status: MERGED to `main` and deployed to production
 
-**The feature branch `feat/simulation-engine` is verified, reviewed, audited, and
-green, and its PR is open against `main` for a line-by-line human read. It has NOT
-been merged and must not be merged by this run.**
+The run initially ended stop-before-merge with the feature PR open. The owner then
+authorized the merge and production migration, which were completed:
 
-- **Feature PR:** <https://github.com/troyrhodes02/sightline/pull/64> (open into `main`)
-- **Feature branch head:** `3d0eb4f` (docs → SIG-66 → … → SIG-72 → review-audit fixes)
-- All seven ticket PRs (#65–#71) are **merged into the feature branch**; the
+- **Feature PR:** <https://github.com/troyrhodes02/sightline/pull/64> — **MERGED**
+  into `main` (merge commit `286067c`), all CI green (web app lint/types/unit/build/e2e,
+  Python ingest unit+DB, Prisma schema invariants, Vercel).
+- **Production migration:** `20260909191831_simulation_engine_foundation` applied
+  to the prod Supabase (ca-central-1) via `prisma migrate deploy` — **additive only**
+  (4 new tables, 2 enums, 1 index, check constraints, a 6-row `model_selections`
+  seed). **No reset, no data loss:** existing row counts were identical before and
+  after (projections 362, contracts 2838, decisions 0, users 1), and the seed
+  landed all six stat types on the baseline. The migration was applied **before**
+  the code deploy (expand-then-deploy), so the new `ModelSelection`-reading slate
+  path never queried a missing table.
+- **Production deploy:** Vercel production deployment succeeded.
+- All seven ticket PRs (#65–#71) merged; tickets **SIG-66…SIG-72 → Done**; the
   follow-up cleanup ticket **SIG-73** is filed for later.
 
-No stop condition was hit. Nothing in this run read a Kalshi price into a model,
-ran a Dry Run, enabled autonomy, placed an order, or performed a destructive
-operation on shared history.
+No stop condition was hit. Nothing read a Kalshi price into a model, ran a Dry Run,
+enabled autonomy, placed an order, or performed a destructive operation on
+production data (the migration is purely additive and was verified non-destructive
+against the live row counts).
+
+### Production is on the baseline — the model swap is still a human gate
+
+Shipping to production changed **nothing** about which model prices contracts:
+`model_selections` is seeded all-baseline, so the live pipeline continues to run
+`baseline-zil-0.1.0` for every stat type. The Simulation Engine will not produce a
+single production projection until a human runs the validation backtest and applies
+promotion (see the runbook and the "Backtest results" section below). Deploying the
+apparatus is deliberately decoupled from activating it.
 
 ## What shipped
 
