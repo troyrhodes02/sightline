@@ -268,6 +268,13 @@ def test_sweep_covers_the_simulation_engine_modules() -> None:
     assert any(
         "simulation" in p and p.endswith("core.py") for p in scanned
     ), "the import-graph sweep does not reach sightline_model/simulation/core.py"
+    # SIG-70: the backtest-integration module runs the joint engine under the
+    # harness discipline and grades against actuals — the module most tempted to
+    # "sanity-check" a projection against the market it is trying to beat. Assert
+    # coverage explicitly so moving it can never silently drop it from the guard.
+    assert any(
+        "simulation" in p and p.endswith("backtest.py") for p in scanned
+    ), "the import-graph sweep does not reach sightline_model/simulation/backtest.py"
 
 
 def test_sweep_catches_a_price_reference_planted_in_a_simulation_module() -> None:

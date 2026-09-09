@@ -45,7 +45,6 @@ from pathlib import Path
 import numpy as np
 
 from ..priors import Prior, shrink
-from .config import DISCRETE_STAT_TYPES  # noqa: F401  (documents the count family)
 
 # The efficiency feature vocabulary, in a fixed order so a fitted artefact and a
 # live prediction can never disagree on column meaning. These are the trailing,

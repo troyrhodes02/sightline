@@ -36,7 +36,16 @@ from .digests import digest_mapping, digest_rows
 # v2 adds the `pointEstimates` block (mean and median MAE/RMSE) per SIG-28.
 # The `comparison` block is unchanged, so the headline mean-vs-baseline figures
 # and the stored calibration curve are byte-identical to v1.
-AGGREGATES_VERSION = 2
+#
+# v3 (SIG-70) adds an OPTIONAL `perLayer` block for a simulation run — the
+# game-environment and usage-allocation validation MAEs (RD-8) — so a final
+# regression localises to a layer. The block is emitted only when the caller
+# supplies per-layer metrics (the baseline harness never does), so a baseline
+# run's aggregates object is unchanged apart from the version integer. The
+# version bump is honest: the *schema* now admits a block a v2 reader would not
+# expect, even though a baseline v3 run's content is otherwise byte-identical to
+# what a v2 run produced.
+AGGREGATES_VERSION = 3
 
 SERIES = (
     ("model", "abs_error", "sq_error"),
@@ -134,6 +143,21 @@ def _contract_like_block(predictions: pl.DataFrame, thresholds: pl.DataFrame) ->
         threshold_block = _threshold_block(cl_thresholds)
         if threshold_block:
             block["thresholds"] = threshold_block
+        # Per-stat-type Brier over the contract-like population — the figure the
+        # promotion bar (RD-1) is defined against, made durable per stat so the
+        # per-stat baseline comparison reads it from the stored aggregates rather
+        # than recomputing from Parquet. Miscalibration is stat-dependent, and a
+        # stat type is promoted independently, so the comparison must be per stat.
+        by_stat: dict[str, dict] = {}
+        if cl_thresholds.height and "stat_type" in cl_thresholds.columns:
+            for stat in sorted({str(v) for v in cl_thresholds["stat_type"].to_list()}):
+                stat_block = _threshold_block(
+                    cl_thresholds.filter(pl.col("stat_type") == stat)
+                )
+                if stat_block:
+                    by_stat[stat] = {"thresholds": stat_block}
+        if by_stat:
+            block["byStatType"] = by_stat
     return block
 
 
@@ -151,15 +175,72 @@ def _breakout(frame: pl.DataFrame, comparison: pl.DataFrame, column: str) -> dic
     return out
 
 
+def _per_layer_block(per_layer: pl.DataFrame | None) -> dict:
+    """Layer-1 and Layer-2 validation MAEs, aggregated over the run (RD-8).
+
+    ``per_layer`` is the simulation harness's per-team-game / per-player-game
+    validation-metric artefact: one row per (game, layer) carrying the raw
+    absolute errors already reduced per game by :mod:`simulation.game_environment`
+    and :mod:`simulation.usage_allocation`. We average those per-game MAEs across
+    the run so a regression is attributable to ``gameEnvironment`` (plays and
+    pass/rush split) or ``usageAllocation`` (target/carry share) rather than
+    buried in the final calibration number. A NaN per-game value (usage MAE is
+    undefined for a game where nobody recorded an opportunity) is dropped rather
+    than averaged in, exactly as the layer metrics themselves refuse to report a
+    misleading zero.
+    """
+
+    def _mean(column: str) -> tuple[float, int] | None:
+        if per_layer is None or per_layer.height == 0 or column not in per_layer.columns:
+            return None
+        values = [
+            v for v in per_layer[column].to_list() if v is not None and not math.isnan(v)
+        ]
+        if not values:
+            return None
+        return _fsum(values) / len(values), len(values)
+
+    def _metric(column: str) -> dict | None:
+        result = _mean(column)
+        if result is None:
+            return None
+        mae, n = result
+        return {"mae": mae, "n": n}
+
+    game_environment = {
+        "playsMae": _metric("plays_mae"),
+        "passRushSplitMae": _metric("pass_rush_split_mae"),
+    }
+    usage_allocation = {
+        "targetShareMae": _metric("target_share_mae"),
+        "carryShareMae": _metric("carry_share_mae"),
+    }
+    game_environment = {k: v for k, v in game_environment.items() if v is not None}
+    usage_allocation = {k: v for k, v in usage_allocation.items() if v is not None}
+    block: dict = {}
+    if game_environment:
+        block["gameEnvironment"] = game_environment
+    if usage_allocation:
+        block["usageAllocation"] = usage_allocation
+    return block
+
+
 def compute_aggregates(
     predictions: pl.DataFrame, thresholds: pl.DataFrame, totals,
     exclusions: pl.DataFrame | None = None,
+    per_layer: pl.DataFrame | None = None,
 ) -> dict:
     """The versioned aggregates object stored on ``BacktestRun``.
 
     ``exclusions`` feeds the disclosure counters in ``notes``; ``None`` is
     accepted only so a caller recomputing aggregates from partial artefacts
     can still do so, and yields counters of 0 for the exclusion-derived ones.
+
+    ``per_layer`` is the simulation harness's per-layer validation artefact
+    (RD-8); when supplied, a ``perLayer`` block is emitted so a regression
+    localises to game-environment or usage-allocation. The baseline harness
+    passes ``None`` — it has no such layers — so its aggregates object is
+    unchanged apart from ``aggregatesVersion``.
     """
     comparison = (
         predictions.filter(pl.col("in_comparison_population"))
@@ -204,6 +285,9 @@ def compute_aggregates(
     contract_like = _contract_like_block(predictions, thresholds)
     if contract_like:
         aggregates["contractLike"] = contract_like
+    per_layer_block = _per_layer_block(per_layer)
+    if per_layer_block:
+        aggregates["perLayer"] = per_layer_block
     return aggregates
 
 
@@ -325,8 +409,11 @@ class Summary:
 def summarise(
     predictions: pl.DataFrame, thresholds: pl.DataFrame, totals,
     exclusions: pl.DataFrame | None = None,
+    per_layer: pl.DataFrame | None = None,
 ) -> Summary:
-    aggregates = compute_aggregates(predictions, thresholds, totals, exclusions)
+    aggregates = compute_aggregates(
+        predictions, thresholds, totals, exclusions, per_layer
+    )
     bins = compute_calibration_bins(thresholds)
     return Summary(
         aggregates=aggregates,
@@ -334,3 +421,120 @@ def summarise(
         aggregate_digest=aggregate_digest(aggregates),
         calibration_digest=calibration_digest(bins),
     )
+
+
+# --- Baseline comparison and promotion bar (SIG-70, RD-1) -------------------
+#
+# The promotion bar is the gate a stat type must clear to flip its
+# ``ModelSelection`` from the baseline to the simulation engine. It is a PURE
+# function of the two runs' measured numbers, deliberately so: promotion is a
+# reviewed data change, and the evidence it rests on must be recomputable and
+# unarguable rather than a judgement call buried in a script. This module
+# computes the bar; it never applies it — nothing here writes ``ModelSelection``.
+
+# RD-1. The three thresholds, named so a change is a visible, reviewed edit
+# rather than a magic number in a comparison.
+PROMOTION_BRIER_MARGIN = 0.01  # simulation must beat baseline by >= this, absolute
+PROMOTION_MIN_GRADED = 500  # over at least this many graded threshold observations
+PROMOTION_MIN_SEASONS = 2  # spanning at least this many seasons
+
+
+def meets_promotion_bar(
+    sim_brier: float,
+    baseline_brier: float,
+    n_graded: int,
+    seasons_covered: int,
+) -> bool:
+    """Whether the simulation engine has earned promotion for a stat type (RD-1).
+
+    All three conditions must hold: the simulation Brier beats the baseline by at
+    least :data:`PROMOTION_BRIER_MARGIN` in absolute terms (lower Brier is
+    better), the comparison rests on at least :data:`PROMOTION_MIN_GRADED` graded
+    predictions, and it spans at least :data:`PROMOTION_MIN_SEASONS` seasons. A
+    thinner or shorter comparison does not promote no matter how large the
+    margin — a one-season edge is not evidence of a durable one, and 499 graded
+    predictions is below the floor the run instruction fixed. The margin is
+    ``baseline - sim`` so a *lower* simulation Brier clears the bar.
+    """
+    beats_by_margin = (baseline_brier - sim_brier) >= PROMOTION_BRIER_MARGIN
+    enough_graded = n_graded >= PROMOTION_MIN_GRADED
+    enough_seasons = seasons_covered >= PROMOTION_MIN_SEASONS
+    return beats_by_margin and enough_graded and enough_seasons
+
+
+def _stat_type_brier(aggregates: dict, stat_type: str) -> tuple[float, int] | None:
+    """The contract-like Brier and its effective sample for one stat type.
+
+    Reads the stored ``contractLike`` per-stat threshold block a run writes for
+    the population the recalibration layer is fitted against — the same
+    population the promotion bar is defined over (RD-1). Returns ``None`` when the
+    run has no contract-like threshold evidence for the stat, which is not a zero:
+    a stat with no graded contract-like prediction has no measured Brier, and
+    treating its absence as ``0.0`` would flatter a comparison in the most
+    dangerous direction.
+    """
+    contract_like = aggregates.get("contractLike") or {}
+    by_stat = contract_like.get("byStatType") or {}
+    block = by_stat.get(stat_type) or {}
+    thresholds = block.get("thresholds") or {}
+    if "brier" not in thresholds:
+        return None
+    # The effective sample is the projection count, not the observation count:
+    # threshold events from one distribution are correlated (metrics docstring).
+    n = int(thresholds.get("projections") or 0)
+    return float(thresholds["brier"]), n
+
+
+def compare_stat_type_briers(
+    sim_aggregates: dict,
+    baseline_aggregates: dict,
+    seasons_covered: int,
+    *,
+    stat_types: list[str] | None = None,
+) -> dict[str, dict]:
+    """Per-stat-type ``{sim_brier, baseline_brier, delta, n, promotes}`` (RD-1).
+
+    Reads each run's contract-like per-stat Brier (the promotion population) and
+    reports, per stat type where BOTH models have a measured Brier, the
+    simulation and baseline Briers, the delta (``baseline - sim``, positive when
+    simulation is better), the effective graded sample, and whether the
+    promotion bar is met given ``seasons_covered``. A stat type where either
+    model lacks a measured contract-like Brier is omitted rather than reported
+    with a fabricated zero — the comparison is only over stat types both models
+    actually predicted in the contract-like population.
+
+    ``seasons_covered`` is a property of the run's span, not of either
+    aggregates object, so the caller supplies it (from the run config's
+    ``season_from``/``season_to`` or the distinct seasons in the artefacts).
+    """
+    if stat_types is None:
+        sim_stats = set(
+            ((sim_aggregates.get("contractLike") or {}).get("byStatType") or {})
+        )
+        base_stats = set(
+            ((baseline_aggregates.get("contractLike") or {}).get("byStatType") or {})
+        )
+        stat_types = sorted(sim_stats & base_stats)
+
+    out: dict[str, dict] = {}
+    for stat_type in stat_types:
+        sim = _stat_type_brier(sim_aggregates, stat_type)
+        base = _stat_type_brier(baseline_aggregates, stat_type)
+        if sim is None or base is None:
+            continue
+        sim_brier, sim_n = sim
+        baseline_brier, base_n = base
+        # The effective sample the bar is checked against is the smaller of the
+        # two — a stat the simulation graded 900 times but the baseline only 400
+        # is a 400-prediction comparison, not a 900-prediction one.
+        n = min(sim_n, base_n)
+        out[stat_type] = {
+            "sim_brier": sim_brier,
+            "baseline_brier": baseline_brier,
+            "delta": baseline_brier - sim_brier,
+            "n": n,
+            "promotes": meets_promotion_bar(
+                sim_brier, baseline_brier, n, seasons_covered
+            ),
+        }
+    return out
