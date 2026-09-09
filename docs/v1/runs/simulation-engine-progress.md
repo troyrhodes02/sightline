@@ -9,8 +9,14 @@ reviewed, audited, green, and its PR left open for human review.
 
 ## Current step
 
-**Step 8 in progress** — working tickets. Steps 1–7 complete. Feature branch
-`feat/simulation-engine`, feature PR #64 open against `main`.
+**DONE — awaiting human review. DO NOT MERGE.** All 15 steps complete. The feature
+branch `feat/simulation-engine` is verified (pytest 461, jest 824, typecheck,
+test:schema 29, build), reviewed (`/review` → 8 findings on PR #64), audited
+(`/sightline-review-audit` → 4 implemented with regression tests, 4 deferred to
+SIG-73), and re-verified green. Feature PR **#64** is open against `main` for a
+line-by-line human read. Run report: `docs/v1/runs/simulation-engine-report.md`.
+
+Feature branch head: `3d0eb4f` (docs → SIG-66…SIG-72 → review-audit fixes).
 
 ### Ticket log
 
@@ -125,12 +131,12 @@ instead of erroring on a refused connection.
 - [ ] 7. Feature PR into main
 - [ ] 8. Work every ticket in order (branch chain), PR each
 - [ ] 9. Runbook → `docs/v1/runbooks/simulation-engine-runbook.md`
-- [ ] 10. Squash-merge every ticket PR into the feature branch, in order
-- [ ] 11. Full verification suite on the feature branch
-- [ ] 12. `/review` feature branch vs main → inline comments on the feature PR
-- [ ] 13. `/sightline-review-audit` those comments; implement/defer/discuss/skip
-- [ ] 14. Commit, push, re-run full suite. **STOP — do not merge.**
-- [ ] 15. Run report → `docs/v1/runs/simulation-engine-report.md`
+- [x] 10. Squash-merge every ticket PR into the feature branch, in order
+- [x] 11. Full verification suite on the feature branch
+- [x] 12. `/review` feature branch vs main → inline comments on the feature PR
+- [x] 13. `/sightline-review-audit` those comments; implement/defer/discuss/skip
+- [x] 14. Commit, push, re-run full suite. **STOP — do not merge.**
+- [x] 15. Run report → `docs/v1/runs/simulation-engine-report.md`
 
 ## Pre-resolved decisions (from the run instruction — approved-doc authority)
 
