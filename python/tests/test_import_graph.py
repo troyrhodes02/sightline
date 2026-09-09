@@ -250,6 +250,12 @@ def test_sweep_covers_the_simulation_engine_modules() -> None:
     assert any(
         "simulation" in p and p.endswith("game_environment.py") for p in scanned
     ), "the import-graph sweep does not reach sightline_model/simulation/game_environment.py"
+    # SIG-68: Layer 2 (usage allocation) assembles per-player usage features and
+    # could reach for a price to "sanity-check" a share. Assert it is covered
+    # explicitly so moving the module can never silently drop it from the guard.
+    assert any(
+        "simulation" in p and p.endswith("usage_allocation.py") for p in scanned
+    ), "the import-graph sweep does not reach sightline_model/simulation/usage_allocation.py"
 
 
 def test_sweep_catches_a_price_reference_planted_in_a_simulation_module() -> None:
