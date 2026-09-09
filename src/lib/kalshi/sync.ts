@@ -157,7 +157,7 @@ async function executeSync(): Promise<SyncResult> {
     // All contracts we already know about for the discovered tickers.
     prisma.contract.findMany({
       where: { kalshiTicker: { in: allTickers } },
-      select: { id: true, kalshiTicker: true, resolutionStatus: true },
+      select: { id: true, kalshiTicker: true, resolutionStatus: true, closeTime: true },
     }),
     // Latest price observation per contract, for the heartbeat/diff check.
     // DISTINCT ON is not available via Prisma; use a raw query.
@@ -204,6 +204,11 @@ async function executeSync(): Promise<SyncResult> {
     noAskCents: number | null;
   }> = [];
   const seenTickers: string[] = [];
+  // Resolved known contracts only need lastSeenAt touched — batched after the loop.
+  const batchLastSeenIds: string[] = [];
+  // Resolved contracts whose closeTime changed — individual update needed.
+  const batchCloseTimeUpdates: Array<{ id: string; closeTime: Date | null }> =
+    [];
 
   for (const { market, seriesTicker } of allMarkets) {
     const parsed = parseMarket(market, seriesTicker);
@@ -234,39 +239,48 @@ async function executeSync(): Promise<SyncResult> {
           },
         });
         contractId = created.id;
-        // Add to cache so a duplicate ticker in the same run hits the cache.
         contractCache.set(parsed.kalshiTicker, {
           id: contractId,
           kalshiTicker: parsed.kalshiTicker,
           resolutionStatus: resolution.resolutionStatus,
+          closeTime: parsed.closeTime,
         });
       } else {
         contractId = existing.id;
         const needsResolution =
           existing.resolutionStatus === "unresolved" ||
           existing.resolutionStatus === "ambiguous";
-        const resolution = needsResolution
-          ? await resolveContract(parsed, prisma)
-          : null;
 
-        await prisma.contract.update({
-          where: { id: contractId },
-          data: {
-            status: "active",
-            lastSeenAt: observedAt,
-            closeTime: parsed.closeTime,
-            ...(resolution
-              ? {
-                  playerId: resolution.playerId,
-                  gameId: resolution.gameId,
-                  statType: resolution.statType,
-                  threshold: resolution.threshold,
-                  resolutionStatus: resolution.resolutionStatus,
-                  resolutionNote: resolution.resolutionNote,
-                }
-              : {}),
-          },
-        });
+        if (needsResolution) {
+          // Individual update: resolution fields may change.
+          const resolution = await resolveContract(parsed, prisma);
+          await prisma.contract.update({
+            where: { id: contractId },
+            data: {
+              status: "active",
+              lastSeenAt: observedAt,
+              closeTime: parsed.closeTime,
+              playerId: resolution.playerId,
+              gameId: resolution.gameId,
+              statType: resolution.statType,
+              threshold: resolution.threshold,
+              resolutionStatus: resolution.resolutionStatus,
+              resolutionNote: resolution.resolutionNote,
+            },
+          });
+        } else {
+          // Resolved: batch the lastSeenAt touch; only individual-update if
+          // closeTime actually changed (rare — NFL schedules are stable).
+          batchLastSeenIds.push(contractId);
+          const storedClose = existing.closeTime?.getTime() ?? null;
+          const freshClose = parsed.closeTime?.getTime() ?? null;
+          if (storedClose !== freshClose) {
+            batchCloseTimeUpdates.push({
+              id: contractId,
+              closeTime: parsed.closeTime,
+            });
+          }
+        }
       }
 
       contractsUpserted += 1;
@@ -305,10 +319,26 @@ async function executeSync(): Promise<SyncResult> {
     }
   }
 
-  // --- Phase 4: Batch-write all price observations in one query ---
-  if (pendingObservations.length > 0) {
-    await prisma.priceObservation.createMany({ data: pendingObservations });
-  }
+  // --- Phase 4: Batch writes ---
+  // Single updateMany for all resolved contracts that just need lastSeenAt.
+  await Promise.all([
+    batchLastSeenIds.length > 0
+      ? prisma.contract.updateMany({
+          where: { id: { in: batchLastSeenIds } },
+          data: { status: "active", lastSeenAt: observedAt },
+        })
+      : Promise.resolve(),
+    // CloseTime changed on a small subset — individual updates are fine here.
+    ...batchCloseTimeUpdates.map((u) =>
+      prisma.contract.update({
+        where: { id: u.id },
+        data: { closeTime: u.closeTime },
+      }),
+    ),
+    pendingObservations.length > 0
+      ? prisma.priceObservation.createMany({ data: pendingObservations })
+      : Promise.resolve(),
+  ]);
   const observationsWritten = pendingObservations.length;
 
   // Delist pass: an active contract in a governed series that a COMPLETE
