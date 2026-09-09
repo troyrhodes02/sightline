@@ -63,15 +63,20 @@ jobs:
         run: npm run build
 
       - name: Install Playwright browsers
+        run: npx playwright install chromium
+      - name: Install Playwright system dependencies
         run: |
-          # Remove Google Chrome's apt source — it has intermittent hash
-          # mismatches on GitHub Actions runners. We install Chromium through
-          # Playwright, not system Chrome, so the source is not needed.
-          sudo rm -f /etc/apt/sources.list.d/google-chrome.list \
-                     /etc/apt/sources.list.d/google-chrome.list.save \
-                     /etc/apt/sources.list.d/google.list
+          # Remove all Google apt sources before install-deps so apt-get update
+          # does not hit Google's Chrome repo (intermittent hash mismatch on
+          # GitHub Actions). Chromium binary is already installed above.
+          sudo find /etc/apt/sources.list.d/ \
+               /etc/apt/sources.list \
+               /usr/share/keyrings/ \
+               -maxdepth 1 \( -name '*google*' -o -name '*chrome*' \) \
+               -delete 2>/dev/null || true
+          sudo apt-get clean
           sudo apt-get update -qq
-          npx playwright install --with-deps chromium
+          sudo npx playwright install-deps chromium
       # The authenticated suites (adversarial role enforcement, revocation
       # across devices, credential-failure parity) require a provisioned
       # Supabase project with seeded accounts. Without those secrets they
