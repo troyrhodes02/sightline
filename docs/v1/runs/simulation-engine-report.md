@@ -76,8 +76,16 @@ and apply that table is complete and green.
 | `npx jest` | **824 passed** (62 suites) |
 | `npm run test:schema` | **29 passed**, 0 fail |
 | `npm run build` | pass |
+| `npm run format` (prettier --check) | pass — see note below |
 | `npm run lint` | clean — the only 4 errors are the pre-existing UNTRACKED `prisma/seed-dev-game.ts`, which is not on this branch and never reaches CI |
 | `uv run pytest` | **461 passed** (clean, isolated run) |
+
+> **Prettier note (honest correction):** `prettier --check` was initially failing
+> on 8 TS files (SIG-72 output that wasn't fully formatted, plus the review-audit
+> edits). Fixed with `format:write` in a follow-up commit (`7f36a23`); formatting
+> only, no behavioral change; re-verified `format --check` clean, typecheck clean,
+> and 189 jest tests green in the affected suites. This check had been omitted from
+> the per-commit runs during the ticket work and is now passing.
 
 Pitch-specific checks (all present and green):
 
