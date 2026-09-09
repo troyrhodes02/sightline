@@ -63,7 +63,9 @@ jobs:
         run: npm run build
 
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
+        run: |
+          sudo apt-get clean
+          npx playwright install --with-deps chromium
       # The authenticated suites (adversarial role enforcement, revocation
       # across devices, credential-failure parity) require a provisioned
       # Supabase project with seeded accounts. Without those secrets they
