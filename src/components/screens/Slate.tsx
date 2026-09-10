@@ -151,6 +151,11 @@ export function Slate({
             : ""}
           . Projections and cards render fully.
         </Alert>
+      ) : slate.pricePartial ? (
+        <Alert severity="warning">
+          Some markets could not be refreshed; showing last-observed prices
+          where current ones are unavailable.
+        </Alert>
       ) : null}
 
       {!hasGames && !hasUnresolved ? (

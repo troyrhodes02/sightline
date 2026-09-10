@@ -139,6 +139,7 @@ const grouped = (
   availableGames: [{ gameId: "g1", label: "CIN @ BAL" }],
   pricesUpdatedAt: "2026-11-08T16:42:09.000Z",
   priceDegraded: false,
+  pricePartial: false,
   ...overrides,
 });
 
@@ -491,6 +492,32 @@ describe("Slate screen states (grouped)", () => {
     expect(screen.getByText(/Prices unavailable/)).toBeInTheDocument();
     expect(screen.getAllByRole("alert")).toHaveLength(1);
     expect(screen.getByText("All games")).toBeInTheDocument();
+  });
+
+  it("partial sync discloses that some markets show last-observed prices", () => {
+    renderThemed(
+      <Slate
+        slate={grouped({ pricePartial: true })}
+        refreshIntervalSeconds={60}
+      />,
+    );
+    expect(
+      screen.getByText(/Some markets could not be refreshed/),
+    ).toBeInTheDocument();
+  });
+
+  it("a full outage takes precedence over partial: only the degraded banner shows", () => {
+    renderThemed(
+      <Slate
+        slate={grouped({ priceDegraded: true, pricePartial: true })}
+        refreshIntervalSeconds={60}
+      />,
+    );
+    expect(screen.getByText(/Prices unavailable/)).toBeInTheDocument();
+    expect(
+      screen.queryByText(/Some markets could not be refreshed/),
+    ).toBeNull();
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
   });
 
   it("toggling to By game re-emphasises the same data without a refetch", async () => {

@@ -1,12 +1,12 @@
 import "server-only";
 
-import { cache } from "react";
 import { prisma } from "@/lib/prisma";
 import type { StatType } from "../../../generated/prisma/enums";
 import type {
   PropResearchResponse,
   ResearchPlayerDto,
 } from "@/lib/dto/research";
+import { modelSelectionMap } from "@/lib/slate/read";
 import { deriveFreshness } from "@/lib/slate/freshness";
 import {
   latestFactKnownAtByGame,
@@ -39,14 +39,6 @@ import { serverEnv } from "@/env";
  * contract" LINK — it returns contract ids, never a cent value or an edge.
  */
 
-/** The active model version per stat type, cached per request (matches `read.ts`). */
-const activeModelByStat = cache(async (): Promise<Map<StatType, string>> => {
-  const rows = await prisma.modelSelection.findMany({
-    select: { statType: true, modelVersion: true },
-  });
-  return new Map(rows.map((row) => [row.statType, row.modelVersion]));
-});
-
 function gameLabel(game: {
   homeTeam: { nflverseAbbr: string };
   awayTeam: { nflverseAbbr: string };
@@ -77,7 +69,7 @@ export async function readResearchPlayers(
   if (games.length === 0) return [];
   const gameById = new Map(games.map((game) => [game.id, game]));
 
-  const activeByStat = await activeModelByStat();
+  const activeByStat = await modelSelectionMap();
 
   // Base projections for upcoming games, matching the searched name. The name
   // filter is applied in the DB so a large corpus never streams into memory.
@@ -202,7 +194,7 @@ export async function readResearchProjection(input: {
     };
   }
 
-  const activeByStat = await activeModelByStat();
+  const activeByStat = await modelSelectionMap();
   const activeVersion = activeByStat.get(input.statType);
 
   // Freshest ACTIVE-MODEL BASE projection for this key. No shadow overlay:

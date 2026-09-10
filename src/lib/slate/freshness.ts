@@ -86,11 +86,20 @@ export function deriveFreshness(
     return { state: "new_info_pending", ...raw };
   }
 
-  // Projection is fine. The price clock decides current vs updated_recently.
+  // Projection is fine. With no price observation at all (a contract never
+  // priced, or Prop Research which carries no price), freshness reflects the
+  // current projection — the absent price is disclosed separately in the price
+  // cell, never as a phantom "updated_recently" refresh that did not happen.
+  if (!hasPrice) {
+    return { state: "current", ...raw };
+  }
+
+  // A price is present; its clock decides current vs updated_recently. A price
+  // never upgrades a projection's freshness, only qualifies it here.
   const priceFresh =
-    inputs.priceObservedAt !== null &&
-    inputs.now.getTime() - new Date(inputs.priceObservedAt).getTime() <=
-      priceFreshnessSeconds * 1000;
+    inputs.now.getTime() -
+      new Date(inputs.priceObservedAt as string).getTime() <=
+    priceFreshnessSeconds * 1000;
 
   return { state: priceFresh ? "current" : "updated_recently", ...raw };
 }

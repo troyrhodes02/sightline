@@ -284,14 +284,21 @@ function selectCard(
   );
 
   // Re-select the best from the surviving set by the existing ranking key,
-  // never recomputing the value itself. Ties resolve to the first, matching the
-  // pre-ranked server order.
+  // never recomputing the value itself. The tie-break MUST match the server's
+  // buildPlayerCard (higher confidenceAdjustedEdge, then higher edgePoints);
+  // otherwise a filter that removes none of a player's props could still flip
+  // which prop is shown as best relative to the unfiltered slate.
   const best = survivingProps.reduce<PropDto | null>((acc, prop) => {
     if (prop.confidenceAdjustedEdge === null) return acc;
     if (acc === null || acc.confidenceAdjustedEdge === null) return prop;
-    return prop.confidenceAdjustedEdge > acc.confidenceAdjustedEdge
-      ? prop
-      : acc;
+    if (prop.confidenceAdjustedEdge > acc.confidenceAdjustedEdge) return prop;
+    if (
+      prop.confidenceAdjustedEdge === acc.confidenceAdjustedEdge &&
+      (prop.edgePoints ?? 0) > (acc.edgePoints ?? 0)
+    ) {
+      return prop;
+    }
+    return acc;
   }, null);
 
   return {

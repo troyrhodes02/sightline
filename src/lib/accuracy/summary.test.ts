@@ -77,6 +77,22 @@ describe("summarizeAccuracy", () => {
     expect(s.marketVerdict).toMatch(/Better calibrated than the market/);
   });
 
+  it("does not claim 'below the floor' when the floor IS met but no Brier is available yet", () => {
+    // Regression: with observations >= REPORTING_FLOOR but brier null, the old
+    // message said "N observations, below the FLOOR needed" — a self-contradiction
+    // (N already exceeds the floor). It must state the real reason instead.
+    const s = summarizeAccuracy({
+      calibration: [
+        series({ thresholdObservations: REPORTING_FLOOR + 2000, brier: null }),
+      ],
+      errorPanel,
+      market: { state: "insufficient", graded: 11, required: 30 },
+    });
+    expect(s.verdict).toBe("provisional");
+    expect(s.calibrationVerdict).not.toMatch(/below the/i);
+    expect(s.calibrationVerdict).toMatch(/reliability bucket/i);
+  });
+
   it("reads a thin sample as not-enough-evidence, never as a bad score", () => {
     const s = summarizeAccuracy({
       calibration: [series({ thresholdObservations: 120, brier: 0.4 })],

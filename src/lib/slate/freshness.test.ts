@@ -105,6 +105,16 @@ describe("deriveFreshness", () => {
     expect(result.state).toBe("updated_recently");
   });
 
+  it("current (not updated_recently) when the projection is fine and there is no price at all", () => {
+    // A never-priced contract, or Prop Research (which carries no price), must
+    // reflect the current projection — not a phantom "recently refreshed" price.
+    const result = deriveFreshness(
+      { ...base, staleness: staleness(), priceObservedAt: null },
+      FRESH_SECONDS,
+    );
+    expect(result.state).toBe("current");
+  });
+
   it("retains both clocks unchanged in the payload (never merged)", () => {
     const result = deriveFreshness(
       {

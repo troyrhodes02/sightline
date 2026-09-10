@@ -312,4 +312,11 @@ export type SlateGroupedDto = {
   availableGames: Array<{ gameId: string; label: string }>;
   pricesUpdatedAt: string | null;
   priceDegraded: boolean;
+  /**
+   * The last sync refreshed some markets but not all — a mix of current and
+   * last-observed prices is on screen. Distinct from `priceDegraded` (a full
+   * outage); disclosed so a partial refresh is never silently presented as
+   * fully current (the "disclose, don't race" posture).
+   */
+  pricePartial: boolean;
 };

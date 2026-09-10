@@ -188,3 +188,23 @@ Review posted on PR #92 (review id 5173025238), 8 findings + 3 minors. Authz/cre
 | m3 | screens.test.tsx admin-nav test doesn't open menu | **IMPLEMENT** — strengthen to assert Health/Users reachable in the Admin menu. |
 
 Deferred follow-up tickets to file: (a) price-freshness clock should track last successful price observation, not job finishedAt; (b) keyboard navigation for the grouped GameGroup/PlayerCard layout + remove orphaned SlateKeyNav.
+
+## Review-audit outcome (Step 14) — implemented + deferred
+
+**Implemented on the feature branch (review-audit fixes commit):**
+- #1 Advisory-lock defect — raised the lock transaction timeout to span the sync (no P2028 at 5s; lock no longer releases mid-sync) + route now degrades to last stored prices (200) instead of 500 on a lock/sync failure. `refresh-lock.ts`, `prices/refresh/route.ts`.
+- #2 Partial-sync disclosure restored — new `pricePartial` DTO field + banner; full-outage banner takes precedence. `dto/slate.ts`, `read-grouped.ts`, `Slate.tsx` (+ tests).
+- #5 Best-opportunity tie-break — client `selectCard` now matches the server's `edgePoints` tie-break. `filters.ts`.
+- #6 Freshness — degraded flag threaded into card freshness; no-price no longer mislabelled `updated_recently` (→ `current`). `read-grouped.ts`, `freshness.ts` (+ test).
+- #7 `activeModelByStat` deduped to the exported `modelSelectionMap`. `research/read.ts`.
+- m1 Accuracy summary — contradictory "below the floor" message fixed for the floor-met-but-no-Brier case. `summary.ts` (+ test).
+- **CI build unblock** — the perf-slate-lcp job now guards all work steps on provisioning secrets so it SKIPS (not fails at Build with empty Supabase env) when unconfigured. `ci.yml`. (This is the failure the user reported.)
+
+**Deferred to follow-up tickets (real but need read/DTO/UX work beyond a quick fix):**
+- #3 on-view freshness clock should track last price observation, not sync `finishedAt` → **SIG-100**.
+- #4 distinct "no contracts listed yet" empty state + #8 keyboard navigation for the grouped cards (remove orphaned `SlateKeyNav`) → **SIG-101**.
+
+**Not done (test-quality nit, noted honestly):**
+- m3 strengthen `screens.test.tsx` admin-nav to open the menu and assert Health/Users. Low value; left for a maintainer. (NavSections.test already covers the data-level `adminSections`; the AppShell menu wiring lacks a render-open assertion.)
+
+Post-audit full suite (actual): typecheck ✅ · Jest ✅ 951/951 (+4 regression tests) · lint ✅ (feature clean; only pre-existing untracked seed-dev-game.ts) · prettier ✅ · build ✅ · e2e + perf collection ✅. E2E/LCP execution still requires provisioned CI (unchanged).

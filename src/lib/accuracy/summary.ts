@@ -53,10 +53,18 @@ export function summarizeAccuracy(
   let calibrationVerdict: string;
   if (!enough || gap === null) {
     verdict = "provisional";
-    calibrationVerdict =
-      thresholdObservations === 0
-        ? "Not enough graded predictions yet to judge calibration."
-        : `Not enough evidence yet — ${thresholdObservations.toLocaleString()} observations, below the ${REPORTING_FLOOR.toLocaleString()} needed to judge calibration.`;
+    if (thresholdObservations === 0) {
+      calibrationVerdict =
+        "Not enough graded predictions yet to judge calibration.";
+    } else if (thresholdObservations < REPORTING_FLOOR) {
+      calibrationVerdict = `Not enough evidence yet — ${thresholdObservations.toLocaleString()} observations, below the ${REPORTING_FLOOR.toLocaleString()} needed to judge calibration.`;
+    } else {
+      // The overall floor is met, but calibration still cannot be measured:
+      // either there is no Brier score yet or no single reliability bucket
+      // clears its own floor. Say that, rather than the self-contradicting
+      // "below the floor" sentence (the count already exceeds the floor).
+      calibrationVerdict = `${thresholdObservations.toLocaleString()} observations, but not enough yet fall within any single reliability bucket to measure calibration.`;
+    }
   } else if (gap <= CALIBRATED_TOLERANCE) {
     verdict = "calibrated";
     calibrationVerdict =

@@ -82,6 +82,7 @@ const slate = (overrides: Partial<SlateGroupedDto> = {}): SlateGroupedDto => ({
   availableGames: [{ gameId: "g1", label: "CIN @ BAL" }],
   pricesUpdatedAt: "2026-11-08T16:42:09.000Z",
   priceDegraded: false,
+  pricePartial: false,
   ...overrides,
 });
 

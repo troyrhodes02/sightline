@@ -35,8 +35,15 @@ export async function POST(): Promise<Response> {
     );
     return Response.json(result, { status: 200 });
   } catch {
-    // Unexpected only — Kalshi failures are handled inside the sync and
-    // recorded on the run. Nothing internal reaches the client.
-    return jsonError("internal_error", "The price refresh failed.");
+    // A Kalshi problem — or an unusually slow sync that trips the lock
+    // transaction — is a designed degraded mode, not an error. Fall back to the
+    // last stored prices as a degraded 200 so the slate keeps rendering; only a
+    // total inability to read even the last run reaches the client as an error.
+    try {
+      const last = await latestCoalescedResult();
+      return Response.json({ ...last, degraded: true }, { status: 200 });
+    } catch {
+      return jsonError("internal_error", "The price refresh failed.");
+    }
   }
 }

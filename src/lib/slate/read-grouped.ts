@@ -108,6 +108,7 @@ export async function readSlateGrouped(
         teamAbbr: teamByPlayerGame.get(`${playerId}:${gameId}`) ?? "",
         adjustment: adjustmentByPlayerGame.get(`${playerId}:${gameId}`) ?? null,
         priceFreshnessSeconds,
+        priceDegraded: slate.degraded,
         now,
       });
       players.push(card);
@@ -170,6 +171,7 @@ export async function readSlateGrouped(
     availableGames,
     pricesUpdatedAt: slate.lastSync?.finishedAt ?? null,
     priceDegraded: slate.degraded,
+    pricePartial: slate.lastSync?.status === "partial",
   };
 }
 
@@ -200,6 +202,7 @@ function buildPlayerCard(args: {
   teamAbbr: string;
   adjustment: AdjustmentContext | null;
   priceFreshnessSeconds: number;
+  priceDegraded: boolean;
   now: Date;
 }): PlayerCardDto {
   const {
@@ -210,6 +213,7 @@ function buildPlayerCard(args: {
     homeTeam,
     awayTeam,
     adjustment,
+    priceDegraded,
     priceFreshnessSeconds,
     now,
   } = args;
@@ -249,7 +253,7 @@ function buildPlayerCard(args: {
       informationCutoff: lead.informationCutoff,
       priceObservedAt: freshestPriceObservedAt(playerRows),
       hasPendingSuggestion: adjustment?.kind === "pending",
-      priceDegraded: false,
+      priceDegraded,
       now,
     },
     priceFreshnessSeconds,
