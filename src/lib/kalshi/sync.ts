@@ -75,6 +75,35 @@ export function toCents(value: number | undefined): number | null {
   return cents;
 }
 
+/**
+ * Kalshi migrated the market payload to dollar-denominated price fields:
+ * `yes_ask_dollars: "0.83"` means 83¢. Parse the dollar string (or number) to
+ * integer cents with the same 1–99 discipline as `toCents` — "0.0000", the
+ * empty string, and absence all mean "no book on this side" → null, never a
+ * fabricated 0. Exported for tests.
+ */
+export function dollarsToCents(
+  value: string | number | undefined | null,
+): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const dollars = typeof value === "string" ? Number(value) : value;
+  if (!Number.isFinite(dollars)) return null;
+  return toCents(Math.round(dollars * 100));
+}
+
+/**
+ * One book side in cents, preferring Kalshi's current dollar field and
+ * falling back to the legacy integer-cent field when a payload still carries
+ * it (older fixtures, or a partial rollback upstream). Exported for tests.
+ */
+export function marketSideCents(
+  dollars: string | number | undefined | null,
+  legacyCents: number | undefined,
+): number | null {
+  const fromDollars = dollarsToCents(dollars);
+  return fromDollars !== null ? fromDollars : toCents(legacyCents);
+}
+
 /** Strips anything URL- or credential-shaped before a message is stored. */
 export function sanitizeErrorMessage(error: unknown): string {
   const raw =
@@ -292,11 +321,13 @@ async function executeSync(): Promise<SyncResult> {
       seenTickers.push(market.ticker);
 
       // Decide whether to write a price observation using cached state.
+      // Kalshi's current payload carries dollar-denominated fields
+      // (`*_dollars`); the legacy integer-cent fields are the fallback (SIG-86).
       const book = {
-        yesBidCents: toCents(market.yes_bid),
-        yesAskCents: toCents(market.yes_ask),
-        noBidCents: toCents(market.no_bid),
-        noAskCents: toCents(market.no_ask),
+        yesBidCents: marketSideCents(market.yes_bid_dollars, market.yes_bid),
+        yesAskCents: marketSideCents(market.yes_ask_dollars, market.yes_ask),
+        noBidCents: marketSideCents(market.no_bid_dollars, market.no_bid),
+        noAskCents: marketSideCents(market.no_ask_dollars, market.no_ask),
       };
       const lastObs = observationCache.get(contractId);
       const heartbeatElapsed =

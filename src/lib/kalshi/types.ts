@@ -14,11 +14,26 @@ export type KalshiMarket = {
   yes_sub_title?: string;
   status: string; // "active" | "closed" | "settled" | ... (open set upstream)
   close_time?: string; // ISO 8601
-  /** Prices in integer cents, 1–99. Absent or 0 when a side has no book. */
+  /**
+   * LEGACY prices in integer cents, 1–99. Kalshi migrated the market payload
+   * to dollar-denominated fields (`*_dollars` below) and no longer populates
+   * these; kept optional for resilience and older fixtures. Readers must
+   * prefer the `*_dollars` fields. Absent or 0 when a side has no book.
+   */
   yes_bid?: number;
   yes_ask?: number;
   no_bid?: number;
   no_ask?: number;
+  /**
+   * CURRENT Kalshi price fields: dollar-denominated strings, e.g. "0.83" for
+   * 83¢. A side with no book is "0.0000", the empty string, or absent — each
+   * must resolve to a null cent price (never a fabricated 0). These replace
+   * the legacy integer-cent fields above.
+   */
+  yes_bid_dollars?: string | number;
+  yes_ask_dollars?: string | number;
+  no_bid_dollars?: string | number;
+  no_ask_dollars?: string | number;
   /** Numeric strike for scalar-derived binaries ("75+ yards" → 74.5). */
   floor_strike?: number;
   /**

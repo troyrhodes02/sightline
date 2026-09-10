@@ -1,6 +1,12 @@
 import { join } from "node:path";
 import { readCode } from "@/lib/testing/source";
-import { booksDiffer, sanitizeErrorMessage, toCents } from "./sync";
+import {
+  booksDiffer,
+  dollarsToCents,
+  marketSideCents,
+  sanitizeErrorMessage,
+  toCents,
+} from "./sync";
 
 const syncCode = readCode(
   join(process.cwd(), "src", "lib", "kalshi", "sync.ts"),
@@ -21,6 +27,45 @@ describe("toCents", () => {
     expect(toCents(undefined)).toBeNull();
     expect(toCents(100)).toBeNull();
     expect(toCents(NaN)).toBeNull();
+  });
+});
+
+describe("dollarsToCents (SIG-86: Kalshi's dollar-denominated fields)", () => {
+  it("converts a dollar string to integer cents", () => {
+    // The live book that read as blank before the fix: Puka Nacua 50+ rec yds.
+    expect(dollarsToCents("0.83")).toBe(83);
+    expect(dollarsToCents("0.18")).toBe(18);
+    expect(dollarsToCents("0.0700")).toBe(7); // float noise rounds cleanly
+    expect(dollarsToCents("0.9700")).toBe(97);
+    expect(dollarsToCents("0.01")).toBe(1);
+    expect(dollarsToCents("0.99")).toBe(99);
+    expect(dollarsToCents(0.83)).toBe(83); // numbers accepted too
+  });
+
+  it("treats a side with no book as absent, never a fabricated 0", () => {
+    expect(dollarsToCents("0.0000")).toBeNull();
+    expect(dollarsToCents("")).toBeNull();
+    expect(dollarsToCents(undefined)).toBeNull();
+    expect(dollarsToCents(null)).toBeNull();
+    expect(dollarsToCents("1.0000")).toBeNull(); // 100¢ is out of the 1–99 band
+    expect(dollarsToCents("not-a-number")).toBeNull();
+  });
+});
+
+describe("marketSideCents (prefer dollars, fall back to legacy cents)", () => {
+  it("prefers the dollar field when present", () => {
+    expect(marketSideCents("0.83", 12)).toBe(83);
+  });
+
+  it("falls back to the legacy integer-cent field when dollars is absent", () => {
+    expect(marketSideCents(undefined, 54)).toBe(54);
+    expect(marketSideCents("", 54)).toBe(54);
+    expect(marketSideCents("0.0000", 54)).toBe(54);
+  });
+
+  it("is null when neither field carries a real price", () => {
+    expect(marketSideCents(undefined, undefined)).toBeNull();
+    expect(marketSideCents("0.0000", 0)).toBeNull();
   });
 });
 
