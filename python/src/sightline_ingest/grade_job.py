@@ -50,6 +50,10 @@ from sightline_model.distributions import (
     ZeroInflatedLogNormal,
 )
 from sightline_model.features import assemble
+from sightline_model.simulation.core import (
+    prob_at_least_from_pmf,
+    prob_at_least_from_quantiles,
+)
 from sightline_model.stat_types import REGISTRY
 from sightline_model.stat_types import spec as stat_spec
 
@@ -82,6 +86,11 @@ STATUS_UNSUPPORTED = "unsupported_stat_type"
 SOURCE_POLICY = "policy"
 SOURCE_MARKET = "market"
 
+# SourceClaimOutcome enum values (Adjustment Suggestions, SIG-77).
+STATUS_SOURCE_CORRECT = "correct"
+STATUS_SOURCE_INCORRECT = "incorrect"
+STATUS_SOURCE_UNVERIFIABLE = "unverifiable"
+
 # The evaluative unit (spec §5): per (player, game, stat, model version), the
 # projection with the latest information_cutoff at or before kickoff, ties
 # broken by latest computed_at (id as a total-order tiebreak). Earlier
@@ -99,13 +108,14 @@ _ELIGIBLE_SQL = """
     with eligible as (
         select distinct on (p.player_id, p.game_id, p.stat_type, p.model_version)
                p.id, p.player_id, p.game_id, p.stat_type, p.model_version,
-               p.distribution_kind, p.params, p.pmf,
+               p.distribution_kind, p.params, p.pmf, p.quantiles,
                p.projected_value, p.projected_median, p.information_cutoff,
                g.status as game_status, g.kickoff_at, g.season
           from projections p
           join games g on g.id = p.game_id
          where g.status in ('completed', 'cancelled')
            and p.information_cutoff <= g.kickoff_at
+           and p.provenance = 'base'
          order by p.player_id, p.game_id, p.stat_type, p.model_version,
                   p.information_cutoff desc, p.computed_at desc, p.id
     )
@@ -120,6 +130,37 @@ _ELIGIBLE_SQL = """
             and pg.status in ('graded', 'missing_official_result')
             and pg.graded_stat_version is distinct from s.version)
      order by e.kickoff_at, e.game_id, e.player_id, e.stat_type, e.model_version
+"""
+
+# Adjustment shadows (SIG-77). Unlike the base pass, EVERY shadow is graded —
+# there is no "freshest per key" collapse, because each shadow is a distinct
+# proposal (including superseded ones, which stay historical evidence). Base and
+# adjusted are both graded against the outcome for every suggestion raised.
+_SHADOW_ELIGIBLE_SQL = """
+    select p.id, p.player_id, p.game_id, p.stat_type, p.model_version,
+           p.distribution_kind, p.params, p.pmf, p.quantiles,
+           p.projected_value, p.projected_median, p.information_cutoff,
+           g.status as game_status, g.kickoff_at, g.season
+      from projections p
+      join games g on g.id = p.game_id
+      left join projection_grades pg on pg.projection_id = p.id
+      left join player_game_stats s
+             on s.player_id = p.player_id and s.game_id = p.game_id
+     where p.provenance = 'adjustment_shadow'
+       -- Defence in depth (review audit): the engine never persists a shadow for
+       -- a post-kickoff observation, but the base pass enforces this structurally
+       -- and grading shadows must too — a shadow whose cutoff postdates kickoff
+       -- must never be graded as a pre-game projection (temporal integrity).
+       and p.information_cutoff <= g.kickoff_at
+       and g.status in ('completed', 'cancelled')
+       and (
+            pg.id is null
+         or (g.status = 'cancelled' and pg.status <> 'game_never_completed')
+         or (g.status = 'completed'
+             and pg.status in ('graded', 'missing_official_result')
+             and pg.graded_stat_version is distinct from s.version)
+       )
+     order by g.kickoff_at, p.game_id, p.player_id, p.stat_type, p.id
 """
 
 # Market thresholds for one game: identity and threshold columns only. Reading
@@ -251,13 +292,44 @@ class GradeIntent:
     thresholds: tuple[ThresholdRow, ...] = field(default_factory=tuple)
 
 
-def _rehydrate(kind: str, params: dict, pmf: list | None):
+class _EmpiricalDistribution:
+    """A stored simulation/shadow distribution graded from its compact form.
+
+    Simulation-engine and adjustment-shadow projections store an empirical
+    quantile grid (continuous) or an explicit PMF (count) rather than the
+    baseline's parametric ZIL/NB. Grading them means answering ``P(X >= t)`` from
+    the SAME compact form the slate reads, via the closed-form helpers the
+    golden-parity fixture pins — never a re-sample. This adapter exposes the same
+    ``prob_at_least`` surface the parametric distributions do, so the grade path
+    is one code path across both engines (Adjustment Suggestions, SIG-77).
+    """
+
+    def __init__(
+        self, quantiles: dict[str, float] | None, pmf: list[float] | None
+    ) -> None:
+        self._quantiles = quantiles
+        self._pmf = pmf
+
+    def prob_at_least(self, threshold: float) -> float:
+        if self._quantiles is not None:
+            return prob_at_least_from_quantiles(self._quantiles, threshold)
+        if self._pmf is not None:
+            return prob_at_least_from_pmf(self._pmf, threshold)
+        raise DistributionError(
+            "empirical distribution has neither a quantile grid nor a PMF"
+        )
+
+
+def _rehydrate(kind: str, params: dict, pmf: list | None, quantiles: dict | None = None):
     """Rebuild the stored distribution exactly — the same objects the engine
-    fitted, so a stated probability here is the number the model stated."""
+    fitted (baseline) or the same compact form it stored (simulation/shadow), so
+    a stated probability here is the number the model stated."""
     if kind == KIND_ZIL:
         return ZeroInflatedLogNormal(**params)
     if kind == KIND_NB:
         return NegativeBinomial(**params, cap=max(len(pmf or []) - 1, 1))
+    if kind in ("empirical_quantiles", "empirical_pmf"):
+        return _EmpiricalDistribution(quantiles=quantiles, pmf=pmf)
     raise DistributionError(f"unknown distribution kind {kind!r}")
 
 
@@ -340,7 +412,7 @@ def _intended_grade(
     baselines = compute_baselines(history, season=unit["season"])
 
     distribution = _rehydrate(
-        unit["distribution_kind"], unit["params"], unit["pmf"]
+        unit["distribution_kind"], unit["params"], unit["pmf"], unit.get("quantiles")
     )
 
     thresholds: list[ThresholdRow] = []
@@ -440,10 +512,168 @@ def _write_intent(cur, intent: GradeIntent, *, graded_at: datetime) -> None:
 
 
 def _eligible_units(connect: ConnectionFactory) -> list[dict]:
+    """Base projections needing (re)grading — the freshest per evaluative unit."""
     with connect() as conn, conn.cursor() as cur:
         cur.execute(_ELIGIBLE_SQL)
         cols = [d.name for d in cur.description]
         return [dict(zip(cols, row)) for row in cur.fetchall()]
+
+
+def _shadow_units(connect: ConnectionFactory) -> list[dict]:
+    """Every adjustment-shadow projection needing (re)grading (SIG-77)."""
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(_SHADOW_ELIGIBLE_SQL)
+        cols = [d.name for d in cur.description]
+        return [dict(zip(cols, row)) for row in cur.fetchall()]
+
+
+# --- Source-claim grading (SIG-77, decision 10) ----------------------------
+#
+# Was the source's factual claim correct? Graded against official recorded
+# participation (snaps, or their absence) — the same official-statistics truth
+# the model itself is graded against — NEVER against Kalshi settlement, so a
+# voided contract or a settlement quirk can never corrupt a claim about whether a
+# player actually played. This writes only the source-correctness columns on
+# adjustment_source_events; it never touches a projection or a suggestion.
+
+# Claim values that assert the player will SIT / will PLAY. A "questionable"
+# claim asserts neither and is left ungraded (unverifiable-by-nature).
+_CLAIM_EXPECTS_OUT = frozenset({"out", "doubtful", "ir", "pup"})
+_CLAIM_EXPECTS_IN = frozenset({"active"})
+
+_SNAP_CONTEXT_TYPES = (
+    "snap_count_offense",
+    "snap_count_defense",
+    "snap_pct_offense",
+    "snap_pct_defense",
+    "snap_pct_st",
+)
+
+_UNGRADED_SOURCE_EVENTS_SQL = """
+    select count(*) from adjustment_source_events e
+      join games g on g.id = e.game_id
+     where g.status = 'completed' and e.source_outcome is null
+"""
+
+_COMPLETED_SOURCE_EVENTS_SQL = """
+    select e.id, e.subject_player_id, e.game_id, e.claim_value,
+           e.source_outcome::text as source_outcome, e.graded_stat_version
+      from adjustment_source_events e
+      join games g on g.id = e.game_id
+     where g.status = 'completed'
+     order by g.kickoff_at, e.game_id
+"""
+
+_UPDATE_SOURCE_OUTCOME_SQL = """
+    update adjustment_source_events
+       set source_outcome = %(outcome)s::"SourceClaimOutcome",
+           graded_stat_version = %(version)s,
+           source_graded_at = %(graded_at)s,
+           updated_at = now()
+     where id = %(id)s
+       and (source_outcome, graded_stat_version)
+           is distinct from (%(outcome)s::"SourceClaimOutcome", %(version)s)
+"""
+
+
+def _ungraded_source_events_exist(connect: ConnectionFactory) -> bool:
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(_UNGRADED_SOURCE_EVENTS_SQL)
+        return int(cur.fetchone()[0]) > 0
+
+
+def _game_participation(cur, game_id: str) -> tuple[bool, set[str]]:
+    """(participation-ingested?, players who recorded a snap) for a game."""
+    cur.execute(
+        "select distinct player_id from player_game_context "
+        "where game_id = %s and context_type = any(%s) "
+        "and numeric_value is not null and numeric_value > 0",
+        (game_id, list(_SNAP_CONTEXT_TYPES)),
+    )
+    played = {row[0] for row in cur.fetchall()}
+    cur.execute(
+        "select exists(select 1 from player_game_context "
+        "where game_id = %s and context_type = any(%s))",
+        (game_id, list(_SNAP_CONTEXT_TYPES)),
+    )
+    ingested = bool(cur.fetchone()[0])
+    return ingested, played
+
+
+def _subject_stat_version(cur, player_id: str, game_id: str) -> int | None:
+    """The subject's stat-line version, or None when he has no row.
+
+    None (not 0) for the absent-row case — the same choice the projection-grade
+    path makes — so "no stat row" is distinguishable from a genuine version 0.
+    Collapsing them (review audit) would let a later inserted version-0 row read
+    as unchanged and skip the correction-driven re-grade.
+    """
+    cur.execute(
+        "select version from player_game_stats where player_id = %s and game_id = %s",
+        (player_id, game_id),
+    )
+    row = cur.fetchone()
+    return int(row[0]) if row is not None else None
+
+
+def _source_outcome(claim_value: str, *, ingested: bool, played: bool) -> str | None:
+    """The graded correctness of one claim, or None when it is not gradable."""
+    if not ingested:
+        return STATUS_SOURCE_UNVERIFIABLE
+    cv = claim_value.lower()
+    if cv in _CLAIM_EXPECTS_OUT:
+        return STATUS_SOURCE_CORRECT if not played else STATUS_SOURCE_INCORRECT
+    if cv in _CLAIM_EXPECTS_IN:
+        return STATUS_SOURCE_CORRECT if played else STATUS_SOURCE_INCORRECT
+    return None  # e.g. "questionable" — asserts neither; left ungraded
+
+
+def _grade_source_claims(connect: ConnectionFactory, *, now: datetime) -> int:
+    """Grade every completed-game source claim against official participation.
+
+    Idempotent: the update writes only when the outcome or version changed, so a
+    re-run writes nothing and a stat/participation correction regrades. One
+    transaction per game, so a partial pass never presents as complete.
+    """
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(_COMPLETED_SOURCE_EVENTS_SQL)
+        cols = [d.name for d in cur.description]
+        events = [dict(zip(cols, row)) for row in cur.fetchall()]
+
+    by_game: dict[str, list[dict]] = {}
+    for e in events:
+        by_game.setdefault(e["game_id"], []).append(e)
+
+    graded = 0
+    with connect() as conn:
+        for game_id, game_events in by_game.items():
+            with conn.transaction():
+                with conn.cursor() as cur:
+                    ingested, played = _game_participation(cur, game_id)
+                    for e in game_events:
+                        outcome = _source_outcome(
+                            e["claim_value"],
+                            ingested=ingested,
+                            played=e["subject_player_id"] in played,
+                        )
+                        if outcome is None:
+                            continue
+                        # TODO(SIG-81): fetch stat versions once per game keyed by
+                        # player rather than one query per event (N+1).
+                        version = _subject_stat_version(
+                            cur, e["subject_player_id"], game_id
+                        )
+                        cur.execute(
+                            _UPDATE_SOURCE_OUTCOME_SQL,
+                            {
+                                "id": e["id"],
+                                "outcome": outcome,
+                                "version": version,
+                                "graded_at": now,
+                            },
+                        )
+                        graded += 1
+    return graded
 
 
 def _seasons_by_game(connect: ConnectionFactory) -> dict[str, int]:
@@ -480,10 +710,16 @@ def _grade_all(
     units: list[dict],
     *,
     now: datetime,
+    record_games: bool = True,
 ) -> tuple[int, int]:
     """Grade every selected game, one transaction per game.
 
     Returns ``(graded_units, failed_games)``.
+
+    ``record_games`` gates the per-game ``pipeline_run_game`` recording. Base
+    projections run with it on; the shadow pass runs with it OFF and in its OWN
+    per-game transactions (review audit) so a malformed shadow can never roll
+    back — or overwrite the run-game row of — a game's committed base grades.
     """
     grading = GradingCorpus(connect)
     seasons_by_game = _seasons_by_game(connect)
@@ -525,17 +761,19 @@ def _grade_all(
                 failed_games += 1
                 message = sanitize_error(exc)
                 print(f"grade: game {game_id} failed: {message}", file=sys.stderr)
-                record_pipeline_run_game(
-                    connect, run_id, game_id, status=GAME_FAILED,
-                    error_message=message,
-                )
+                if record_games:
+                    record_pipeline_run_game(
+                        connect, run_id, game_id, status=GAME_FAILED,
+                        error_message=message,
+                    )
                 continue
 
             graded_total += game_graded
-            record_pipeline_run_game(
-                connect, run_id, game_id, status=GAME_SUCCEEDED,
-                projected_count=game_graded,
-            )
+            if record_games:
+                record_pipeline_run_game(
+                    connect, run_id, game_id, status=GAME_SUCCEEDED,
+                    projected_count=game_graded,
+                )
     return graded_total, failed_games
 
 
@@ -556,11 +794,13 @@ def run_grade(
     now = now or _now()
     invocation_id = invocation_id or manual_invocation_id()
 
-    units = _eligible_units(connect)
-    if not units:
+    base_units = _eligible_units(connect)
+    shadow_units = _shadow_units(connect)
+    source_pending = _ungraded_source_events_exist(connect)
+    if not base_units and not shadow_units and not source_pending:
         print(
-            "grade: no completed game has projections awaiting grades; "
-            "not expected, nothing recorded"
+            "grade: no completed game has projections or source claims awaiting "
+            "grades; not expected, nothing recorded"
         )
         return "not_expected"
 
@@ -572,7 +812,19 @@ def run_grade(
         return "duplicate"
 
     try:
-        graded, failed_games = _grade_all(connect, run_id, units, now=now)
+        # Base grades first, in per-game transactions that own the run-game row.
+        graded, failed_games = _grade_all(connect, run_id, base_units, now=now)
+        # Shadows in a SEPARATE pass (review audit): their own per-game
+        # transactions, no run-game recording — a malformed shadow fails only
+        # itself and never rolls back or overwrites a committed base grade.
+        graded_s, failed_s = _grade_all(
+            connect, run_id, shadow_units, now=now, record_games=False
+        )
+        graded += graded_s
+        failed_games += failed_s
+        # Source-claim grading (SIG-77): was the source right? Graded against
+        # official participation, independently of the projection grades above.
+        source_graded = _grade_source_claims(connect, now=now)
     except BaseException as exc:
         # Fatal error outside any per-game boundary: the cycle is failed,
         # never left presenting as (or later completing into) a success. The
@@ -598,7 +850,9 @@ def run_grade(
     )
     print(
         f"grade: {status} ({graded} projection(s) graded across "
-        f"{len({u['game_id'] for u in units})} game(s), {failed_games} failed)"
+        f"{len({u['game_id'] for u in (*base_units, *shadow_units)})} game(s), "
+        f"{failed_games} failed; "
+        f"{source_graded} source claim(s) graded)"
     )
     return status
 

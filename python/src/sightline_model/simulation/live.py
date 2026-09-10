@@ -112,7 +112,9 @@ _INSERT_PROJECTION_SQL = """
         %(interval_high)s, %(confidence)s, %(n_eff)s,
         %(computed_at)s, %(information_cutoff)s
     )
-    on conflict (player_id, game_id, stat_type, model_version, information_cutoff)
+    -- provenance defaults to 'base' and joins the unique key (SIG-74), so a
+    -- base projection never collides with an adjustment_shadow at the same cutoff.
+    on conflict (player_id, game_id, stat_type, model_version, information_cutoff, provenance)
     do nothing
 """
 
@@ -328,6 +330,44 @@ def project_game_simulation(
     return _persist(conn, result, cutoff=cutoff, computed_at=computed_at)
 
 
+def simulate_game_adjusted(
+    corpus: AsOfCorpus,
+    *,
+    game: dict,
+    game_id: str,
+    stat_names: list[str],
+    player_ids_by_stat: dict[str, list[str]],
+    cutoff: datetime,
+    computed_at: datetime,
+    models: SimulationModels,
+    unavailable_player_ids: frozenset[str],
+    draw_count: int = DRAW_COUNT,
+) -> GameSimulationResult:
+    """Simulate one game with an extra set of players forced UNAVAILABLE.
+
+    The Adjustment Suggestions engine (SIG-75) uses this to compute a
+    *shadow* projection: what the game looks like if, say, ESPN's reported
+    inactive really sits out. It shares every point-in-time discipline of the
+    base path — all reads go through the cutoff-bound ``AsOfCorpus`` — and does
+    NOT persist; the engine writes the shadows itself with
+    ``provenance='adjustment_shadow'``. The availability override is applied on
+    top of the as-of injury designation, never instead of it: a player already
+    out stays out.
+    """
+    return _simulate(
+        corpus,
+        game=game,
+        game_id=game_id,
+        stat_names=stat_names,
+        player_ids_by_stat=player_ids_by_stat,
+        cutoff=cutoff,
+        computed_at=computed_at,
+        models=models,
+        draw_count=draw_count,
+        unavailable_player_ids=unavailable_player_ids,
+    )
+
+
 def _simulate(
     corpus: AsOfCorpus,
     *,
@@ -339,6 +379,7 @@ def _simulate(
     computed_at: datetime,
     models: SimulationModels,
     draw_count: int,
+    unavailable_player_ids: frozenset[str] = frozenset(),
 ) -> GameSimulationResult:
     """Assemble Layers 1-3 as-of and run the joint simulation for one game.
 
@@ -391,7 +432,14 @@ def _simulate(
             pid: f for pid, f in usage_features[team].items() if f.team_abbr == team
         }
         scores = models.usage.predict(feats) if feats else {}
-        available = {pid: feats[pid].is_available for pid in feats}
+        # The adjustment override forces the reported inactive to unavailable ON
+        # TOP OF his as-of injury designation — never re-enabling a player the
+        # corpus already knows is out. His freed usage renormalises structurally
+        # over available teammates inside allocate_shares (SIG-75).
+        available = {
+            pid: (feats[pid].is_available and pid not in unavailable_player_ids)
+            for pid in feats
+        }
         shares = allocate_shares(scores, available)
         usage_by_team[team] = {
             "target_shares": {pid: s["target_share"] for pid, s in shares.items()},

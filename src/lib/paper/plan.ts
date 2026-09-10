@@ -54,6 +54,13 @@ export type CandidateInput = {
   confidence: Confidence | null;
   /** Null when there is no projection; staleness qualifies a projection. */
   staleness: StalenessDto | null;
+  /**
+   * A pending Adjustment Suggestion (or an insufficient-evidence hold) against
+   * this contract's player/stat (decision 1). Null when none. `held` marks the
+   * insufficient-evidence case. Blocks this contract only — teammates and the
+   * rest of the slate trade normally.
+   */
+  pendingSuggestion: { held: boolean } | null;
   yesAskCents: number | null;
   noAskCents: number | null;
   /** Displayed size at the executable price. Null means "could not read". */
@@ -493,6 +500,22 @@ function priceCandidate(
   input: CyclePlanInput,
 ): PlannedCandidate {
   const planned = emptyPlanned(candidate);
+
+  // A pending Adjustment Suggestion means important late information may not be
+  // reflected in the active projection; an insufficient-evidence hold means the
+  // model cannot defensibly estimate the adjustment (decision 1/6). Either way
+  // the bot must not stake this contract until William resolves it — the same
+  // structural refusal as a stale projection, tagged distinctly so the two
+  // causes stay diagnosable. Checked before staleness so the more specific,
+  // actionable reason is the one recorded when a contract is both.
+  if (candidate.pendingSuggestion !== null) {
+    planned.verdict = "refused";
+    planned.boundBy = "pending_suggestion";
+    planned.boundByDetail = candidate.pendingSuggestion.held
+      ? "insufficient evidence to estimate the adjustment"
+      : "pending adjustment suggestion awaiting review";
+    return planned;
+  }
 
   // A projection that is stale, or that admits it predates today's inactives,
   // is exactly what autonomous execution must not stake against. Both states

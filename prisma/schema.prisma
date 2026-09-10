@@ -186,6 +186,11 @@ model Player {
 
   projectionDeclines ProjectionDecline[]
 
+  // Adjustment Suggestions: as the SUBJECT of a source claim, and as the TARGET
+  // of a per-projection suggestion. Two different roles, two relations.
+  adjustmentClaims      AdjustmentSourceEvent[]
+  adjustmentSuggestions AdjustmentSuggestion[]
+
   @@index([fullName])
   @@map("players")
 }
@@ -256,6 +261,9 @@ model Game {
 
   projectionDeclines ProjectionDecline[]
   gameSimulations    GameSimulation[]
+
+  adjustmentClaims      AdjustmentSourceEvent[]
+  adjustmentSuggestions AdjustmentSuggestion[]
 
   @@unique([season, week, seasonType, homeTeamId, awayTeamId])
   @@index([season, week])
@@ -711,6 +719,8 @@ model User {
   paperDryRuns       PaperDryRun[]
   paperReplays       PaperReplay[]
 
+  adjustmentSuggestionsDecided AdjustmentSuggestion[]
+
   // Pending requests are read first and most often; the list groups by status.
   @@index([status, requestedAt])
   @@map("users")
@@ -742,6 +752,45 @@ enum Confidence {
 /// Distinct from the ordinary absence of any projection row. (Simulation Engine RD-4)
 enum ProjectionDeclineReason {
   insufficient_evidence // zero relevant opportunity as of the information cutoff
+}
+
+// ---------------------------------------------------------------------------
+// Adjustment Suggestions & Source Reliability enums
+// ---------------------------------------------------------------------------
+
+/// A base projection is the ordinary engine output; an adjustment_shadow is the
+/// "what-if" recompute a suggestion proposes. Both are graded; the shadow is
+/// never active merely by existing (RD-AS-2/RD-AS-3).
+enum ProjectionProvenance {
+  base
+  adjustment_shadow
+}
+
+/// Lifecycle of a source CLAIM under the (source, subjectPlayer, claimType)
+/// dedup identity (decision 3/4).
+enum SourceEventStatus {
+  active // the current confirmed claim; may have open suggestions
+  superseded // replaced by a newer confirmed value on the same identity
+  conflicting // two contradictory unconfirmed values within the conflict window
+  post_kickoff // arrived after actual kickoff; retained, source-graded, non-actionable
+}
+
+/// Whether the source's factual claim proved correct. Graded against official
+/// participation, NEVER Kalshi settlement (decision 10). `unverifiable` when
+/// participation is unavailable — never fabricated as correct.
+enum SourceClaimOutcome {
+  correct
+  incorrect
+  unverifiable
+}
+
+/// A per-projection proposed change.
+enum SuggestionStatus {
+  pending // awaiting William; blocks the affected player's contracts
+  accepted // the shadow is the active projection
+  declined // the base remains active; the shadow is still graded
+  insufficient_evidence // model cannot defensibly estimate; no shadow; contract held
+  superseded // its source event was superseded; retained as history
 }
 
 /// Correlation method for persisted joint outcomes.
@@ -891,6 +940,15 @@ model Projection {
   informationCutoff DateTime   @map("information_cutoff")
   createdAt         DateTime   @default(now()) @map("created_at")
 
+  // Adjustment Suggestions (RD-AS-2). A `base` projection is the ordinary
+  // engine output; an `adjustment_shadow` is the "what-if" recompute a
+  // suggestion proposes — a real, durable, gradable projection that is NEVER
+  // active merely by existing. `adjustmentSuggestionId` is a denormalized
+  // marker the shadow writer sets so the grade pass can attribute a shadow to
+  // its suggestion cheaply; the authoritative link is the FK on the suggestion.
+  provenance             ProjectionProvenance @default(base)
+  adjustmentSuggestionId String?              @map("adjustment_suggestion_id")
+
   player  Player             @relation(fields: [playerId], references: [id])
   game    Game               @relation(fields: [gameId], references: [id])
   drivers ProjectionDriver[]
@@ -903,14 +961,21 @@ model Projection {
 
   paperCandidates PaperCycleCandidate[]
 
+  baseForSuggestions  AdjustmentSuggestion[] @relation("BaseProjection")
+  shadowForSuggestion AdjustmentSuggestion?  @relation("ShadowProjection")
+
   // Idempotent persist: same inputs, same row. A new cutoff is a new row;
-  // the freshest (max computedAt) is what the slate reads.
-  @@unique([playerId, gameId, statType, modelVersion, informationCutoff])
+  // the freshest (max computedAt) is what the slate reads. `provenance` joins
+  // the natural key so a shadow can never collide with a base sharing a cutoff;
+  // existing rows default to `base`, so the migration preserves current uniqueness.
+  @@unique([playerId, gameId, statType, modelVersion, informationCutoff, provenance])
   @@index([gameId, statType, computedAt(sort: Desc)])
   @@index([playerId, gameId, statType, computedAt(sort: Desc)])
   // ModelSelection-aware freshest-projection selection (slate hot path):
   // freshest projection per (game, stat, active model_version).
   @@index([gameId, statType, modelVersion, computedAt(sort: Desc)])
+  // Active-BASE selection excludes shadows without scanning them.
+  @@index([gameId, statType, provenance, computedAt(sort: Desc)])
   @@map("projections")
 }
 
@@ -1266,6 +1331,7 @@ enum BindingConstraint {
   breaker
   no_active_recalibration
   opposite_side_held
+  pending_suggestion // affected player has a pending material adjustment suggestion (decision 1)
 }
 
 enum PaperPositionStatus {
@@ -1572,6 +1638,12 @@ model PaperPosition {
   realizedPnlCents Int?                @map("realized_pnl_cents")
   settledAt        DateTime?           @map("settled_at")
 
+  // Adjustment Suggestions (decision 8). When an accepted adjustment changes the
+  // projection AFTER this position was opened, the position is annotated here and
+  // left exactly as it is — Sightline never auto-exits, offsets, or reduces it.
+  projectionChangedAfterEntry Boolean   @default(false) @map("projection_changed_after_entry")
+  projectionChangedAt         DateTime? @map("projection_changed_at")
+
   openedAt  DateTime @map("opened_at")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1733,4 +1805,112 @@ model PaperReplayModeResult {
 
   @@unique([replayId, mode])
   @@map("paper_replay_mode_results")
+}
+
+// ---------------------------------------------------------------------------
+// Adjustment Suggestions & Source Reliability
+// (Adjustment Suggestions & Source Reliability — SIG-74…SIG-80)
+//
+// Two entities, because a single source claim ("ESPN says Higgins is OUT") can
+// move several teammate projections, and the two reliability questions have
+// different grading units:
+//
+//   AdjustmentSourceEvent — the CLAIM. Bitemporal fact. The dedup / reversal /
+//     conflict identity. The Source Accuracy grading unit (was the claim right,
+//     graded against official participation — decision 10). ESPN reports live
+//     ONLY here, never in PlayerGameContext, so an unproven feed can never reach
+//     the as-of feature path (RD-AS-5).
+//
+//   AdjustmentSuggestion — the per-target-projection PROPOSAL (the Architecture
+//     Doc's named entity). The Adjustment Accuracy grading unit (base vs shadow
+//     against the official stat line). Never deletes the base on accept, never
+//     deletes the shadow on decline.
+//
+// NOT bitemporal on the suggestion: it is product state, not a fact about the
+// world. The source event is the fact and carries valid_at/known_at.
+// ---------------------------------------------------------------------------
+
+model AdjustmentSourceEvent {
+  id              String     @id @default(uuid())
+  source          DataSource // espn for this pitch; open for future sources
+  subjectPlayerId String     @map("subject_player_id")
+  gameId          String     @map("game_id")
+  claimType       String     @map("claim_type") // validated string, open set: "game_status"
+  claimValue      String     @map("claim_value") // validated: "out" | "doubtful" | "questionable" | "active"
+  evidenceText    String     @map("evidence_text") // verbatim, source-derived, plain language
+
+  status         SourceEventStatus @default(active)
+  supersededById String?           @map("superseded_by_id")
+
+  // Source-correctness grade, written after the game by the grading pass.
+  sourceOutcome     SourceClaimOutcome? @map("source_outcome")
+  gradedStatVersion Int?                @map("graded_stat_version")
+  sourceGradedAt    DateTime?           @map("source_graded_at")
+
+  // Bitemporal. valid_at = the source's own effective/observation time for the
+  // claim (when it became true of the world per the source); known_at = when
+  // Sightline ingested it. For a live pre-game feed both are pre-kickoff and
+  // known_at >= valid_at holds (enforced by CHECK), exactly like injury reports
+  // in player_game_context. The game the claim pertains to is `gameId`, NOT
+  // valid_at — conflating them would violate known_at >= valid_at.
+  validAt              DateTime @map("valid_at")
+  knownAt              DateTime @map("known_at")
+  knownAtReconstructed Boolean  @default(false) @map("known_at_reconstructed") // live feed: observed, not reconstructed
+  raisedAt             DateTime @map("raised_at") // first stored; anchors the conflict window
+  lastConfirmedAt      DateTime @map("last_confirmed_at")
+
+  ingestRunId String   @map("ingest_run_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  subjectPlayer Player                  @relation(fields: [subjectPlayerId], references: [id])
+  game          Game                    @relation(fields: [gameId], references: [id])
+  supersededBy  AdjustmentSourceEvent?  @relation("EventReversal", fields: [supersededById], references: [id])
+  supersedes    AdjustmentSourceEvent[] @relation("EventReversal")
+  suggestions   AdjustmentSuggestion[]
+
+  // At most one non-superseded event per dedup identity is enforced by a partial
+  // unique index (raw SQL migration; Prisma cannot express a WHERE clause here).
+  @@index([source, subjectPlayerId, claimType, status])
+  @@index([gameId, status])
+  @@index([knownAt])
+  @@map("adjustment_source_events")
+}
+
+model AdjustmentSuggestion {
+  id             String   @id @default(uuid())
+  sourceEventId  String   @map("source_event_id")
+  targetPlayerId String   @map("target_player_id")
+  gameId         String   @map("game_id")
+  statType       StatType @map("stat_type")
+
+  baseProjectionId   String  @map("base_projection_id")
+  // One shadow belongs to exactly one suggestion (created for it).
+  shadowProjectionId String? @unique @map("shadow_projection_id") // null when insufficient_evidence
+
+  status SuggestionStatus @default(pending)
+
+  // Materiality (decision 5). `materialityKind` names which metric decided it.
+  materialityKind     String   @map("materiality_kind") // "listed_threshold_pp" | "unlisted_relative_pct"
+  materialThresholdPp Decimal? @map("material_threshold_pp") @db.Decimal(6, 2) // max abs pp shift over listed contracts
+  materialRelativePct Decimal? @map("material_relative_pct") @db.Decimal(6, 2) // relative % shift to projected value
+  reasonText          String   @map("reason_text") // plain-language, model-derived; rendered verbatim
+
+  decidedByUserId String?   @map("decided_by_user_id")
+  decidedAt       DateTime? @map("decided_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  sourceEvent      AdjustmentSourceEvent @relation(fields: [sourceEventId], references: [id])
+  targetPlayer     Player                @relation(fields: [targetPlayerId], references: [id])
+  game             Game                  @relation(fields: [gameId], references: [id])
+  baseProjection   Projection            @relation("BaseProjection", fields: [baseProjectionId], references: [id])
+  shadowProjection Projection?           @relation("ShadowProjection", fields: [shadowProjectionId], references: [id])
+  decidedBy        User?                 @relation(fields: [decidedByUserId], references: [id])
+
+  @@index([gameId, status])
+  @@index([targetPlayerId, gameId, statType, status])
+  @@index([sourceEventId])
+  @@map("adjustment_suggestions")
 }

@@ -86,7 +86,9 @@ def _install_fakes(monkeypatch, calls: list[str], *, failing: set[str] = frozens
 
         return Dataset(name=name, source="nflverse", run=run)
 
-    for name in ("schedule", "pbp", "stats", "context", "weather"):
+    # espn_inactives (SIG-76) is a game-day OPTIONAL source; fake it so the
+    # gameday tests stay hermetic (the real one would attempt an ESPN fetch).
+    for name in ("schedule", "pbp", "stats", "context", "weather", "espn_inactives"):
         monkeypatch.setitem(DATASETS, name, fake(name))
 
 
@@ -177,7 +179,7 @@ def test_dispatch_records_gameday_ingest_and_recompute(
 
     assert exit_code == 0
     # The game-day ingest pass: fast-moving pre-kickoff facts only.
-    assert calls == ["schedule", "context", "weather"], (
+    assert calls == ["schedule", "context", "weather", "espn_inactives"], (
         "pbp and stats move nightly, never inside a kickoff window"
     )
     runs = _pipeline_runs(connect)

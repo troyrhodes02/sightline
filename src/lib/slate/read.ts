@@ -23,6 +23,10 @@ import {
 import { decisionOutcome } from "@/lib/accuracy/derive";
 import { readOutcomeBlock } from "./outcome-block";
 import { probAtLeast } from "./probability";
+import {
+  acceptedShadowProjectionIds,
+  projectionKey,
+} from "@/lib/suggestions/active-projection";
 import { formatAge } from "./staleness";
 import { latestFactKnownAtByGame, stalenessForRow } from "./staleness-read";
 
@@ -567,13 +571,11 @@ export async function readContractDetail(
 // Internals
 // ---------------------------------------------------------------------------
 
-export function projectionKey(
-  playerId: string,
-  gameId: string,
-  statType: StatType,
-): string {
-  return `${playerId}:${gameId}:${statType}`;
-}
+// Single source for the (player, game, stat) key, imported from the active-
+// projection resolver so the freshest-base map and the accepted-shadow overlay
+// can never key differently (review audit: was duplicated byte-for-byte here).
+// Re-exported for existing importers (e.g. final-snapshot).
+export { projectionKey };
 
 type FreshProjection = {
   id: string;
@@ -625,8 +627,30 @@ export async function freshestProjections(
 > {
   if (keys.length === 0) return new Map();
   const activeByStat = await modelSelectionMap();
+  const projectionSelect = {
+    id: true,
+    playerId: true,
+    gameId: true,
+    statType: true,
+    distributionKind: true,
+    params: true,
+    pmf: true,
+    quantiles: true,
+    projectedValue: true,
+    projectedMedian: true,
+    intervalLow: true,
+    intervalHigh: true,
+    confidence: true,
+    modelVersion: true,
+    computedAt: true,
+    informationCutoff: true,
+  } as const;
   const rows = await prisma.projection.findMany({
     where: {
+      // A stored adjustment shadow is never active merely by existing
+      // (RD-AS-3): the freshest BASE is the default; an accepted shadow is
+      // overlaid below.
+      provenance: "base",
       OR: keys.map((key) => ({
         playerId: key.playerId,
         gameId: key.gameId,
@@ -634,24 +658,7 @@ export async function freshestProjections(
       })),
     },
     orderBy: { computedAt: "desc" },
-    select: {
-      id: true,
-      playerId: true,
-      gameId: true,
-      statType: true,
-      distributionKind: true,
-      params: true,
-      pmf: true,
-      quantiles: true,
-      projectedValue: true,
-      projectedMedian: true,
-      intervalLow: true,
-      intervalHigh: true,
-      confidence: true,
-      modelVersion: true,
-      computedAt: true,
-      informationCutoff: true,
-    },
+    select: projectionSelect,
   });
   const freshest = new Map<
     string,
@@ -664,6 +671,22 @@ export async function freshestProjections(
     if (active === undefined || row.modelVersion !== active) continue;
     const key = projectionKey(row.playerId, row.gameId, row.statType);
     if (!freshest.has(key)) freshest.set(key, row);
+  }
+
+  // An ACCEPTED suggestion's shadow becomes the active projection for its key,
+  // bypassing the active-model filter (acceptance makes it active by fiat, and
+  // a shadow is always a simulation projection whatever the base's model was).
+  const acceptedShadowIds = await acceptedShadowProjectionIds(keys);
+  if (acceptedShadowIds.size > 0) {
+    const shadows = await prisma.projection.findMany({
+      where: { id: { in: [...acceptedShadowIds.values()] } },
+      select: projectionSelect,
+    });
+    const shadowById = new Map(shadows.map((s) => [s.id, s]));
+    for (const [key, shadowId] of acceptedShadowIds) {
+      const shadow = shadowById.get(shadowId);
+      if (shadow) freshest.set(key, shadow);
+    }
   }
   return freshest;
 }
