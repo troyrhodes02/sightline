@@ -824,29 +824,37 @@ async function persistSnapshotTransitions(
   const candidates = inputs;
   if (candidates.length === 0) return;
 
-  await prisma.$transaction(async (tx) => {
-    const latest = await tx.recommendationSnapshot.findMany({
-      where: { contractId: { in: candidates.map((c) => c.contractId) } },
-      orderBy: { createdAt: "desc" },
-      distinct: ["contractId"],
-      select: { contractId: true, isRecommended: true, side: true },
-    });
-    const latestByContract = new Map(latest.map((s) => [s.contractId, s]));
+  await prisma.$transaction(
+    async (tx) => {
+      const latest = await tx.recommendationSnapshot.findMany({
+        where: { contractId: { in: candidates.map((c) => c.contractId) } },
+        orderBy: { createdAt: "desc" },
+        distinct: ["contractId"],
+        select: { contractId: true, isRecommended: true, side: true },
+      });
+      const latestByContract = new Map(latest.map((s) => [s.contractId, s]));
 
-    for (const input of candidates) {
-      const previous = latestByContract.get(input.contractId);
-      let trigger: "appeared" | "state_changed" | null = null;
-      if (!previous) {
-        if (input.isRecommended) trigger = "appeared";
-      } else if (previous.isRecommended !== input.isRecommended) {
-        trigger = "state_changed";
-      } else if (input.isRecommended && previous.side !== input.side) {
-        trigger = "state_changed";
-      }
-      if (!trigger) continue;
+      // Accumulate the transitions and write them in ONE round trip. A loop of
+      // per-row create()s inside an interactive transaction is fine when a
+      // handful of contracts change, but the FIRST read after prices start
+      // flowing flips many contracts to `appeared` at once — and each create()
+      // is a pooler round trip, so the loop blew the 5s interactive-transaction
+      // limit (P2028) and took the whole slate read down. createMany is a single
+      // statement; the transaction still bounds the read+write together.
+      const rows: Prisma.RecommendationSnapshotCreateManyInput[] = [];
+      for (const input of candidates) {
+        const previous = latestByContract.get(input.contractId);
+        let trigger: "appeared" | "state_changed" | null = null;
+        if (!previous) {
+          if (input.isRecommended) trigger = "appeared";
+        } else if (previous.isRecommended !== input.isRecommended) {
+          trigger = "state_changed";
+        } else if (input.isRecommended && previous.side !== input.side) {
+          trigger = "state_changed";
+        }
+        if (!trigger) continue;
 
-      await tx.recommendationSnapshot.create({
-        data: {
+        rows.push({
           contractId: input.contractId,
           projectionId: input.projectionId,
           priceObservationId: input.priceObservationId,
@@ -859,10 +867,17 @@ async function persistSnapshotTransitions(
           isRecommended: input.isRecommended,
           thresholdPoints: input.thresholdPoints,
           trigger,
-        },
-      });
-    }
-  });
+        });
+      }
+
+      if (rows.length > 0) {
+        await tx.recommendationSnapshot.createMany({ data: rows });
+      }
+    },
+    // Headroom over the 5s default for the read + one bulk insert through the
+    // transaction-mode pooler on a full slate.
+    { timeout: 20_000 },
+  );
 }
 
 /** Exposed for the decisions ticket: one snapshot at decision time. */
