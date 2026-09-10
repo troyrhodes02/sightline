@@ -38,8 +38,11 @@ _SNAP_COLS = [
     "game_id", "season", "pfr_player_id", "team",
     "offense_snaps", "offense_pct", "defense_snaps", "defense_pct", "st_pct",
 ]
+# date_modified was removed from the nflverse injuries feed in 2025+ (SIG-82);
+# the empty-frame shape mirrors the current schema so the early-season fallback
+# matches what the ingest now requires.
 _INJURY_COLS = [
-    "season", "week", "team", "gsis_id", "report_status", "practice_status", "date_modified",
+    "season", "week", "team", "gsis_id", "report_status", "practice_status",
 ]
 
 

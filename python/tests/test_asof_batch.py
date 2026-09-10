@@ -15,7 +15,7 @@ must refuse identically.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta
 
 import polars as pl
 import pytest
@@ -99,20 +99,18 @@ def _stats_df(*, corrected_for: str | None = None, value: float = 999.0) -> pl.D
 
 
 def _inj_df() -> pl.DataFrame:
-    # Two observations for the first ten players: a Wednesday designation and a
-    # Friday upgrade, so the batch read has a progression to get wrong.
+    # SIG-82: nflverse dropped date_modified, so a week's injury report is one
+    # current designation per (season, week, team, player), collapsed onto a
+    # single reconstructed known_at (the day-before-kickoff window). The first
+    # ten players are listed Out for the week-5 target game.
     gsis = [g for g, _ in PLAYERS[:10]]
     return pl.DataFrame({
-        "season": [2023] * (2 * len(gsis)),
-        "week": [5] * (2 * len(gsis)),
-        "team": ["KC"] * (2 * len(gsis)),
-        "gsis_id": gsis * 2,
-        "report_status": ["Questionable"] * len(gsis) + ["Out"] * len(gsis),
-        "practice_status": [None] * (2 * len(gsis)),
-        "date_modified": (
-            [datetime(2023, 10, 4, 18, 0, tzinfo=timezone.utc)] * len(gsis)
-            + [datetime(2023, 10, 6, 22, 0, tzinfo=timezone.utc)] * len(gsis)
-        ),
+        "season": [2023] * len(gsis),
+        "week": [5] * len(gsis),
+        "team": ["KC"] * len(gsis),
+        "gsis_id": gsis,
+        "report_status": ["Out"] * len(gsis),
+        "practice_status": [None] * len(gsis),
     })
 
 
@@ -140,9 +138,10 @@ def corpus(connect, clean_db):
     return connect
 
 
-# The Thursday before the week-5 game: weeks 1-4 are published, the Friday
-# injury upgrade is not.
-CUTOFF = datetime(2023, 10, 5, 12, 0)
+# The day of the week-5 game, pre-kickoff: weeks 1-4 stats are published and the
+# week-5 injury report window (reconstructed to 2023-10-07 20:00Z, the day before
+# kickoff) has passed, but the week-5 stat line has not been published yet.
+CUTOFF = datetime(2023, 10, 8, 12, 0)
 
 ALL_IDS = [player_id(g) for g, _ in PLAYERS]
 
@@ -240,22 +239,29 @@ def test_batch_context_equals_single_row_reads(corpus) -> None:
         assert _frames_equal(sliced, single), f"context disagreement for {pid}"
 
 
-def test_batch_context_honours_the_cutoff_progression(corpus) -> None:
-    # The Friday "Out" is known at 2023-10-06 22:00Z; the Thursday cutoff must
-    # see only the Wednesday "Questionable" on the batch path too.
-    asof = AsOfCorpus(corpus, CUTOFF)
-    batch = asof.player_context_batch(
-        player_ids=ALL_IDS, game_id=game_id(TARGET), context_type="injury_designation"
-    )
-    statuses = set(batch["text_value"].to_list())
-    assert statuses == {"Questionable"}, statuses
+def test_batch_context_honours_the_cutoff_reconstructed_knownat(corpus) -> None:
+    # SIG-82: a week's injury designation collapses onto one reconstructed
+    # known_at (the day-before-kickoff report window). One second before that
+    # bound the batch path must see nothing; at the bound the "Out" appears —
+    # the batch path honouring the cutoff exactly as the single-row path does.
+    from sightline_ingest.datasets._common import injury_report_knownat
 
-    # And two seconds after the upgrade published, both are visible.
-    later = AsOfCorpus(corpus, datetime(2023, 10, 6, 22, 0, 2))
-    after = later.player_context_batch(
+    with corpus() as conn, conn.cursor() as cur:
+        cur.execute("select kickoff_at from games where id = %s", (game_id(TARGET),))
+        kickoff = cur.fetchone()[0]
+    bound = injury_report_knownat(kickoff)
+
+    before = AsOfCorpus(corpus, bound - timedelta(seconds=1))
+    empty = before.player_context_batch(
         player_ids=ALL_IDS, game_id=game_id(TARGET), context_type="injury_designation"
     )
-    assert set(after["text_value"].to_list()) == {"Questionable", "Out"}
+    assert empty.height == 0, set(empty["text_value"].to_list())
+
+    at_bound = AsOfCorpus(corpus, bound)
+    visible = at_bound.player_context_batch(
+        player_ids=ALL_IDS, game_id=game_id(TARGET), context_type="injury_designation"
+    )
+    assert set(visible["text_value"].to_list()) == {"Out"}
 
 
 def test_batch_rest_and_travel_equals_single_row_reads(corpus) -> None:

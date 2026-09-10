@@ -3,12 +3,15 @@ observation stream. Requires a database."""
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
 import polars as pl
 import pytest
 
-from sightline_ingest.datasets._common import day_after_game_knownat, game_id, player_id
+from sightline_ingest.datasets._common import (
+    day_after_game_knownat,
+    game_id,
+    injury_report_knownat,
+    player_id,
+)
 from sightline_ingest.datasets.context import ingest_context
 from sightline_ingest.datasets.players import ingest_players
 from sightline_ingest.datasets.schedule import ingest_schedule
@@ -62,21 +65,20 @@ def _snaps_df(rows: int = 1) -> pl.DataFrame:
     })
 
 
-def _inj_df(report: str, practice: str, modified: datetime) -> pl.DataFrame:
-    # date_modified is tz-aware UTC upstream; the ingest enforces that.
+def _inj_df(report: str, practice: str) -> pl.DataFrame:
+    # nflverse dropped date_modified (SIG-82); the feed is one current
+    # designation per (season, week, team, player).
     return pl.DataFrame({
         "season": [2023], "week": [1], "team": ["KC"], "gsis_id": [GSIS],
         "report_status": [report], "practice_status": [practice],
-        "date_modified": [modified.replace(tzinfo=timezone.utc)],
     })
 
 
 def _empty_inj(season: int = 2023) -> pl.DataFrame:
     return pl.DataFrame(
         {"season": [], "week": [], "team": [], "gsis_id": [],
-         "report_status": [], "practice_status": [], "date_modified": []},
-        schema_overrides={"season": pl.Int64, "week": pl.Int64,
-                          "date_modified": pl.Datetime},
+         "report_status": [], "practice_status": []},
+        schema_overrides={"season": pl.Int64, "week": pl.Int64},
     )
 
 
@@ -90,11 +92,10 @@ def corpus(connect, clean_db):
 
 def test_snaps_and_injuries_store_with_correct_known_at(corpus) -> None:
     connect = corpus
-    wed = datetime(2023, 9, 6, 20, 0)
     ingest_context(
         _h("context"), connect, 2023, 2023,
         fetch_snaps=lambda s: _snaps_df(),
-        fetch_inj=lambda s: _inj_df("Questionable", "Limited Participation in Practice", wed),
+        fetch_inj=lambda s: _inj_df("Questionable", "Limited Participation in Practice"),
         fetch_players_crosswalk=_players_df,
     )
     pid, gid = player_id(GSIS), game_id(NFL_GAME)
@@ -109,7 +110,7 @@ def test_snaps_and_injuries_store_with_correct_known_at(corpus) -> None:
             (pid,),
         )
         snaps = cur.fetchall()
-        # Injury designation + practice status: observed known_at = date_modified.
+        # Injury designation + practice status: reconstructed known_at (SIG-82).
         cur.execute(
             "select context_type, text_value, known_at, known_at_reconstructed "
             "from player_game_context where player_id=%s and numeric_value is null "
@@ -128,42 +129,49 @@ def test_snaps_and_injuries_store_with_correct_known_at(corpus) -> None:
 
     text_by_type = {r[0]: (r[1], r[2], r[3]) for r in texts}
     assert text_by_type["injury_designation"][0] == "Questionable"
-    assert text_by_type["injury_designation"][2] is False  # observed, not reconstructed
-    assert text_by_type["injury_designation"][1] == wed    # known_at = date_modified
+    # SIG-82: known_at is now RECONSTRUCTED to the day-before-kickoff report
+    # window (nflverse dropped the observed date_modified), and lands before
+    # kickoff (so it reaches projections) and never on the game's own date.
+    assert text_by_type["injury_designation"][2] is True  # reconstructed
+    assert text_by_type["injury_designation"][1] == injury_report_knownat(kickoff)
+    assert text_by_type["injury_designation"][1] < kickoff
     assert text_by_type["practice_status"][0] == "Limited Participation in Practice"
 
 
-def test_injury_progression_preserved_as_multiple_observations(corpus) -> None:
+def test_injury_designation_advances_to_latest_at_reconstructed_knownat(corpus) -> None:
     connect = corpus
-    wed, fri = datetime(2023, 9, 6, 20, 0), datetime(2023, 9, 8, 20, 0)
-
-    # Wednesday snapshot, then Friday snapshot — an append-only stream.
+    # SIG-82: without the observed date_modified, a week's designations collapse
+    # onto one reconstructed known_at. nflverse gives the CURRENT designation, so
+    # a later cycle seeing the status advance (Questionable -> Out) must win —
+    # otherwise the model's is_available would read a stale early-week status.
     ingest_context(_h("context"), connect, 2023, 2023,
                    fetch_snaps=lambda s: _snaps_df(0),
-                   fetch_inj=lambda s: _inj_df("Questionable", "Limited Participation in Practice", wed),
+                   fetch_inj=lambda s: _inj_df("Questionable", "Limited Participation in Practice"),
                    fetch_players_crosswalk=_players_df)
     ingest_context(_h("context"), connect, 2023, 2023,
                    fetch_snaps=lambda s: _snaps_df(0),
-                   fetch_inj=lambda s: _inj_df("Out", "Did Not Participate In Practice", fri),
+                   fetch_inj=lambda s: _inj_df("Out", "Did Not Participate In Practice"),
                    fetch_players_crosswalk=_players_df)
 
     with connect() as conn, conn.cursor() as cur:
+        cur.execute("select kickoff_at from games where id = %s", (game_id(NFL_GAME),))
+        kickoff = cur.fetchone()[0]
         cur.execute(
             "select text_value, known_at from player_game_context "
             "where player_id=%s and context_type='injury_designation' order by known_at",
             (player_id(GSIS),),
         )
         rows = cur.fetchall()
-    # Both observations retained, distinct knownAt — the Wed->Fri progression.
-    assert [r[0] for r in rows] == ["Questionable", "Out"]
-    assert rows[0][1] == wed and rows[1][1] == fri
+    # One row (single reconstructed known_at), holding the LATEST designation.
+    assert len(rows) == 1
+    assert rows[0][0] == "Out"
+    assert rows[0][1] == injury_report_knownat(kickoff)
 
 
 def test_reingesting_same_snapshot_is_idempotent(corpus) -> None:
     connect = corpus
-    wed = datetime(2023, 9, 6, 20, 0)
     args = dict(fetch_snaps=lambda s: _snaps_df(),
-                fetch_inj=lambda s: _inj_df("Questionable", "Full Participation in Practice", wed),
+                fetch_inj=lambda s: _inj_df("Questionable", "Full Participation in Practice"),
                 fetch_players_crosswalk=_players_df)
     ingest_context(_h("context"), connect, 2023, 2023, **args)
     with connect() as conn, conn.cursor() as cur:
@@ -178,12 +186,11 @@ def test_reingesting_same_snapshot_is_idempotent(corpus) -> None:
 
 def test_missing_season_is_explicit_coverage_not_zero(corpus) -> None:
     connect = corpus
-    wed = datetime(2023, 9, 6, 20, 0)
     # Ask for 2022-2023; injuries only has 2023 -> 2022 is an explicit gap.
     ingest_context(
         _h("context"), connect, 2022, 2023,
         fetch_snaps=lambda s: _snaps_df(),
-        fetch_inj=lambda s: _inj_df("Out", "Did Not Participate In Practice", wed),
+        fetch_inj=lambda s: _inj_df("Out", "Did Not Participate In Practice"),
         fetch_players_crosswalk=_players_df,
     )
     with connect() as conn, conn.cursor() as cur:

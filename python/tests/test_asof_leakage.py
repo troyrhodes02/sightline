@@ -7,7 +7,7 @@ result, not filtered afterward. Requires a database.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta
 
 import polars as pl
 import pytest
@@ -16,6 +16,7 @@ from sightline_ingest.asof import AsOfCorpus
 from sightline_ingest.datasets._common import (
     day_after_game_knownat,
     game_id,
+    injury_report_knownat,
     parse_kickoff,
     player_id,
 )
@@ -94,12 +95,12 @@ def _stats_df(specs: list[tuple[str, str, float]]) -> pl.DataFrame:
     })
 
 
-def _inj_df(status: str, modified: datetime) -> pl.DataFrame:
-    # date_modified is tz-aware UTC upstream; the ingest enforces that.
+def _inj_df(status: str) -> pl.DataFrame:
+    # nflverse dropped date_modified (SIG-82): the feed is the current weekly
+    # designation, and known_at is reconstructed to the day-before-kickoff bound.
     return pl.DataFrame({
         "season": [2023], "week": [1], "team": ["KC"], "gsis_id": [GSIS],
         "report_status": [status], "practice_status": [None],
-        "date_modified": [modified.replace(tzinfo=timezone.utc)],
     })
 
 
@@ -118,10 +119,10 @@ def base(connect, clean_db):
     return connect
 
 
-def _add_injury(connect, status: str, modified: datetime) -> None:
+def _add_injury(connect, status: str) -> None:
     ingest_context(_h("context"), connect, 2023, 2023,
                    fetch_snaps=lambda s: _empty_snaps(),
-                   fetch_inj=lambda s: _inj_df(status, modified),
+                   fetch_inj=lambda s: _inj_df(status),
                    fetch_players_crosswalk=_players_df)
 
 
@@ -129,28 +130,28 @@ def _add_injury(connect, status: str, modified: datetime) -> None:
 
 def test_late_injury_fact_is_unreachable_at_prior_cutoff(base) -> None:
     connect = base
-    wed = datetime(2023, 9, 6, 15, 0)   # Wednesday report
-    fri = datetime(2023, 9, 8, 18, 0)   # Friday evening report
-    _add_injury(connect, "Questionable", wed)
-    _add_injury(connect, "Out", fri)
+    # SIG-82: nflverse dropped the observed date_modified, so an injury
+    # designation's known_at is reconstructed to the day-before-kickoff report
+    # window. The leakage guarantee is unchanged — a cutoff BEFORE that bound
+    # cannot see the designation (absent, not filtered) — and the latest weekly
+    # designation (Out over Questionable) is what a cutoff at/after the bound sees.
+    _add_injury(connect, "Questionable")
+    _add_injury(connect, "Out")
 
     pid, gid = player_id(GSIS), game_id(GAMES[0])
-    friday_morning = datetime(2023, 9, 8, 9, 0)  # before the Friday-evening 'Out'
-    asof = AsOfCorpus(connect, friday_morning)
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute("select kickoff_at from games where id = %s", (gid,))
+        kickoff = cur.fetchone()[0]
+    bound = injury_report_knownat(kickoff)
 
-    # The Friday-evening 'Out' is absent; the Wednesday 'Questionable' is returned.
-    assert asof.latest_injury_designation(player_id=pid, game_id=gid) == "Questionable"
-    ctx = asof.player_context(player_id=pid, game_id=gid, context_type="injury_designation")
-    assert ctx.height == 1                      # the late row is ABSENT, not filtered
-    assert ctx["text_value"].to_list() == ["Questionable"]
+    # An hour BEFORE the reconstructed report window: the designation is absent.
+    before = AsOfCorpus(connect, bound - timedelta(hours=1))
+    assert before.latest_injury_designation(player_id=pid, game_id=gid) is None
+    ctx = before.player_context(player_id=pid, game_id=gid, context_type="injury_designation")
+    assert ctx.height == 0                       # the row is ABSENT, not filtered
 
-    # After the Friday report is known, the 'Out' becomes reachable.
-    later = AsOfCorpus(connect, datetime(2023, 9, 9, 9, 0))
-    assert later.latest_injury_designation(player_id=pid, game_id=gid) == "Out"
-
-    # Boundary is inclusive: a cutoff EXACTLY equal to a fact's known_at sees
-    # it ("known at the cutoff" includes the cutoff instant itself).
-    at_boundary = AsOfCorpus(connect, fri)
+    # Boundary is inclusive, and the LATEST designation (Out) is what is seen.
+    at_boundary = AsOfCorpus(connect, bound)
     assert at_boundary.latest_injury_designation(player_id=pid, game_id=gid) == "Out"
 
 
@@ -165,8 +166,11 @@ def test_recompute_is_time_invariant_under_late_arrivals(base) -> None:
     asof = AsOfCorpus(connect, cutoff)
     before = asof.trailing_player_stats(player_id=pid, before_game_id=game_id(GAMES[4]))
 
-    # Late arrivals after the cutoff: a new injury and a stat correction.
-    _add_injury(connect, "Out", datetime(2023, 10, 1, 12, 0))
+    # Late arrivals after the cutoff: a stat correction (the genuine post-cutoff
+    # arrival). An injury designation is also written — its reconstructed known_at
+    # is the week-1 day-before bound (pre-cutoff), so it must not perturb the
+    # trailing-stats read either.
+    _add_injury(connect, "Out")
     ingest_stats(_h("stats"), connect, 2023, 2023,
                  fetch=lambda s: _stats_df([(GAMES[0], "KC", 999.0)]),
                  correction_known_at=datetime(2023, 10, 1, 12, 0))
@@ -612,31 +616,32 @@ def test_usage_features_have_no_current_roster_read_path(base) -> None:
 
 
 def test_usage_features_ignore_injury_designation_known_after_cutoff(base) -> None:
-    # Availability is read from the most-recently-KNOWN injury designation. A
-    # Friday-evening 'Out' known after a Friday-morning cutoff must be unreachable
-    # — the usage feature must see the player as available (per the Wednesday
-    # report), not absent, exactly as the underlying as-of designation read does.
+    # Availability is read from the most-recently-KNOWN injury designation. Under
+    # SIG-82 the designation's known_at is the reconstructed day-before-kickoff
+    # bound; a cutoff BEFORE that bound must not see it (player available), and a
+    # cutoff at/after must (player Out) — exactly as the as-of designation read.
     from sightline_model.simulation.usage_allocation import assemble_usage_features
 
     connect = base
     # A prior game so the player has trailing history and an as-of team.
     ingest_stats(_h("stats"), connect, 2023, 2023,
                  fetch=lambda s: _stats_df([(GAMES[0], "KC", 200.0)]))
-    wed = datetime(2023, 9, 6, 15, 0)
-    fri = datetime(2023, 9, 8, 18, 0)
-    _add_injury(connect, "Questionable", wed)
-    _add_injury(connect, "Out", fri)
+    _add_injury(connect, "Out")
     pid = player_id(GSIS)
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute("select kickoff_at from games where id = %s", (game_id(GAMES[0]),))
+        kickoff = cur.fetchone()[0]
+    bound = injury_report_knownat(kickoff)
 
-    # Friday morning, before the 'Out' is known: the player is still available.
-    friday_morning = AsOfCorpus(connect, datetime(2023, 9, 8, 9, 0))
+    # Before the report window is known: the 'Out' is unreachable → available.
+    early = AsOfCorpus(connect, bound - timedelta(hours=1))
     feats = assemble_usage_features(
-        friday_morning, game_id=game_id(GAMES[0]), team_abbr="KC", player_ids=[pid]
+        early, game_id=game_id(GAMES[0]), team_abbr="KC", player_ids=[pid]
     )
-    assert feats[pid].is_available is True  # the late 'Out' is unreachable
+    assert feats[pid].is_available is True  # the not-yet-known 'Out' is unreachable
 
-    # After the Friday report is known, availability flips to False structurally.
-    after = AsOfCorpus(connect, datetime(2023, 9, 9, 9, 0))
+    # At/after the report window: availability flips to False structurally.
+    after = AsOfCorpus(connect, bound)
     feats_after = assemble_usage_features(
         after, game_id=game_id(GAMES[0]), team_abbr="KC", player_ids=[pid]
     )

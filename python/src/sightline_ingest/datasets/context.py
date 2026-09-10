@@ -8,9 +8,12 @@ re-ingesting a later snapshot appends rather than overwriting.
 
 knownAt reconstruction, per source:
   * Snap counts -> the day AFTER the game (reconstructed; post-game facts).
-  * Injury / practice status -> the injury report's own ``date_modified``
-    timestamp (OBSERVED, not reconstructed — nflverse gives us the real
-    publication time, which is stronger than a reconstructed window).
+  * Injury / practice status -> the day-before-kickoff injury-report window
+    (reconstructed; SIG-82). nflverse removed the feed's ``date_modified``
+    publication timestamp in 2025+, so the observed time is no longer available
+    and injury known_at falls back to the documented conservative pre-game bound
+    (``injury_report_knownat``) — a *later* bound than the real publication, the
+    leak-safe direction.
 
 Missingness stays explicit: a season a source does not cover gets a
 SourceCoverage row, never a zero-filled or back-filled value.
@@ -19,22 +22,28 @@ SourceCoverage row, never a zero-filled or back-filled value.
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import timezone
 
 import polars as pl
 
 from ..db import ConnectionFactory
-from ..errors import SchemaDriftError
 from ..provenance import IngestRunHandle
 from ..registry import Dataset, register
-from ._common import day_after_game_knownat, game_id, player_id, require_columns, season_range, to_decimal
+from ._common import (
+    day_after_game_knownat,
+    game_id,
+    injury_report_knownat,
+    player_id,
+    require_columns,
+    season_range,
+    to_decimal,
+)
 from .nfl_sources import fetch_injuries, fetch_players, fetch_snap_counts
 
 _SNAP_REQUIRED = [
     "game_id", "season", "pfr_player_id", "team",
     "offense_snaps", "offense_pct", "defense_snaps", "defense_pct", "st_pct",
 ]
-_INJ_REQUIRED = ["season", "week", "team", "gsis_id", "report_status", "practice_status", "date_modified"]
+_INJ_REQUIRED = ["season", "week", "team", "gsis_id", "report_status", "practice_status"]
 
 # (contextType, snap_counts column) — numeric observations.
 _SNAP_OBS = [
@@ -45,7 +54,7 @@ _SNAP_OBS = [
     ("snap_pct_st", "st_pct"),
 ]
 
-_INSERT = """
+_INSERT_COLS = """
 insert into player_game_context (
     id, player_id, game_id, team_abbr_at_game, context_type,
     numeric_value, text_value, valid_at, known_at, known_at_reconstructed,
@@ -55,8 +64,28 @@ insert into player_game_context (
     %(numeric_value)s, %(text_value)s, %(valid_at)s, %(known_at)s,
     %(reconstructed)s, 'nflverse', %(run_id)s, now()
 )
-on conflict (player_id, game_id, context_type, known_at, source) do nothing
 """
+
+# Snaps are immutable post-game facts, keyed by an observed-day known_at:
+# re-ingest is a pure no-op.
+_INSERT_SNAP = _INSERT_COLS + (
+    "on conflict (player_id, game_id, context_type, known_at, source) do nothing"
+)
+
+# Injury/practice designations lost their observed timestamp (SIG-82), so all of
+# a week's snapshots now collapse onto one reconstructed known_at. That makes the
+# row a CURRENT-weekly-designation fact rather than an append-only observation:
+# a later cycle that sees the status advance (Questionable -> Out) must win, or
+# the model's is_available would read a stale early-week designation. The WHERE
+# keeps it idempotent — an unchanged re-ingest still writes nothing.
+_INSERT_INJURY = _INSERT_COLS + (
+    "on conflict (player_id, game_id, context_type, known_at, source) "
+    "do update set text_value = excluded.text_value, "
+    "ingest_run_id = excluded.ingest_run_id "
+    "where player_game_context.text_value is distinct from excluded.text_value"
+)
+
+_INJURY_CONTEXT_TYPES = frozenset({"injury_designation", "practice_status"})
 
 
 def _pfr_crosswalk(fetch: Callable[[], pl.DataFrame]) -> dict[str, str]:
@@ -116,24 +145,19 @@ def _injury_rows(df, by_swt, run_id) -> tuple[list[dict], set[str], int]:
     skipped = 0
     for r in df.iter_rows(named=True):
         gsis = r["gsis_id"]
-        modified = r["date_modified"]
         game = by_swt.get((r["season"], r["week"], r["team"]))
-        if not gsis or modified is None or game is None:
+        if not gsis or game is None:
             skipped += 1
             continue
-        gid, _kickoff = game
+        gid, kickoff = game
         pid = player_id(gsis)
         present.add(gid)
-        # date_modified is the OBSERVED publication time — the one context
-        # known_at that is not reconstructed, so a silent timezone shift here
-        # moves the leakage boundary directly. Enforce the tz-aware assumption
-        # instead of assuming it, and normalise through UTC before stripping.
-        if modified.tzinfo is None:
-            raise SchemaDriftError(
-                "context(injuries): date_modified arrived without a timezone; "
-                "refusing to guess the availability of an observed fact"
-            )
-        known = modified.astimezone(timezone.utc).replace(tzinfo=None)
+        # nflverse removed the observed publication time (date_modified) in 2025+
+        # (SIG-82), so injury/practice known_at is now RECONSTRUCTED to the
+        # conservative day-before-kickoff report window — a later (leak-safe)
+        # bound. valid_at == known_at here (the designation is a statement made at
+        # that report time), which also satisfies the known_at >= valid_at CHECK.
+        known = injury_report_knownat(kickoff)
         for context_type, value in (
             ("injury_designation", r["report_status"]),
             ("practice_status", r["practice_status"]),
@@ -143,7 +167,7 @@ def _injury_rows(df, by_swt, run_id) -> tuple[list[dict], set[str], int]:
             rows.append({
                 "player_id": pid, "game_id": gid, "team": r["team"],
                 "context_type": context_type, "numeric_value": None, "text_value": value,
-                "valid_at": known, "known_at": known, "reconstructed": False, "run_id": run_id,
+                "valid_at": known, "known_at": known, "reconstructed": True, "run_id": run_id,
             })
     return rows, present, skipped
 
@@ -154,8 +178,13 @@ def _write(cur, rows: list[dict], present: set[str]) -> int:
         "select count(*) from player_game_context where game_id = any(%s)", (game_list,)
     )
     before = cur.fetchone()[0]
-    if rows:
-        cur.executemany(_INSERT, rows)
+    # Snaps append (immutable); injuries upsert the latest designation.
+    snap_rows = [r for r in rows if r["context_type"] not in _INJURY_CONTEXT_TYPES]
+    injury_rows = [r for r in rows if r["context_type"] in _INJURY_CONTEXT_TYPES]
+    if snap_rows:
+        cur.executemany(_INSERT_SNAP, snap_rows)
+    if injury_rows:
+        cur.executemany(_INSERT_INJURY, injury_rows)
     cur.execute(
         "select count(*) from player_game_context where game_id = any(%s)", (game_list,)
     )
