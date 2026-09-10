@@ -4,17 +4,37 @@ Slug: `adjustment-suggestions-and-source-reliability`
 Linear project: Sightline V1 · Milestone: **Adjustment Suggestions & Source Reliability**
 Mode: Autonomous Pipeline Policy (`CLAUDE.md`)
 
-## ⚠️ Status: awaiting human review — NOT merged
+## Status: MERGED to `main` + production migrated (post-review, human-authorized)
 
-The feature branch `feat/adjustment-suggestions-and-source-reliability` is verified,
-reviewed, audited, and green. **It has not been merged into `main`.** The feature PR is
-open for a line-by-line human read, exactly as the run instruction required (this pitch
-decides how an unvalidated third-party feed touches the projections the paper bot trades
-on, so it gets read before it lands).
+The run originally ended with the feature PR open for human review (not merged), per the
+run instruction. The human then explicitly authorized merging and production setup, which
+was carried out:
 
-- **Feature PR:** [#72 — Adjustment Suggestions & Source Reliability (SIG-74…SIG-80)](https://github.com/troyrhodes02/sightline/pull/72)
-- **Branch:** `feat/adjustment-suggestions-and-source-reliability` → base `main`
-- All seven ticket PRs (#73–#79) were squash-merged into the feature branch, in order.
+- **Feature PR [#72](https://github.com/troyrhodes02/sightline/pull/72) merged into `main`** via a merge commit (`5d805d9`), after all CI checks passed (Web app, Prisma invariants, Python ingest, Vercel).
+- **Production Supabase migrated** — `20260909193000_adjustment_suggestions_foundation` applied via `prisma migrate deploy` on the DIRECT connection; `prisma migrate status` now reports "Database schema is up to date!" (14/14). Additive only — new tables, defaulted columns, additive enum values — **no data loss**.
+- **Production deploy succeeded** — Vercel's GitHub integration deployed `main` HEAD `5d805d9` to Production; the commit's Vercel status is `success`. The new code finds the schema already migrated.
+- All 7 ticket PRs (#73–#79) were squash-merged into the feature branch in order before the feature merge; all 7 Linear tickets (SIG-74…SIG-80) are **Done**.
+
+### ⚙️ Production activation caveat — ESPN is DORMANT until configured
+
+`SIGHTLINE_ESPN_INACTIVES_URL` is **not set**, so the ESPN inactives source is disabled:
+no suggestions fire, and affected games fall back to the existing Pitch 5 staleness
+disclosure — exactly the honest "ESPN unavailable" behavior. This is the safe default and
+required no action to reach. **To activate the feature**, a real ESPN inactives endpoint URL
+must be set in the Vercel project env (and any GitHub Actions job env that runs the cycle);
+the URL is deliberately not invented here because ESPN's endpoint is undocumented. Until
+then the feature is inert and harmless. See the runbook §1.
+
+### Sequencing note (constraint-changing migration)
+
+The migration changes an existing unique constraint on `projections` (adds `provenance`),
+so old Python projection-write code and the new schema are briefly incompatible. The merge
+updated the code used by BOTH Vercel (the app) and GitHub Actions (the `main`-based Python
+cron), and the migration was applied immediately after — matching the prior Simulation
+Engine run's approach. The app's TS reads are unaffected (they neither select `provenance`
+nor write projections); only the cron-based Python recompute writes are, and a single
+mis-timed cron run would fail-and-retry with disclosed staleness, not lose data. No such
+failure was observed.
 
 ## What shipped
 
