@@ -50,6 +50,45 @@ describe("getOrderbookTop inverts Kalshi's book correctly", () => {
     });
   });
 
+  it("parses Kalshi's current dollar-denominated book (orderbook_fp) with the same inversion", async () => {
+    // SIG-87: the live shape is `orderbook_fp.{yes,no}_dollars` with dollar
+    // string prices and fixed-point sizes. Same inversion, prices → cents.
+    stubFetch({
+      orderbook_fp: {
+        yes_dollars: [["0.5200", "300.00"]],
+        no_dollars: [["0.4600", "12.00"]],
+      },
+    });
+    const { getOrderbookTop } = await loadClient();
+
+    const top = await getOrderbookTop("KXNFL-TEST");
+
+    expect(top).toEqual({
+      yesAskCents: 54, // 100 - 46
+      yesAskSizeContracts: 12,
+      noAskCents: 48, // 100 - 52
+      noAskSizeContracts: 300,
+    });
+  });
+
+  it("prefers orderbook_fp over the legacy shape and truncates fractional sizes", async () => {
+    stubFetch({
+      orderbook_fp: {
+        yes_dollars: [["0.8000", "4.04"]],
+        no_dollars: [["0.1600", "5324.00"]],
+      },
+      orderbook: { yes: [[1, 1]], no: [[1, 1]] }, // legacy present but ignored
+    });
+    const { getOrderbookTop } = await loadClient();
+
+    const top = await getOrderbookTop("KXNFL-TEST");
+
+    expect(top?.yesAskCents).toBe(84); // 100 - 16
+    expect(top?.yesAskSizeContracts).toBe(5324);
+    expect(top?.noAskCents).toBe(20); // 100 - 80
+    expect(top?.noAskSizeContracts).toBe(4); // 4.04 truncated
+  });
+
   it("takes the highest resting bid on each side", async () => {
     stubFetch({
       orderbook: {

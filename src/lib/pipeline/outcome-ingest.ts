@@ -305,7 +305,11 @@ export async function runOutcomeIngest(
           continue;
         }
 
-        const settledAt = parseSettledAt(market.settled_time);
+        // Kalshi's current settlement timestamp is `settlement_ts`; fall back
+        // to the legacy `settled_time` (SIG-87). `result` is unchanged.
+        const settledAt = parseSettledAt(
+          market.settlement_ts ?? market.settled_time,
+        );
 
         if (!contract.outcome) {
           writes.push(

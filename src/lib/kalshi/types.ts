@@ -42,7 +42,12 @@ export type KalshiMarket = {
    * unrecognised value must degrade to `unavailable`, never to a guess.
    */
   result?: string;
-  /** ISO 8601 settlement time, when Kalshi supplies one. */
+  /**
+   * ISO 8601 settlement time. Kalshi's current field is `settlement_ts`
+   * (SIG-87); `settled_time` is the legacy name, kept for resilience. Readers
+   * must prefer `settlement_ts`.
+   */
+  settlement_ts?: string;
   settled_time?: string;
 };
 
@@ -83,10 +88,21 @@ export type ParsedMarket = {
 
 /**
  * `GET /markets/{ticker}/orderbook`. Both arrays are resting **bids** on that
- * side, as `[price_cents, size_contracts]` pairs — not offers. Buying YES
- * crosses the `no` array; buying NO crosses the `yes` array.
+ * side — not offers. Buying YES crosses the `no` array; buying NO crosses the
+ * `yes` array.
+ *
+ * Kalshi migrated to a dollar-denominated fixed-point book (SIG-87):
+ * `orderbook_fp.{yes,no}_dollars`, each level a `[priceDollars, size]` pair of
+ * strings (e.g. `["0.16", "5324.00"]`). `orderbook.{yes,no}` is the legacy
+ * integer-cent shape, kept for resilience. Price parses dollars→cents; size is
+ * the resting quantity at that level.
  */
+type OrderbookLevel = [number | string, number | string];
 export type KalshiOrderbookResponse = {
+  orderbook_fp?: {
+    yes_dollars?: OrderbookLevel[] | null;
+    no_dollars?: OrderbookLevel[] | null;
+  } | null;
   orderbook?: {
     yes?: Array<[number, number]> | null;
     no?: Array<[number, number]> | null;
