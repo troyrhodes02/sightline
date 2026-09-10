@@ -1,22 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useMemo } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
-import Button from "@mui/material/Button";
-import InputAdornment from "@mui/material/InputAdornment";
 import Paper from "@mui/material/Paper";
 import Stack from "@mui/material/Stack";
-import TextField from "@mui/material/TextField";
-import ToggleButton from "@mui/material/ToggleButton";
-import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import Typography from "@mui/material/Typography";
-import FilterListIcon from "@mui/icons-material/FilterList";
-import SearchIcon from "@mui/icons-material/Search";
 import { EmptyState } from "@/components/primitives/EmptyState";
 import { NumericText } from "@/components/primitives/NumericText";
 import { BestOpportunities } from "@/components/slate/BestOpportunities";
+import {
+  applyScope,
+  parseScope,
+  scopeToParams,
+  type SlateScope,
+} from "@/components/slate/filters";
 import { GameGroup } from "@/components/slate/GameGroup";
+import { SlateControls } from "@/components/slate/SlateControls";
 import {
   RefreshPricesButton,
   SlatePoller,
@@ -24,8 +25,6 @@ import {
 import { UnresolvedRow } from "@/components/slate/SlateRow";
 import { formatEt } from "@/components/slate/values";
 import type { SlateGroupedDto } from "@/lib/dto/slate";
-
-type ViewMode = "best" | "game";
 
 /**
  * The Slate — the product's front door, redesigned around game groups and
@@ -36,12 +35,18 @@ type ViewMode = "best" | "game";
  * The best-opportunities block and the game-grouped block are the SAME rows
  * re-emphasised — the view toggle reorders in place, it does not fetch. Kalshi
  * being unreachable is a DESIGNED degraded mode with one banner (last-known
- * price age), never an error page. The three empty states are each a
- * deliberate answer: no games, nothing recommended, nothing listed.
+ * price age), never an error page.
  *
- * Search and Filters are scaffolded here (a full-width field + a Filters
- * button); the filtering LOGIC lands in SIG-97. This ticket owns grouping,
- * cards, disclosure, suggestions, and freshness.
+ * Search and filters (SIG-97) are client-side SELECTION over the already-loaded
+ * grouped DTO: they hide and re-order the SAME computed rows and never change a
+ * probability or edge. The scope lives in the URL (`?view=&game=&team=&…`) via a
+ * shallow `router.replace`, so a filtered slate is shareable and returnable.
+ *
+ * Three empty states: (a) an over-narrow filter/search resolves to
+ * "No players match — clear filters"; (b) a valid slate with nothing
+ * recommended shows the quiet best-block message with games still browsable
+ * below (BestOpportunities); (c) no upcoming games at all is the designed empty
+ * slate. This ticket owns (a) and the controls; (b)/(c) came from SIG-96.
  */
 export function Slate({
   slate,
@@ -56,10 +61,40 @@ export function Slate({
   /** Manual refresh is an admin diagnostic; viewers never see the control. */
   isAdmin?: boolean;
 }) {
-  const [view, setView] = useState<ViewMode>("best");
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
 
+  const scope = useMemo(
+    () => parseScope(new URLSearchParams(searchParams.toString())),
+    [searchParams],
+  );
+
+  const onScopeChange = useCallback(
+    (next: SlateScope) => {
+      const query = scopeToParams(next).toString();
+      // Shallow URL update — no server round-trip, no refetch. The scope is the
+      // only thing that changes; the delivered slate is untouched.
+      router.replace(query ? `${pathname}?${query}` : pathname, {
+        scroll: false,
+      });
+    },
+    [router, pathname],
+  );
+
+  // Selection over the ALREADY-DELIVERED slate. `filtered` is a subset of the
+  // same rows; no probability, price, or edge is recomputed.
+  const filtered = useMemo(() => applyScope(slate, scope), [slate, scope]);
+
+  const view = scope.view;
   const hasGames = slate.games.length > 0;
   const hasUnresolved = slate.unresolved.length > 0;
+  // The selection emptied every game/opportunity, but the slate itself is not
+  // empty — this is the "No players match" state, distinct from "No games".
+  const selectionIsEmpty =
+    hasGames &&
+    filtered.games.length === 0 &&
+    filtered.bestOpportunities.length === 0;
 
   return (
     <Stack spacing={3}>
@@ -96,54 +131,17 @@ export function Slate({
         </Stack>
       </Stack>
 
-      {/* Controls: search + view toggle + Filters affordance. Filter LOGIC is
-          SIG-97; these are scaffolded so the surface reads complete. */}
-      <Stack
-        direction={{ xs: "column", sm: "row" }}
-        spacing={1.5}
-        sx={{ alignItems: { sm: "center" } }}
-      >
-        <TextField
-          placeholder="Search players"
-          aria-label="Search players"
-          size="small"
-          sx={{ flex: 1 }}
-          slotProps={{
-            input: {
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon sx={{ fontSize: 20, color: "text.muted" }} />
-                </InputAdornment>
-              ),
-            },
-          }}
+      {/* Controls: search + view toggle + combinable filters. All client-side
+          selection over the delivered slate; scope is written to the URL. The
+          filter options come from the ORIGINAL slate so every real choice stays
+          offered even when the current selection empties the surface. */}
+      {hasGames ? (
+        <SlateControls
+          scope={scope}
+          slate={slate}
+          onScopeChange={onScopeChange}
         />
-        <ToggleButtonGroup
-          value={view}
-          exclusive
-          size="small"
-          onChange={(_event, next: ViewMode | null) => {
-            if (next) setView(next);
-          }}
-          aria-label="View mode"
-        >
-          <ToggleButton value="best" aria-label="Best opportunities">
-            Best opportunities
-          </ToggleButton>
-          <ToggleButton value="game" aria-label="By game">
-            By game
-          </ToggleButton>
-        </ToggleButtonGroup>
-        <Button
-          variant="outlined"
-          size="small"
-          color="inherit"
-          startIcon={<FilterListIcon sx={{ fontSize: 20 }} />}
-          sx={{ color: "text.secondary", borderColor: "border.strong" }}
-        >
-          Filters
-        </Button>
-      </Stack>
+      ) : null}
 
       {slate.priceDegraded ? (
         <Alert severity="warning">
@@ -164,30 +162,47 @@ export function Slate({
         </Paper>
       ) : (
         <>
-          {/* Best-opportunities block: expanded in `best`, a compact strip in
-              `game`. Same rows, re-emphasised. */}
-          {view === "best" ? (
-            <Stack spacing={1.5}>
-              <Typography variant="h2">Best opportunities</Typography>
-              <BestOpportunities rows={slate.bestOpportunities} />
-            </Stack>
-          ) : null}
+          {/* (a) An over-narrow filter/search: the slate has games but the
+              selection matched none. A clear answer, never an alert. */}
+          {selectionIsEmpty ? (
+            <Paper>
+              <EmptyState
+                title="No players match"
+                detail={
+                  scope.q
+                    ? `No players match “${scope.q}” with these filters.`
+                    : "No players match these filters."
+                }
+              />
+            </Paper>
+          ) : (
+            <>
+              {/* Best-opportunities block: expanded in `best`, a compact strip
+                  in `game`. Same rows, re-emphasised — over the FILTERED set. */}
+              {view === "best" ? (
+                <Stack spacing={1.5}>
+                  <Typography variant="h2">Best opportunities</Typography>
+                  <BestOpportunities rows={filtered.bestOpportunities} />
+                </Stack>
+              ) : null}
 
-          {hasGames ? (
-            <Stack spacing={1.5}>
-              <Typography variant="h2">All games</Typography>
-              <Box>
-                {slate.games.map((game) => (
-                  <GameGroup
-                    key={game.gameId}
-                    game={game}
-                    isAdmin={isAdmin}
-                    defaultExpanded={view === "game"}
-                  />
-                ))}
-              </Box>
-            </Stack>
-          ) : null}
+              {filtered.games.length > 0 ? (
+                <Stack spacing={1.5}>
+                  <Typography variant="h2">All games</Typography>
+                  <Box>
+                    {filtered.games.map((game) => (
+                      <GameGroup
+                        key={game.gameId}
+                        game={game}
+                        isAdmin={isAdmin}
+                        defaultExpanded={view === "game"}
+                      />
+                    ))}
+                  </Box>
+                </Stack>
+              ) : null}
+            </>
+          )}
 
           {hasUnresolved ? (
             <Stack spacing={1}>

@@ -27,9 +27,37 @@ import {
 } from "./values";
 
 const refresh = jest.fn();
-jest.mock("next/navigation", () => ({
-  useRouter: () => ({ refresh, push: jest.fn() }),
-}));
+
+// A minimal reactive router mock: `replace` updates the search params and
+// notifies subscribers so `useSearchParams` re-renders, mirroring the shallow
+// URL-driven scope the Slate relies on. This lets a test drive filters through
+// the real code path rather than component-local state.
+let currentSearch = "";
+const listeners = new Set<() => void>();
+const replace = jest.fn((url: string) => {
+  const q = url.split("?")[1] ?? "";
+  currentSearch = q;
+  for (const listener of listeners) listener();
+});
+jest.mock("next/navigation", () => {
+  const { useSyncExternalStore } =
+    jest.requireActual<typeof import("react")>("react");
+  return {
+    useRouter: () => ({ refresh, push: jest.fn(), replace }),
+    usePathname: () => "/slate",
+    useSearchParams: () => {
+      const search = useSyncExternalStore(
+        (cb: () => void) => {
+          listeners.add(cb);
+          return () => listeners.delete(cb);
+        },
+        () => currentSearch,
+        () => currentSearch,
+      );
+      return new URLSearchParams(search);
+    },
+  };
+});
 
 function renderThemed(ui: React.ReactElement) {
   return render(<ThemeProvider theme={theme}>{ui}</ThemeProvider>);
@@ -149,7 +177,12 @@ const row = (overrides: Partial<SlateRowDto> = {}): SlateRowDto => ({
   ...overrides,
 });
 
-beforeEach(() => refresh.mockClear());
+beforeEach(() => {
+  refresh.mockClear();
+  replace.mockClear();
+  currentSearch = "";
+  listeners.clear();
+});
 
 describe("value primitives", () => {
   it("renders a missing value as an em dash, never zero", () => {
@@ -493,6 +526,101 @@ describe("Slate screen states (grouped)", () => {
     );
     expect(screen.getByText(/Unresolved contracts \(1\)/)).toBeInTheDocument();
     expect(screen.getByText("unresolved")).toBeInTheDocument();
+  });
+});
+
+describe("Slate search & filters (SIG-97 — selection over loaded rows)", () => {
+  // Two players, both surfaced in the best-opportunities block (which is what
+  // the default best view renders), so search can narrow the visible set.
+  const twoPlayers = () =>
+    grouped({
+      games: [
+        game({
+          players: [
+            card({ playerId: "p1", playerName: "Ja'Marr Chase" }),
+            card({
+              playerId: "p2",
+              playerName: "CeeDee Lamb",
+              props: [prop({ contractId: "c2" })],
+              bestOpportunity: prop({ contractId: "c2" }),
+            }),
+          ],
+        }),
+      ],
+      bestOpportunities: [
+        {
+          playerId: "p1",
+          gameId: "g1",
+          prop: prop(),
+          playerName: "Ja'Marr Chase",
+          teamAbbreviation: "CIN",
+          kickoffLabel: "2026-11-08T18:00:00.000Z",
+        },
+        {
+          playerId: "p2",
+          gameId: "g1",
+          prop: prop({ contractId: "c2" }),
+          playerName: "CeeDee Lamb",
+          teamAbbreviation: "DAL",
+          kickoffLabel: "2026-11-08T18:00:00.000Z",
+        },
+      ],
+      availableGames: [{ gameId: "g1", label: "CIN @ BAL" }],
+    });
+
+  it("search narrows by partial name and updates the URL (shallow, no refetch)", async () => {
+    const user = userEvent.setup();
+    renderThemed(<Slate slate={twoPlayers()} refreshIntervalSeconds={60} />);
+    // Both players present in the default best view.
+    expect(screen.getByText("Ja'Marr Chase")).toBeInTheDocument();
+    expect(screen.getByText("CeeDee Lamb")).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("Search players"), "lamb");
+
+    // The scope was written to the URL; nothing was refetched.
+    expect(replace).toHaveBeenCalled();
+    expect(replace.mock.calls.at(-1)?.[0]).toContain("q=lamb");
+    expect(refresh).not.toHaveBeenCalled();
+    // Chase drops out of the (best) view; Lamb remains.
+    expect(screen.queryByText("Ja'Marr Chase")).toBeNull();
+    expect(screen.getByText("CeeDee Lamb")).toBeInTheDocument();
+  });
+
+  it("a zero-result search yields the empty state and changes NO probability", async () => {
+    const user = userEvent.setup();
+    renderThemed(<Slate slate={twoPlayers()} refreshIntervalSeconds={60} />);
+
+    // The probability shown before filtering (both players show 61.4%).
+    expect(screen.getAllByText("61.4%").length).toBeGreaterThan(0);
+
+    await user.type(screen.getByLabelText("Search players"), "no-such-player");
+
+    // Empty state — a clear answer, never an alert.
+    expect(screen.getByText("No players match")).toBeInTheDocument();
+    // The rows are HIDDEN, not re-valued: no probability renders at all now.
+    expect(screen.queryByText("61.4%")).toBeNull();
+    expect(screen.queryByText(/%$/)).toBeNull();
+    expect(screen.queryAllByRole("alert")).toHaveLength(0);
+  });
+
+  it("Reset all clears filters back to the default best view", async () => {
+    const user = userEvent.setup();
+    renderThemed(<Slate slate={twoPlayers()} refreshIntervalSeconds={60} />);
+    await user.type(screen.getByLabelText("Search players"), "chase");
+    expect(screen.queryByText("CeeDee Lamb")).toBeNull();
+    // An active chip appears with a Reset all control.
+    const reset = screen.getAllByRole("button", { name: "Reset all" })[0];
+    await user.click(reset);
+    // The last URL write drops q — the scope returned to default.
+    expect(replace.mock.calls.at(-1)?.[0]).not.toContain("q=");
+    expect(screen.getByText("CeeDee Lamb")).toBeInTheDocument();
+  });
+
+  it("deep-linked scope in the URL is honoured on first render", () => {
+    currentSearch = "q=lamb";
+    renderThemed(<Slate slate={twoPlayers()} refreshIntervalSeconds={60} />);
+    expect(screen.getByText("CeeDee Lamb")).toBeInTheDocument();
+    expect(screen.queryByText("Ja'Marr Chase")).toBeNull();
   });
 });
 
