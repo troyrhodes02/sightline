@@ -240,6 +240,12 @@ export type FreshnessStateDto = {
 export type PropDto = {
   /** Null for a stored projection with no currently listed contract. */
   contractId: string | null;
+  /**
+   * The stat type this prop belongs to. Carried so the expanded player card's
+   * stat selector can partition a player's flat `props` per stat without a
+   * refetch (SIG-96); the flat list spans all of a player's stat types.
+   */
+  statType: StatType;
   threshold: number;
   direction: "above" | "below";
   /** P(stat >= threshold) for "above"; P(stat < threshold) for "below". null ≠ 0. */
