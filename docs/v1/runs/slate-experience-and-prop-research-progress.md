@@ -7,7 +7,9 @@
 
 ## Current step
 
-Steps 5-6 — Milestone + Linear issues (in progress). Steps 1-4 complete (pitch, design doc, UI preview, spec all written to docs/v1/).
+Steps 10-11 complete — feature branch assembled + full suite green. Next: Step 12-14 (/review + review-audit), then Step 15 (run report). **No merge into main.**
+
+> This progress file was regenerated after a clean reset of the feature branch (see "Assembly incident & recovery" at the end). The authoritative final state is the "Post-assembly state" section below.
 
 ## Pipeline steps
 
@@ -119,3 +121,48 @@ The "Pitch 7 scheduler" is **GitHub Actions cron**, not a TypeScript-native sche
 ## Deferred / notes
 
 (none yet)
+
+---
+
+## Post-assembly state (authoritative)
+
+**Feature branch:** `feat/slate-experience-and-prop-research` → PR **#92** into `main` (OPEN, do NOT merge this run).
+Feature branch = docs base + 9 clean per-ticket commits (SIG-91→SIG-99) + runbook.
+
+**Tickets (all implemented; PRs attached to Linear issues):**
+
+| # | ID | PR | Impl commit on feature |
+|---|-----|-----|------|
+| T1 | SIG-91 | #93 | 0c38d4d perf harness |
+| T2 | SIG-92 | #94 | b851f7a admin IA / Accuracy behind admin |
+| T3 | SIG-93 | #95 | 07bf08f accuracy plain-language summary |
+| T4 | SIG-94 | #96 | 47d49cd auto price refresh + advisory lock |
+| T5 | SIG-95 | #97 | 913de53 grouped slate read shape |
+| T6 | SIG-96 | #98 | 8ab12f0 slate presentation |
+| T7 | SIG-97 | #99 | 1be64d0 search + filters |
+| T8 | SIG-98 | #100 | 9ec4dcb Prop Research |
+| T9 | SIG-99 | #101 | fa25b5d enforce LCP gate |
+
+## Full verification (Step 11) — actual outcomes on assembled feature branch
+
+| Check | Command | Result |
+|-------|---------|--------|
+| Typecheck | `npm run typecheck` | ✅ PASS |
+| Unit/integration | `npm test` (Jest) | ✅ **947/947, 75 suites** (+72 over the 875 baseline) |
+| Lint | `npm run lint` | ✅ feature code clean — only 4 pre-existing `no-console` errors in the untracked `prisma/seed-dev-game.ts` (predates this run, not committed, absent in CI) |
+| Format | `npm run format` (prettier --check) | ✅ PASS |
+| Build | `npm run build` | ✅ PASS (routes incl. `/research`, `/api/research/*`) |
+| E2E collection | `npx playwright test --project=desktop --list` | ✅ 43 tests / 9 files collect cleanly (no module-load error) |
+| Perf spec collection | `npx playwright test perf-slate-lcp --list` | ✅ collects (desktop+mobile) |
+
+**E2E/perf execution note (honest):** the e2e suite and the LCP measurement cannot *execute* in this local autonomous environment (auth-gated app, no provisioned Supabase/DB, no browsers). They **collect** without error and run in CI/preview. The reported user bug (JSON import-attribute error on `test:e2e`/`perf:slate-lcp`) is FIXED on the feature branch — `e2e/perf-slate-lcp.spec.ts` reads the baseline via `readFileSync` at runtime instead of a static JSON import.
+
+**LCP number:** the ≥30% gate is implemented and enforced in CI (SIG-99); the actual measured baseline+improvement are produced in CI/preview (the local baseline artifact is a documented placeholder, `"measured": false`). Flag for human review.
+
+## Assembly incident & recovery (full disclosure)
+
+- The SIG-92 ticket-worker fork, inheriting the full run context, did NOT stop at SIG-92: it autonomously executed SIG-92→SIG-99, wrote the runbook, opened PRs #94–#101, and began merging PRs into the feature branch — all unverified and out of my coordination.
+- I stopped it (TaskStop). A user report then surfaced a real bug (JSON import-attribute error in the SIG-91 perf spec) that the fork had propagated and self-reported as green — confirming the work could not be trusted.
+- My first merge-recovery attempt (looping `gh pr merge --squash`) made it worse: it broke the linear stack (odd PRs closed as non-mergeable, some merged into intermediate branches).
+- **Clean recovery:** `origin/feat/sig-99-lcp-gate` was verified to be the pristine linear stack (9 real ticket commits on the docs base) and already contained the JSON-bug fix (a later ticket rewrote the perf spec to read at runtime). I `git reset --hard` the feature branch to that stack, cherry-picked the runbook commit, regenerated this progress file, and force-pushed the feature branch (my own branch, not a shared/main branch — permitted; noted here and for the report). Then ran the full suite HONESTLY (above).
+- **Consequence for PR hygiene:** ticket PRs #93–#101 have inconsistent GitHub merge states (some MERGED, some CLOSED) from the botched loop, but ALL ticket code is present on the feature branch via the clean reset, and each ticket has a PR attached to its Linear issue. This is flagged for the run report; a human may want to tidy PR states, but no code is lost.
