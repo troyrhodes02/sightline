@@ -77,6 +77,16 @@ const serverSchema = z.object({
   SLATE_REFRESH_INTERVAL_SECONDS: z.coerce.number().int().min(10).default(60),
 
   /**
+   * On-view freshness threshold (Pitch 10). When the Slate is opened or
+   * refocused, the browser triggers a server-side price refresh only if the
+   * freshest stored price is older than this. The server route is advisory-
+   * locked, so concurrent viewers cannot multiply the upstream Kalshi call.
+   * This is the "~5 minutes" target as a freshness interval, NOT a scheduler
+   * cadence — a page nobody is looking at is not refreshed on its behalf.
+   */
+  PRICE_ONVIEW_FRESHNESS_SECONDS: z.coerce.number().int().min(10).default(300),
+
+  /**
    * Bearer token for the scheduler-facing `/api/pipeline/*` routes (RD-20).
    * A machine caller, not a user session: it can trigger a price refresh and
    * report a keepalive, and nothing else. Optional so environments without a

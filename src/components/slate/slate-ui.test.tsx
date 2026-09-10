@@ -242,9 +242,22 @@ describe("Slate screen states", () => {
     renderThemed(<Slate slate={slate()} refreshIntervalSeconds={60} />);
     expect(screen.getByText("Slate")).toBeInTheDocument();
     expect(screen.getByText(/14 games/)).toBeInTheDocument();
+  });
+
+  it("shows the manual refresh control to an admin only — a diagnostic, not the normal path (Pitch 10)", () => {
+    const { rerender } = renderThemed(
+      <Slate slate={slate()} refreshIntervalSeconds={60} isAdmin />,
+    );
     expect(
       screen.getByRole("button", { name: "Refresh prices" }),
     ).toBeInTheDocument();
+
+    rerender(
+      <ThemeProvider theme={theme}>
+        <Slate slate={slate()} refreshIntervalSeconds={60} isAdmin={false} />
+      </ThemeProvider>,
+    );
+    expect(screen.queryByRole("button", { name: "Refresh prices" })).toBeNull();
   });
 
   it("no upcoming games is a designed answer with the next kickoff", () => {
