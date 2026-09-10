@@ -1,19 +1,34 @@
 import { test, expect, type Page } from "@playwright/test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import {
   comparabilityReason,
   compareLcp,
   type LcpBaseline,
 } from "../src/lib/perf/lcpCompare";
-import baseline from "../docs/v1/perf/slate-lcp-baseline.json";
+
+// Read the committed baseline at runtime rather than `import ... from`: under
+// Playwright's ESM transform a static JSON import needs an import attribute that
+// not every Node version accepts, which would error the test at collection —
+// exactly where an enforcing gate must not fall over. JSON.parse of the file is
+// transform-agnostic and just as honest (it is the committed file, not a value
+// baked in at build time).
+const baseline = JSON.parse(
+  readFileSync(
+    resolve(process.cwd(), "docs/v1/perf/slate-lcp-baseline.json"),
+    "utf8",
+  ),
+) as LcpBaseline;
 
 /**
- * Slate LCP capture (Pitch 10, SIG-91) — REPORT-ONLY.
+ * Slate LCP capture and gate (Pitch 10, SIG-91 built the harness; SIG-99 made
+ * it enforcing).
  *
- * Measures Largest Contentful Paint of /slate against the 300-contract
- * perf fixture (seed-slate-perf) and compares it to the committed baseline.
- * SIG-99 flips this to enforcing (`PERF_ENFORCE_LCP=1`).
+ * Measures Largest Contentful Paint of /slate against the 300-contract perf
+ * fixture (seed-slate-perf) and compares it to the committed baseline. With
+ * `PERF_ENFORCE_LCP=1` (set in the CI perf job) a comparison that does not
+ * clear the ≥30% reduction bar FAILS the build; without it the same number is
+ * logged and the run passes (report-only, for local/manual capture).
  *
  * Why Playwright and not a bare Lighthouse CLI run: /slate is auth-gated, so a
  * meaningful measurement must first sign in. This spec reuses the suite's
@@ -22,8 +37,15 @@ import baseline from "../docs/v1/perf/slate-lcp-baseline.json";
  * browser's PerformanceObserver, which is the same metric Lighthouse's LCP
  * audit reports; nothing here fabricates a number.
  *
- * The measurement is written to docs/v1/perf/slate-lcp-latest.json for CI to
- * surface. In report-only mode a regression logs a warning and still passes.
+ * Honesty: the gate is inert against a placeholder baseline. When the committed
+ * baseline is still `measured: false`, `comparabilityReason` refuses to compare
+ * and the spec logs the reason and returns — so enforcement can never turn a
+ * null baseline into a red or a green. The real baseline must be captured on
+ * the pre-change commit in a provisioned environment first (docs/v1/perf/).
+ *
+ * The measured LCP is always written to docs/v1/perf/slate-lcp-latest.json; when
+ * a real comparison runs the artifact also records baseline→current, the percent
+ * reduction, the required bar, and the pass/fail verdict.
  */
 const ADMIN_EMAIL = process.env.E2E_ADMIN_EMAIL;
 const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD;
@@ -77,35 +99,47 @@ test.describe("slate LCP", () => {
 
     const out = resolve(process.cwd(), "docs/v1/perf/slate-lcp-latest.json");
     mkdirSync(dirname(out), { recursive: true });
-    writeFileSync(
-      out,
-      `${JSON.stringify(
-        {
-          metric: "largest-contentful-paint",
-          route: "/slate",
-          lcpMs: currentMs,
-          capturedAt: new Date().toISOString(),
-        },
-        null,
-        2,
-      )}\n`,
-    );
 
-    const { comparable, reason } = comparabilityReason(
-      baseline as LcpBaseline,
-      currentMs,
-    );
+    /** Write the run artifact. Called once with whatever we know so far. */
+    const writeArtifact = (extra: Record<string, unknown>) => {
+      writeFileSync(
+        out,
+        `${JSON.stringify(
+          {
+            metric: "largest-contentful-paint",
+            route: "/slate",
+            lcpMs: currentMs,
+            enforced: ENFORCE,
+            capturedAt: new Date().toISOString(),
+            ...extra,
+          },
+          null,
+          2,
+        )}\n`,
+      );
+    };
+
+    const { comparable, reason } = comparabilityReason(baseline, currentMs);
     if (!comparable) {
+      writeArtifact({ comparable: false, reason });
       console.warn(
         `[perf] /slate LCP = ${currentMs}ms. Cannot compare: ${reason}.`,
       );
       return;
     }
 
-    const result = compareLcp((baseline as LcpBaseline).lcpMs!, currentMs);
+    const result = compareLcp(baseline.lcpMs!, currentMs);
+    writeArtifact({
+      comparable: true,
+      baselineMs: result.baselineMs,
+      reductionPct: Number(result.reductionPct.toFixed(2)),
+      requiredPct: result.requiredPct,
+      passes: result.passes,
+    });
     console.warn(
       `[perf] /slate LCP baseline ${result.baselineMs}ms → ${result.currentMs}ms ` +
-        `(${result.reductionPct.toFixed(1)}% reduction, need ${result.requiredPct}%).`,
+        `(${result.reductionPct.toFixed(1)}% reduction, need ${result.requiredPct}%, ` +
+        `${result.passes ? "PASS" : "FAIL"}).`,
     );
 
     if (ENFORCE) {

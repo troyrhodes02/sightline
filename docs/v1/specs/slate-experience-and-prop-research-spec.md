@@ -445,7 +445,7 @@ Organized by area, GIVEN/WHEN/THEN. Sightline's risk order applies; for this pit
 - GIVEN a fresh price and a stale projection THEN the projection state remains stale (a price refresh never clears it) and the two facts render distinctly.
 
 **Performance (RD-3, RD-10)**
-- CI: seed the 300-contract fixture, run Lighthouse LCP against the pre-change baseline and the feature branch; assert ≥30% LCP reduction. Report-only until the final ticket flips the gate.
+- CI: seed the 300-contract fixture, run Lighthouse LCP against the pre-change baseline and the feature branch; assert ≥30% LCP reduction. **Enforcing** as of SIG-99 (`PERF_ENFORCE_LCP=1`, no `continue-on-error`) — a branch that misses the bar is a red build. The gate is inert against a placeholder baseline by design (`lcpCompare.comparabilityReason`), so the real pre-change baseline is captured in the provisioned CI environment per `docs/v1/perf/README.md`.
 
 ## 14. Acceptance criteria
 

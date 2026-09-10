@@ -91,22 +91,51 @@ jobs:
           E2E_VIEWER_PASSWORD: ${{ secrets.E2E_VIEWER_PASSWORD }}
 
   perf-slate-lcp:
-    name: Slate LCP (report-only)
-    # Pitch 10 / SIG-91. Report-only: captures /slate Largest Contentful Paint
-    # against the 300-contract perf fixture and logs the delta vs the committed
-    # baseline. It does NOT fail the build (continue-on-error) and does NOT set
-    # PERF_ENFORCE_LCP — SIG-99 flips this to enforcing once a real baseline is
-    # captured. Like the authenticated e2e suite it needs a provisioned
-    # environment; without the secrets the spec reports SKIPPED, never passed.
+    name: Slate LCP (enforcing ≥30%)
+    # Pitch 10 / SIG-99 flips SIG-91's harness from report-only to ENFORCING.
+    # It captures /slate Largest Contentful Paint against the 300-contract perf
+    # fixture and, with PERF_ENFORCE_LCP=1, FAILS the build unless the branch is
+    # at least 30% faster than the committed baseline (RD-3). The build no longer
+    # carries continue-on-error, so a genuine regression is a red build.
+    #
+    # Honesty invariant (do not weaken): the gate only produces a verdict when a
+    # REAL baseline exists. `lcpCompare.comparabilityReason` refuses to compare
+    # against the placeholder baseline (`measured: false`) and the spec returns
+    # early — so enabling enforcement never manufactures a red or a green from a
+    # null baseline. The real pre-change baseline is captured by the one-time
+    # procedure in docs/v1/perf/README.md (run `npm run perf:slate-lcp` on the
+    # pre-change commit in this same provisioned environment, commit the number),
+    # after which every subsequent run enforces against it.
+    #
+    # Like the authenticated e2e suite the measurement needs a provisioned
+    # environment: a Postgres database it can seed with the 300-contract fixture
+    # and Supabase-backed accounts to sign in with. Absent the E2E_ADMIN_*
+    # secrets the spec reports SKIPPED — never passed — so a fork/PR without the
+    # secrets cannot silently turn the gate green.
     runs-on: ubuntu-latest
-    continue-on-error: true
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: sightline
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d sightline"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
-      DATABASE_URL: postgresql://postgres:postgres@localhost:6543/sightline?pgbouncer=true
-      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/sightline
-      NEXT_PUBLIC_SUPABASE_URL: https://ci-placeholder.supabase.co
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-anon-placeholder
-      SUPABASE_SERVICE_ROLE_KEY: ci-service-role-placeholder
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/sightline?schema=public
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/sightline?schema=public
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.E2E_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.E2E_SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.E2E_SUPABASE_SERVICE_ROLE_KEY }}
       APP_URL: http://localhost:3000
+      # Enforce the ≥30% bar. Inert against a placeholder baseline (see above);
+      # a live gate once the real baseline is committed.
+      PERF_ENFORCE_LCP: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -116,15 +145,20 @@ jobs:
       - run: npm ci
       - name: Generate Prisma client
         run: npm run prisma:generate
+      - name: Apply migrations to the CI database
+        run: npx prisma migrate deploy
+      - name: Seed the 300-contract perf fixture
+        run: npm run db:seed:slate:perf
       - name: Build
         run: npm run build
       - name: Install Playwright chromium
         run: npx playwright install chromium
-      # The measurement requires a provisioned environment (seeded accounts +
-      # the 300-contract fixture via `npm run db:seed:slate:perf`). Absent the
-      # secrets the spec skips. The LCP number and delta are printed to the log
-      # and written to docs/v1/perf/slate-lcp-latest.json.
-      - name: Capture Slate LCP (report-only)
+      # The measurement signs in with the provisioned accounts, loads the seeded
+      # /slate, reads the real LCP web-vital, compares to the committed baseline,
+      # and — under PERF_ENFORCE_LCP=1 — fails if the ≥30% reduction is not met.
+      # The number, the baseline→current delta, and the pass/fail are printed to
+      # the log and written to docs/v1/perf/slate-lcp-latest.json.
+      - name: Enforce Slate LCP (≥30% reduction vs baseline)
         run: npm run perf:slate-lcp
         env:
           E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
