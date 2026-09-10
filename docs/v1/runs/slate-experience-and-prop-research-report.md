@@ -3,7 +3,9 @@
 **Slug:** `slate-experience-and-prop-research`
 **Linear project:** Sightline V1 · **Milestone:** Pitch 10: Slate Experience & Prop Research
 **Feature PR:** **#92** — https://github.com/troyrhodes02/sightline/pull/92 (base `main`)
-**Status:** ⏳ **Awaiting human review. NOT merged into `main`.** The feature branch is assembled, reviewed, audited, and green; the PR is open for a human pass because this pitch changes the permission surface (Accuracy moves behind the admin boundary; viewer-reachable routes change).
+**Status:** ✅ **MERGED into `main`** (2026-09-10, squash commit `bbe88c1 Slate Experience & Prop Research (#92)`) at the human owner's explicit direction after the autonomous run left it review-ready. All 9 tickets (SIG-91…SIG-99) are Done. The autonomous run itself stopped at review-ready per its instruction; the merge was a subsequent human-authorized action.
+
+> **Post-merge note:** `main` was synced and re-checked after merge — typecheck PASS, all key feature files present. The items flagged below still stand as **follow-ups on `main`**: capture the real LCP baseline in a provisioned CI/preview env (the ≥30% gate is inert against the placeholder until then), apply the three upstream doc amendments, and address SIG-100/SIG-101. The pre-existing untracked working-tree files (`prisma/seed-dev-game.ts`, `python/backtests/`, the bankroll test-plan) were left untouched and were not part of this merge.
 
 ---
 
