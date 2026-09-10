@@ -9,9 +9,21 @@ reviewed, audited, green, and its PR left open for human review.
 
 ## Current step
 
-**Step 3 in progress.** Precondition cleared. Pitch saved (step 1). Design doc written
-(step 2). Building UI preview next. Codebase mapping captured in scratchpad/design-notes.md
-(grade job, autonomous cycle refusal path, simulation redistribution, frontend surfaces).
+**Step 8 in progress — SIG-74 DONE, SIG-75 next.** Steps 1–7 complete: pitch, design doc,
+UI preview, spec (with Resolved Decisions §18), milestone + tickets SIG-74…SIG-80 chained,
+feature branch `feat/adjustment-suggestions-and-source-reliability` + feature PR #72 open.
+`progress.md` is edited ONLY on the feature branch (never ticket branches) to avoid
+squash-merge conflicts; each ticket branch chains off the previous.
+
+### Ticket status
+- **SIG-74 DONE** — branch `feat/SIG-74-adjustment-suggestions-schema` (off feature branch),
+  PR [#73](https://github.com/troyrhodes02/sightline/pull/73). Schema foundation:
+  AdjustmentSourceEvent + AdjustmentSuggestion models, Projection `provenance` discriminator
+  (joined into persist key), `pending_suggestion` constraint, PaperPosition annotation fields,
+  mirrored TS/Python constants, import-graph guard extended, projection persist ON CONFLICT
+  updated for provenance. GREEN: prisma validate; migrate deploy (dev + test DB); test:schema 30;
+  jest 824; tsc; eslint(changed); prettier(changed); build; pytest 463. Linear In Progress + PR linked.
+- SIG-75…SIG-80 — pending, in chain order (each branches off the previous ticket branch).
 
 Key design decisions taken (from codebase mapping):
 - Shadow = Projection row with new `provenance` enum {base, adjustment_shadow} + FK
@@ -44,8 +56,8 @@ NOT halt under stop condition 1:
 4. [ ] Spec → `docs/v1/specs/...-spec.md` (in progress)
 5. [x] Resolve remaining open questions (recorded as Resolved Decisions in spec §18)
 6. [x] Milestone + Linear issues chained with blockedBy; identifiers SIG-74…SIG-80 captured below
-7. [ ] Feature PR into main (in progress)
-8. [ ] Ticket worker — every ticket in order
+7. [x] Feature PR into main → PR #72 (https://github.com/troyrhodes02/sightline/pull/72)
+8. [ ] Ticket worker — every ticket in order (SIG-74 in progress)
 9. [ ] Runbook → `docs/v1/runbooks/...-runbook.md`
 10. [ ] Squash-merge every ticket PR into feature branch
 11. [ ] Full verification suite (+ pitch-specific required tests)
