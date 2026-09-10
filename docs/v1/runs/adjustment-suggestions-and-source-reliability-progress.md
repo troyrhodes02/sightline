@@ -40,7 +40,10 @@ squash-merge conflicts; each ticket branch chains off the previous.
 - **SIG-78 DONE** — branch `feat/SIG-78-resolver-and-block` (off SIG-77), PR [#77](https://github.com/troyrhodes02/sightline/pull/77). Active-projection resolver (accepted-shadow overlay + provenance=base guard across freshestProjections/cycle/dry-run) + pending_suggestion refusal in plan.ts + accept-time position annotation. GREEN: jest 831, plan+active-projection tests, schema 30, tsc, build. Linear In Progress + PR linked.
 - **SIG-79 DONE** — branch `feat/SIG-79-routes-and-reads` (off SIG-78), PR [#78](https://github.com/troyrhodes02/sightline/pull/78). Accept/decline routes (admin, idempotent, session user, position annotation), reliability compute (two independent sample-gated figures, no combined field), pending/history/reliability reads. GREEN: jest 847, reliability+actions tests, tsc, build. Linear In Progress + PR linked.
   NOTE: slate/detail DTO plumbing for pending marker + accepted-reason line folded into SIG-80 (UI, where rendered).
-- SIG-80 — pending (final ticket: UI).
+- **SIG-80 DONE** — branch `feat/SIG-80-ui` (off SIG-79), PR [#79](https://github.com/troyrhodes02/sightline/pull/79). Admin Suggestions section (nav + Pending/History/Reliability + accept/decline + gating) + tests + e2e. GREEN: jest 850, tsc, build, e2e compiles. Linear In Progress + PR linked.
+  DEFERRED (fast-follow, data layer present): shared-surface accepted-reason line + slate pending marker rendering.
+
+**Step 8 COMPLETE — all 7 tickets done (SIG-74…SIG-80, PRs #73…#79). Steps 9–15 next.**
 
 Key design decisions taken (from codebase mapping):
 - Shadow = Projection row with new `provenance` enum {base, adjustment_shadow} + FK
