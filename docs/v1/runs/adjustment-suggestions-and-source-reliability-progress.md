@@ -38,7 +38,9 @@ squash-merge conflicts; each ticket branch chains off the previous.
   NIT for review: cycle.py module docstring still says "Optional sources: weather" — update to name espn_inactives.
 - **SIG-77 DONE** — branch `feat/SIG-77-grading-extensions` (off SIG-76), PR [#76](https://github.com/troyrhodes02/sightline/pull/76). Shadow grading pass + source-claim grading vs participation; added empirical-distribution grading (closes latent sim-grading gap). GREEN: grade-suggestions 4, grade-job 15, import-graph 12, full pytest 489. Linear In Progress + PR linked.
 - **SIG-78 DONE** — branch `feat/SIG-78-resolver-and-block` (off SIG-77), PR [#77](https://github.com/troyrhodes02/sightline/pull/77). Active-projection resolver (accepted-shadow overlay + provenance=base guard across freshestProjections/cycle/dry-run) + pending_suggestion refusal in plan.ts + accept-time position annotation. GREEN: jest 831, plan+active-projection tests, schema 30, tsc, build. Linear In Progress + PR linked.
-- SIG-79…SIG-80 — pending (routes/reads, then UI).
+- **SIG-79 DONE** — branch `feat/SIG-79-routes-and-reads` (off SIG-78), PR [#78](https://github.com/troyrhodes02/sightline/pull/78). Accept/decline routes (admin, idempotent, session user, position annotation), reliability compute (two independent sample-gated figures, no combined field), pending/history/reliability reads. GREEN: jest 847, reliability+actions tests, tsc, build. Linear In Progress + PR linked.
+  NOTE: slate/detail DTO plumbing for pending marker + accepted-reason line folded into SIG-80 (UI, where rendered).
+- SIG-80 — pending (final ticket: UI).
 
 Key design decisions taken (from codebase mapping):
 - Shadow = Projection row with new `provenance` enum {base, adjustment_shadow} + FK
