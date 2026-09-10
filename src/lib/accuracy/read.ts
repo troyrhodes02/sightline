@@ -15,6 +15,7 @@ import {
   marketComparison,
   type MarketObservationInput,
 } from "./compute";
+import { summarizeAccuracy } from "./summary";
 import { GRADING_LATE_AFTER_HOURS } from "@/lib/health/config";
 import type { AccuracyScopeRequest } from "./scope";
 
@@ -99,6 +100,9 @@ export async function readAccuracy(
     exclusions,
     availableVersions,
     availableSeasons,
+    // The plain-language layer interprets the metrics just computed; it reads
+    // nothing new and introduces no metric of its own.
+    summary: summarizeAccuracy({ calibration, errorPanel, market }),
   };
 
   // The overrides entry is attached by a code path the viewer branch never

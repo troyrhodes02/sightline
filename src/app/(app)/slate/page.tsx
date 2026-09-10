@@ -1,6 +1,6 @@
 import { serverEnv } from "@/env";
 import { requireSession } from "@/lib/auth/session";
-import { readSlate } from "@/lib/slate/read";
+import { readSlateGrouped } from "@/lib/slate/read-grouped";
 import { Slate } from "@/components/screens/Slate";
 
 export const dynamic = "force-dynamic";
@@ -17,11 +17,14 @@ export const metadata = { title: "Slate · Sightline" };
  */
 export default async function SlatePage() {
   const session = await requireSession();
-  const slate = await readSlate(session.user.role);
+  const slate = await readSlateGrouped(session.user.role);
+  const env = serverEnv();
   return (
     <Slate
       slate={slate}
-      refreshIntervalSeconds={serverEnv().SLATE_REFRESH_INTERVAL_SECONDS}
+      refreshIntervalSeconds={env.SLATE_REFRESH_INTERVAL_SECONDS}
+      refreshFreshnessSeconds={env.PRICE_ONVIEW_FRESHNESS_SECONDS}
+      isAdmin={session.user.role === "admin"}
     />
   );
 }

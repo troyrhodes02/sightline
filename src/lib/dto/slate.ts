@@ -49,6 +49,13 @@ export type StalenessDto = {
 
 export type SlateRowDto = {
   contractId: string;
+  /**
+   * The resolved player and game behind this row. Not secret — the grouped
+   * read (spec §12) groups games → players → props by these keys rather than
+   * re-querying, and both roles receive them.
+   */
+  playerId: string;
+  gameId: string;
   playerName: string;
   /** "CIN @ BAL" — away at home. Null only for an unresolved game. */
   gameLabel: string | null;
@@ -192,4 +199,124 @@ export type ContractDetailDto = SlateRowDto & {
 
   /** Present only once the contract's game is completed or cancelled. */
   outcomeBlock?: OutcomeBlockDto;
+};
+
+// ---------------------------------------------------------------------------
+// Grouped slate (Pitch 10 — Slate Experience & Prop Research, spec §12)
+//
+// A read-time reshaping of the SAME rows `readSlate` produces: games →
+// players → props. Nothing here is persisted, no ranking changes, no edge is
+// stored. `PlayerCardDto` keeps the structural admin-field absence: viewer
+// payloads never carry `currentDisposition`/`decidedAt` because the code path
+// that builds them never touches decisions.
+// ---------------------------------------------------------------------------
+
+/**
+ * The five-state plain-language freshness vocabulary (spec §5, RD-9), derived
+ * from existing signals. It is a DISPLAY mapping, not a stored state, and it
+ * never collapses the two clocks: `projectionComputedAt`/`informationCutoff`
+ * are the projection clock, `priceObservedAt` is the price clock, and a fresh
+ * price never clears a stale projection.
+ */
+export type FreshnessStateDto = {
+  state:
+    | "current"
+    | "updated_recently"
+    | "new_info_pending"
+    | "stale"
+    | "unavailable";
+  /** Raw signals retained for detail/Health; the label is derived, these are not removed. */
+  projectionComputedAt: string | null;
+  informationCutoff: string | null;
+  priceObservedAt: string | null;
+};
+
+/**
+ * One (contract or stored-projection) threshold+direction for a player/stat.
+ * `null` is a distinct state from `0` throughout: `modelProbability: null`
+ * means "no projection", `edgePoints: null` means "no market", not a free or
+ * zero-edge contract.
+ */
+export type PropDto = {
+  /** Null for a stored projection with no currently listed contract. */
+  contractId: string | null;
+  /**
+   * The stat type this prop belongs to. Carried so the expanded player card's
+   * stat selector can partition a player's flat `props` per stat without a
+   * refetch (SIG-96); the flat list spans all of a player's stat types.
+   */
+  statType: StatType;
+  threshold: number;
+  direction: "above" | "below";
+  /** P(stat >= threshold) for "above"; P(stat < threshold) for "below". null ≠ 0. */
+  modelProbability: number | null;
+  confidence: Confidence | null;
+  bidCents: number | null;
+  askCents: number | null;
+  /** null when no market — never zero. */
+  edgePoints: number | null;
+  confidenceAdjustedEdge: number | null;
+  isRecommended: boolean;
+};
+
+export type PlayerCardDto = {
+  playerId: string;
+  playerName: string;
+  teamAbbreviation: string;
+  opponentAbbreviation: string;
+  /** Derived from the player's stored props, never hardcoded. */
+  statTypes: StatType[];
+  /** All thresholds across all stat types for local (no-refetch) stepping. */
+  props: PropDto[];
+  /** Max `confidenceAdjustedEdge` across props (RD-5); null if none has edge. Both directions eligible. */
+  bestOpportunity: PropDto | null;
+  projectionState: "projected" | "insufficient_evidence" | "none";
+  freshness: FreshnessStateDto;
+  adjustment: {
+    kind: "accepted" | "pending" | null;
+    note: string | null;
+    suggestionId: string | null;
+  };
+  /**
+   * ADMIN SERIALIZER ONLY — absent (not null) from viewer payloads. The viewer
+   * code path never reads decisions, so absence is structural.
+   */
+  currentDisposition?: Disposition;
+  decidedAt?: string;
+};
+
+export type GameGroupDto = {
+  gameId: string;
+  homeTeam: string;
+  awayTeam: string;
+  kickoffAt: string;
+  freshness: FreshnessStateDto;
+  players: PlayerCardDto[];
+};
+
+export type SlateGroupedDto = {
+  games: GameGroupDto[];
+  /** Cross-game strongest-opportunity slice, ranked by the existing order (RD-5). */
+  bestOpportunities: Array<{
+    playerId: string;
+    gameId: string;
+    prop: PropDto;
+    playerName: string;
+    teamAbbreviation: string;
+    kickoffLabel: string;
+  }>;
+  /** Unchanged from `readSlate`. */
+  unresolved: UnresolvedRowDto[];
+  /** Derived from data, never hardcoded. */
+  availableStatTypes: StatType[];
+  availableGames: Array<{ gameId: string; label: string }>;
+  pricesUpdatedAt: string | null;
+  priceDegraded: boolean;
+  /**
+   * The last sync refreshed some markets but not all — a mix of current and
+   * last-observed prices is on screen. Distinct from `priceDegraded` (a full
+   * outage); disclosed so a partial refresh is never silently presented as
+   * fully current (the "disclose, don't race" posture).
+   */
+  pricePartial: boolean;
 };

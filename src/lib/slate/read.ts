@@ -175,6 +175,8 @@ export async function readSlate(role: SlateRole): Promise<SlateDto> {
 
     rows.push({
       contractId: contract.id,
+      playerId: contract.playerId as string,
+      gameId: contract.gameId as string,
       playerName: contract.player?.fullName ?? contract.kalshiPlayerName ?? "",
       gameLabel: `${game.awayTeam.nflverseAbbr} @ ${game.homeTeam.nflverseAbbr}`,
       statType: contract.statType as StatType,
@@ -475,6 +477,10 @@ export async function readContractDetail(
 
   const detail: ContractDetailDto = {
     contractId: contract.id,
+    // Present for a resolved contract; empty for an unresolved one (no player /
+    // game yet). Detail is single-contract and never grouped, so "" is inert.
+    playerId: contract.playerId ?? "",
+    gameId: contract.gameId ?? "",
     playerName:
       contract.player?.fullName ?? contract.kalshiPlayerName ?? contract.title,
     gameLabel: contract.game

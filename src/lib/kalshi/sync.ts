@@ -122,6 +122,41 @@ export async function runMarketSync(): Promise<SyncResult> {
   return inFlight;
 }
 
+/**
+ * The coalesced result to return when a concurrent refresh already holds the
+ * advisory lock (Pitch 10): read the latest completed run and report it as
+ * `coalesced` WITHOUT contacting Kalshi. This is what makes two concurrent
+ * staleness-triggered refreshes produce exactly one upstream call.
+ */
+export async function latestCoalescedResult(): Promise<SyncResult> {
+  const latest = await prisma.marketSyncRun.findFirst({
+    orderBy: { startedAt: "desc" },
+    where: { finishedAt: { not: null } },
+  });
+  if (!latest?.finishedAt) {
+    return {
+      syncRunId: "",
+      status: "failed",
+      coalesced: true,
+      degraded: false,
+      marketsDiscovered: 0,
+      contractsUpserted: 0,
+      observationsWritten: 0,
+      finishedAt: null,
+    };
+  }
+  return {
+    syncRunId: latest.id,
+    status: latest.status,
+    coalesced: true,
+    degraded: latest.status === "failed",
+    marketsDiscovered: latest.marketsDiscovered,
+    contractsUpserted: latest.contractsUpserted,
+    observationsWritten: latest.observationsWritten,
+    finishedAt: latest.finishedAt.toISOString(),
+  };
+}
+
 async function executeSync(): Promise<SyncResult> {
   const env = serverEnv();
   const now = new Date();

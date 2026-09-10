@@ -4,32 +4,47 @@ export type Section = {
   adminOnly: boolean;
   /** Reached from the account menu and the mobile drawer, not the tab bar. */
   drawerOnly?: boolean;
+  /**
+   * Belongs to the admin area rather than the viewer-facing primary tabs.
+   * Admin-group sections are gathered under a single "Admin" control instead of
+   * sitting as peers of the Slate. Implies `adminOnly`.
+   */
+  adminGroup?: boolean;
 };
 
 /**
  * The single source for navigation, feeding both the desktop tabs and the
  * mobile drawer — so the two can never disagree about what exists.
  *
- * **Only routes that exist appear here.** Backtests and Decisions are added
- * by the pitches that build them; a nav item leading to a page that explains
- * itself is still a nav item implying a feature. Accuracy is shared: model
- * calibration is visible to viewers, while the overrides layer beneath it
- * stays admin-only at the route, not in the nav.
+ * **Only routes that exist appear here.** Backtests and Decisions are added by
+ * the pitches that build them; a nav item leading to a page that explains
+ * itself is still a nav item implying a feature.
  *
- * Autonomy is ONE entry covering seven surfaces, which are reached by a
- * secondary tab row inside the section. The shell names the parts of the
- * product a person moves between; autonomy is one of them, and its internals
- * are a section rather than seven peers of the slate.
+ * The viewer-facing product is exactly two destinations — Slate and Prop
+ * Research — plus Settings. Everything analytical or operational (Accuracy,
+ * Autonomy, Suggestions, Health, Users) is `adminGroup`: server-guarded and
+ * gathered under an "Admin" control rather than shown as a peer of the Slate.
+ * Accuracy moved into this group in Pitch 10 — general model accuracy is an
+ * admin surface now, not a shared viewer read. Suggestions is likewise no
+ * longer a primary destination: its pending accept/decline lives inline on the
+ * Slate, while its history and reliability analytics stay reachable here.
  */
 export const SECTIONS: Section[] = [
   { label: "Slate", href: "/slate", adminOnly: false },
-  { label: "Accuracy", href: "/accuracy", adminOnly: false },
-  { label: "Autonomy", href: "/autonomy", adminOnly: true },
-  // Adjustment Suggestions: admin-only accept/decline queue, history, and the
-  // private reliability analytics. One entry; internals are a secondary tab row.
-  { label: "Suggestions", href: "/suggestions", adminOnly: true },
-  { label: "Health", href: "/health", adminOnly: true },
-  { label: "Users", href: "/users", adminOnly: true },
+  { label: "Prop Research", href: "/research", adminOnly: false },
+  { label: "Accuracy", href: "/accuracy", adminOnly: true, adminGroup: true },
+  { label: "Autonomy", href: "/autonomy", adminOnly: true, adminGroup: true },
+  // Adjustment Suggestions: admin-only history and the private reliability
+  // analytics. Pending accept/decline moved inline onto the Slate (Pitch 10),
+  // so this is no longer a primary destination — it lives in the admin area.
+  {
+    label: "Suggestions",
+    href: "/suggestions",
+    adminOnly: true,
+    adminGroup: true,
+  },
+  { label: "Health", href: "/health", adminOnly: true, adminGroup: true },
+  { label: "Users", href: "/users", adminOnly: true, adminGroup: true },
   { label: "Settings", href: "/settings", adminOnly: false, drawerOnly: true },
 ];
 
@@ -43,4 +58,24 @@ export const SECTIONS: Section[] = [
  */
 export function visibleSections(role: "admin" | "viewer"): Section[] {
   return SECTIONS.filter((section) => !section.adminOnly || role === "admin");
+}
+
+/**
+ * The viewer-facing primary tabs: everything that is neither admin-grouped nor
+ * drawer-only. Identical for both roles today (Slate, Prop Research) — the
+ * admin's extra surfaces live under the Admin control, not among these.
+ */
+export function primaryTabs(role: "admin" | "viewer"): Section[] {
+  return visibleSections(role).filter(
+    (section) => !section.adminGroup && !section.drawerOnly,
+  );
+}
+
+/**
+ * The admin area's sections, gathered under the "Admin" control. Empty for a
+ * viewer, so the control itself never renders for them — absence, not a
+ * disabled menu.
+ */
+export function adminSections(role: "admin" | "viewer"): Section[] {
+  return visibleSections(role).filter((section) => section.adminGroup);
 }

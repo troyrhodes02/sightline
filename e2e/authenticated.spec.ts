@@ -52,13 +52,24 @@ test.describe("role enforcement", () => {
   }) => {
     await signIn(page, VIEWER_EMAIL!, VIEWER_PASSWORD!);
 
-    // The shell itself must not advertise the admin layer.
+    // The shell itself must not advertise the admin layer. Pitch 10 moved
+    // Accuracy, Autonomy, and Suggestions behind the admin boundary, so none
+    // of their routes may appear in a viewer's markup.
     const shell = (await page.content()) ?? "";
     expect(shell).not.toContain("/health");
     expect(shell).not.toContain("/users");
-    expect(shell).not.toContain("/accuracy/overrides");
+    expect(shell).not.toContain("/accuracy");
+    expect(shell).not.toContain("/autonomy");
+    expect(shell).not.toContain("/suggestions");
 
-    for (const route of ["/health", "/users", "/accuracy/overrides"]) {
+    for (const route of [
+      "/health",
+      "/users",
+      "/accuracy",
+      "/accuracy/overrides",
+      "/autonomy",
+      "/suggestions",
+    ]) {
       const response = await page.goto(route);
       expect(response?.status()).toBe(403);
 
@@ -238,24 +249,25 @@ test.describe("accuracy surface", () => {
     await expect(page.getByText("Overrides", { exact: true })).toBeVisible();
   });
 
-  test("renders for a viewer with no overrides entry anywhere in the markup", async ({
+  test("is denied to a viewer in place, with no accuracy data in the markup", async ({
     page,
   }) => {
+    // Pitch 10 moved general model accuracy behind the admin boundary. A viewer
+    // deep link is rejected server-side, in place — not redirected, not a
+    // partial shell — exactly like every other admin route.
     await signIn(page, VIEWER_EMAIL!, VIEWER_PASSWORD!);
-    await page.goto("/accuracy");
+    const response = await page.goto("/accuracy");
 
-    await expect(page.getByRole("heading", { name: "Accuracy" })).toBeVisible();
+    expect(response?.status()).toBe(403);
+    expect(new URL(page.url()).pathname).toBe("/accuracy");
 
-    // Absent, not hidden: the served markup carries neither the doorway nor
-    // the route it leads to.
+    // No accuracy heading, no overrides doorway, no calibration machinery.
     const html = await page.content();
     expect(html).not.toContain("Overrides");
     expect(html).not.toContain("/accuracy/overrides");
-
-    // The freshness line is deliberately shared; the awaiting-grades count
-    // and signal vocabulary stay on /health.
     const body = (await page.textContent("body")) ?? "";
-    expect(body).not.toMatch(/awaiting grades/i);
+    expect(body).toMatch(/You do not have access to this page\./);
+    expect(body).not.toMatch(/brier|calibration|reliability/i);
   });
 
   test("accuracy and overrides do not scroll horizontally at 320px for the admin", async ({
@@ -268,15 +280,5 @@ test.describe("accuracy surface", () => {
       await page.goto(route);
       expect(await overflows(page), `${route} overflows at 320px`).toBe(false);
     }
-  });
-
-  test("accuracy does not scroll horizontally at 320px for a viewer", async ({
-    page,
-  }) => {
-    await signIn(page, VIEWER_EMAIL!, VIEWER_PASSWORD!);
-    await page.setViewportSize(NARROW);
-
-    await page.goto("/accuracy");
-    expect(await overflows(page)).toBe(false);
   });
 });

@@ -213,6 +213,93 @@ describe("empirical_pmf", () => {
   });
 });
 
+describe("threshold complementarity for discrete stats (RD-1)", () => {
+  // For a discrete stat and an INTEGER threshold N, P(>=N) + P(<N) must be
+  // exactly 1: the "exactly N" mass belongs to P(>=N) and is never dropped.
+  // `probAtLeast` uses ceil(N)=N for integers, summing indices >= N; the below
+  // side is 1 - that, so the point mass at N cannot vanish into a gap.
+  const complementary = (
+    kind: string,
+    pmf: number[] | null,
+    quantiles: Record<string, number> | null,
+    n: number,
+  ) => {
+    const above = probAtLeast(
+      { distributionKind: kind, params: {}, pmf, quantiles },
+      n,
+    ) as number;
+    const below = 1 - above;
+    return { above, below };
+  };
+
+  it("negative_binomial: P(>=N) + P(<N) === 1 exactly at every integer N", () => {
+    // A count PMF 0..4 with a (5+) tail bucket.
+    const pmf = [0.5, 0.25, 0.13, 0.07, 0.03, 0.02];
+    for (let n = 0; n <= 5; n += 1) {
+      const { above, below } = complementary("negative_binomial", pmf, null, n);
+      expect(above + below).toBe(1);
+    }
+  });
+
+  it("negative_binomial: the exact-N mass is retained in P(>=N), not lost", () => {
+    const pmf = [0.5, 0.25, 0.13, 0.07, 0.03, 0.02];
+    // P(>=2) − P(>=3) === P(X = 2): the point mass at the integer survives.
+    const pGe2 = probAtLeast(
+      { distributionKind: "negative_binomial", params: {}, pmf },
+      2,
+    ) as number;
+    const pGe3 = probAtLeast(
+      { distributionKind: "negative_binomial", params: {}, pmf },
+      3,
+    ) as number;
+    expect(pGe2 - pGe3).toBeCloseTo(pmf[2], 12);
+  });
+
+  it("empirical_pmf: P(>=N) + P(<N) === 1 exactly at every integer N", () => {
+    const pmf = [0.62, 0.24, 0.09, 0.03, 0.015, 0.005];
+    for (let n = 0; n <= 5; n += 1) {
+      const { above, below } = complementary("empirical_pmf", pmf, null, n);
+      expect(above + below).toBe(1);
+    }
+  });
+
+  it("empirical_pmf: the exact-N mass is retained in P(>=N), not lost", () => {
+    const pmf = [0.62, 0.24, 0.09, 0.03, 0.015, 0.005];
+    const pGe1 = probAtLeast(
+      { distributionKind: "empirical_pmf", params: {}, pmf },
+      1,
+    ) as number;
+    const pGe2 = probAtLeast(
+      { distributionKind: "empirical_pmf", params: {}, pmf },
+      2,
+    ) as number;
+    expect(pGe1 - pGe2).toBeCloseTo(pmf[1], 12);
+  });
+
+  it("holds across the golden discrete fixtures (NB + empirical-PMF)", () => {
+    const cases = golden as unknown as GoldenCase[];
+    const discrete = cases.filter(
+      (c) => c.kind === "negative_binomial" || c.kind === "empirical_pmf",
+    );
+    expect(discrete.length).toBeGreaterThan(0);
+    for (const testCase of discrete) {
+      // Evaluate at the ceil of the fixture threshold — an integer support
+      // point — where the complement must be exact regardless of the .5 line.
+      const n = Math.ceil(testCase.threshold);
+      const above = probAtLeast(
+        {
+          distributionKind: testCase.kind,
+          params: testCase.params,
+          pmf: testCase.pmf,
+          quantiles: testCase.quantiles ?? null,
+        },
+        n,
+      ) as number;
+      expect(above + (1 - above)).toBe(1);
+    }
+  });
+});
+
 describe("stdNormalCdf", () => {
   it("matches known reference values to double precision", () => {
     expect(Math.abs(stdNormalCdf(0) - 0.5)).toBeLessThan(1e-15);

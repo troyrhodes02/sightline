@@ -19,6 +19,8 @@ const detail = (
   overrides: Partial<ContractDetailDto> = {},
 ): ContractDetailDto => ({
   contractId: "c1",
+  playerId: "p1",
+  gameId: "g1",
   playerName: "Ja'Marr Chase",
   gameLabel: "CIN @ BAL",
   statType: "receiving_yards",

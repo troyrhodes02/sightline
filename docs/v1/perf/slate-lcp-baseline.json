@@ -1,0 +1,12 @@
+{
+  "metric": "largest-contentful-paint",
+  "route": "/slate",
+  "fixture": "seed-slate-perf (300 contracts)",
+  "measured": false,
+  "lcpMs": null,
+  "commit": null,
+  "capturedAt": null,
+  "status": "placeholder-awaiting-ci-capture",
+  "note": "Pitch 10 / SIG-91 established this baseline as an intentional placeholder; SIG-99 flipped the CI gate to enforcing (PERF_ENFORCE_LCP=1, no continue-on-error). It is STILL a placeholder because the pre-change Slate LCP could not be measured in the local dev environment (/slate is auth-gated and no provisioned database was available) and inventing a number would defeat the gate. The gate is safe with a placeholder: lcpCompare.comparabilityReason refuses to compare against measured:false, so enforcement neither reds nor greens on a null baseline. To make the gate live, capture the real pre-change LCP per docs/v1/perf/README.md — run `npm run perf:slate-lcp` on the pre-change commit in the provisioned CI environment (Postgres + seeded 300-contract fixture + Supabase accounts), then set measured:true, lcpMs, commit, capturedAt here and commit. Do NOT treat a null lcpMs as a real measurement.",
+  "requiredReductionPct": 30
+}
