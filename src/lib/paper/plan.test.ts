@@ -37,6 +37,7 @@ function candidate(over: Partial<CandidateInput> = {}): CandidateInput {
       predatesInactives: false,
       inactivesExpectedAt: null,
     },
+    pendingSuggestion: null,
     yesAskCents: 54,
     noAskCents: 48,
     yesAskSizeContracts: 500,
@@ -161,6 +162,49 @@ describe("candidate eligibility", () => {
     expect(plan.candidates[0].verdict).toBe("refused");
     expect(plan.candidates[0].boundBy).toBe("stale_projection");
     expect(plan.candidates[0].boundByDetail).toBe("predates today's inactives");
+  });
+
+  it("refuses only the affected contract on a pending suggestion; others trade", () => {
+    // Decision 1: a pending material suggestion blocks the affected player's
+    // contract only. An unrelated contract in the SAME cycle (same game, same
+    // slate) is untouched and plans normally.
+    const plan = planCycle(
+      input({
+        candidates: [
+          candidate({
+            contractId: "affected",
+            pendingSuggestion: { held: false },
+          }),
+          candidate({ contractId: "unrelated", pendingSuggestion: null }),
+        ],
+      }),
+    );
+    const affected = plan.candidates.find((c) => c.contractId === "affected")!;
+    const unrelated = plan.candidates.find(
+      (c) => c.contractId === "unrelated",
+    )!;
+    expect(affected.verdict).toBe("refused");
+    expect(affected.boundBy).toBe("pending_suggestion");
+    expect(affected.boundByDetail).toBe(
+      "pending adjustment suggestion awaiting review",
+    );
+    // The unrelated contract was not refused for the suggestion; it proceeds
+    // through normal economics (filled or a non-suggestion verdict).
+    expect(unrelated.boundBy).not.toBe("pending_suggestion");
+    expect(unrelated.verdict).not.toBe("refused");
+  });
+
+  it("refuses an insufficient-evidence hold with its own detail", () => {
+    // Decision 6: the model cannot defensibly estimate the adjustment, so the
+    // contract is held — same refusal path, distinct detail.
+    const plan = planCycle(
+      input({ candidates: [candidate({ pendingSuggestion: { held: true } })] }),
+    );
+    expect(plan.candidates[0].verdict).toBe("refused");
+    expect(plan.candidates[0].boundBy).toBe("pending_suggestion");
+    expect(plan.candidates[0].boundByDetail).toBe(
+      "insufficient evidence to estimate the adjustment",
+    );
   });
 
   it("refuses when no fit governs the projection's model version", () => {

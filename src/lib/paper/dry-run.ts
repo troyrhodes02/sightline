@@ -1,6 +1,11 @@
 import "server-only";
 
+import type { StatType } from "../../../generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
+import {
+  acceptedShadowProjectionIds,
+  blockedSuggestionKeys,
+} from "@/lib/suggestions/active-projection";
 import { getOrderbookTop } from "@/lib/kalshi/client";
 import { probAtLeast } from "@/lib/slate/probability";
 import {
@@ -194,29 +199,53 @@ async function buildCandidates(
   });
   if (contracts.length === 0) return { rows: [], recalibration: null };
 
+  const projectionSelect = {
+    id: true,
+    playerId: true,
+    statType: true,
+    modelVersion: true,
+    distributionKind: true,
+    params: true,
+    pmf: true,
+    confidence: true,
+    informationCutoff: true,
+  } as const;
   const projections = await prisma.projection.findMany({
     where: {
       gameId: game.id,
       playerId: { in: contracts.map((c) => c.playerId as string) },
+      // Mirror the live cycle: base is the default active projection; an
+      // accepted shadow is overlaid below (RD-AS-3).
+      provenance: "base",
     },
     orderBy: { computedAt: "desc" },
-    select: {
-      id: true,
-      playerId: true,
-      statType: true,
-      modelVersion: true,
-      distributionKind: true,
-      params: true,
-      pmf: true,
-      confidence: true,
-      informationCutoff: true,
-    },
+    select: projectionSelect,
   });
   const freshest = new Map<string, (typeof projections)[number]>();
   for (const projection of projections) {
     const key = `${projection.playerId}:${projection.statType}`;
     if (!freshest.has(key)) freshest.set(key, projection);
   }
+
+  const keys = contracts.map((c) => ({
+    playerId: c.playerId as string,
+    gameId: game.id,
+    statType: c.statType as StatType,
+  }));
+  const acceptedShadowIds = await acceptedShadowProjectionIds(keys);
+  if (acceptedShadowIds.size > 0) {
+    const shadows = await prisma.projection.findMany({
+      where: { id: { in: [...acceptedShadowIds.values()] } },
+      select: projectionSelect,
+    });
+    const shadowById = new Map(shadows.map((s) => [s.id, s]));
+    for (const [key, shadowId] of acceptedShadowIds) {
+      const [playerId, , statType] = key.split(":");
+      const shadow = shadowById.get(shadowId);
+      if (shadow) freshest.set(`${playerId}:${statType}`, shadow);
+    }
+  }
+  const blockedKeys = await blockedSuggestionKeys(game.id);
 
   const observations = await prisma.priceObservation.findMany({
     where: { contractId: { in: contracts.map((c) => c.id) } },
@@ -271,6 +300,8 @@ async function buildCandidates(
             lead,
           )
         : null,
+      pendingSuggestion:
+        blockedKeys.get(`${contract.playerId}:${contract.statType}`) ?? null,
       yesAskCents: book?.yesAskCents ?? null,
       noAskCents: book?.noAskCents ?? null,
       yesAskSizeContracts: book?.yesAskSizeContracts ?? null,

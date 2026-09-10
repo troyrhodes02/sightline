@@ -1,6 +1,7 @@
 import "server-only";
 
 import { z } from "zod";
+import type { StatType } from "../../../generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
 import {
   KalshiRateLimitError,
@@ -32,6 +33,10 @@ import { executeCycle } from "@/lib/paper/execute";
 import { activeRecalibration } from "@/lib/paper/recalibration/store";
 import { capacityCents } from "@/lib/paper/plan";
 import { calibrationSample } from "@/lib/paper/calibration-window";
+import {
+  acceptedShadowProjectionIds,
+  blockedSuggestionKeys,
+} from "@/lib/suggestions/active-projection";
 
 /**
  * The scheduled autonomous paper cycle.
@@ -435,29 +440,60 @@ async function buildCandidates(
   });
   if (contracts.length === 0) return { rows: [], recalibration: null };
 
+  const projectionSelect = {
+    id: true,
+    playerId: true,
+    statType: true,
+    modelVersion: true,
+    distributionKind: true,
+    params: true,
+    pmf: true,
+    confidence: true,
+    informationCutoff: true,
+  } as const;
+
   const projections = await prisma.projection.findMany({
     where: {
       gameId: game.id,
       playerId: { in: contracts.map((c) => c.playerId as string) },
+      // A stored shadow is never active merely by existing (RD-AS-3): the base
+      // freshest is the default, overlaid below only by an ACCEPTED shadow.
+      provenance: "base",
     },
     orderBy: { computedAt: "desc" },
-    select: {
-      id: true,
-      playerId: true,
-      statType: true,
-      modelVersion: true,
-      distributionKind: true,
-      params: true,
-      pmf: true,
-      confidence: true,
-      informationCutoff: true,
-    },
+    select: projectionSelect,
   });
   const freshest = new Map<string, (typeof projections)[number]>();
   for (const projection of projections) {
     const key = `${projection.playerId}:${projection.statType}`;
     if (!freshest.has(key)) freshest.set(key, projection);
   }
+
+  // An accepted suggestion's shadow IS the active projection for its key — the
+  // bot trades the adjustment William approved, not the obsolete base.
+  const keys = contracts.map((c) => ({
+    playerId: c.playerId as string,
+    gameId: game.id,
+    statType: c.statType as StatType,
+  }));
+  const acceptedShadowIds = await acceptedShadowProjectionIds(keys);
+  if (acceptedShadowIds.size > 0) {
+    const shadows = await prisma.projection.findMany({
+      where: { id: { in: [...acceptedShadowIds.values()] } },
+      select: projectionSelect,
+    });
+    const shadowById = new Map(shadows.map((s) => [s.id, s]));
+    for (const [key, shadowId] of acceptedShadowIds) {
+      // key is player:game:stat; the cycle map is player:stat within one game.
+      const [playerId, , statType] = key.split(":");
+      const shadow = shadowById.get(shadowId);
+      if (shadow) freshest.set(`${playerId}:${statType}`, shadow);
+    }
+  }
+
+  // Pending / insufficient-evidence suggestions block the affected player's
+  // contracts only (decision 1). Keyed player:stat within this game.
+  const blockedKeys = await blockedSuggestionKeys(game.id);
 
   const observations = await prisma.priceObservation.findMany({
     where: { contractId: { in: contracts.map((c) => c.id) } },
@@ -520,6 +556,8 @@ async function buildCandidates(
             lead,
           )
         : null,
+      pendingSuggestion:
+        blockedKeys.get(`${contract.playerId}:${contract.statType}`) ?? null,
       yesAskCents: book?.yesAskCents ?? null,
       noAskCents: book?.noAskCents ?? null,
       yesAskSizeContracts: book?.yesAskSizeContracts ?? null,
