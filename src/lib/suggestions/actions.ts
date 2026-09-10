@@ -77,11 +77,16 @@ export async function acceptSuggestion(
     };
   }
 
-  await prisma.$transaction(async (tx) => {
-    await tx.adjustmentSuggestion.update({
-      where: { id },
+  const applied = await prisma.$transaction(async (tx) => {
+    // Conditional transition: only flip a row that is STILL pending. The status
+    // was read outside the transaction, so a concurrent decline/accept could
+    // have resolved it since; the WHERE guard makes the transition atomic and
+    // the affected-row count tells us whether we won the race (review audit).
+    const { count } = await tx.adjustmentSuggestion.updateMany({
+      where: { id, status: "pending" },
       data: { status: "accepted", decidedByUserId: userId, decidedAt: now },
     });
+    if (count === 0) return false;
     // Annotate any open paper position on the affected contract(s) — decision 8.
     const contracts = await tx.contract.findMany({
       where: {
@@ -94,7 +99,23 @@ export async function acceptSuggestion(
     for (const contract of contracts) {
       await annotateOpenPositionProjectionChanged(tx, contract.id, now);
     }
+    return true;
   });
+
+  if (!applied) {
+    // Lost the race — the row is no longer pending. Re-read and report the
+    // resolved state so the client converges rather than acting on stale data.
+    const now2 = await loadSuggestion(id);
+    return {
+      outcome: now2.status === "accepted" ? "unchanged" : "invalid",
+      statusNow: now2.status,
+      suggestionId: id,
+      activeProjectionId:
+        now2.status === "accepted"
+          ? now2.shadowProjectionId
+          : now2.baseProjectionId,
+    };
+  }
 
   return {
     outcome: "applied",
@@ -128,10 +149,24 @@ export async function declineSuggestion(
     };
   }
 
-  await prisma.adjustmentSuggestion.update({
-    where: { id },
+  // Conditional transition, symmetric with accept: only decline a row that is
+  // still pending, so a concurrent accept cannot be silently overwritten.
+  const { count } = await prisma.adjustmentSuggestion.updateMany({
+    where: { id, status: "pending" },
     data: { status: "declined", decidedByUserId: userId, decidedAt: now },
   });
+  if (count === 0) {
+    const now2 = await loadSuggestion(id);
+    return {
+      outcome: now2.status === "declined" ? "unchanged" : "invalid",
+      statusNow: now2.status,
+      suggestionId: id,
+      activeProjectionId:
+        now2.status === "accepted"
+          ? now2.shadowProjectionId
+          : now2.baseProjectionId,
+    };
+  }
 
   // The base stays active; the shadow is untouched and still graded.
   return {

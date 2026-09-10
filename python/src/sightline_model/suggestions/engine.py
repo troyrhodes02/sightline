@@ -240,7 +240,6 @@ def _raise_suggestions(
     shadow_by_key = {
         (p.player_id, p.stat_type): p for p in shadow.projections
     }
-    declined_keys = {(d.player_id, d.stat_type) for d in shadow.declines}
 
     name_ids = {obs.subject_player_id}
     for stat, players in player_ids_by_stat.items():
@@ -250,6 +249,8 @@ def _raise_suggestions(
 
     for stat, players in player_ids_by_stat.items():
         for target in players:
+            # TODO(SIG-81): batch these per-(target,stat) freshest-base reads
+            # into one keyed query instead of one round-trip per contract.
             base = db.freshest_base_projection(
                 cur, player_id=target, game_id=obs.game_id, stat_type=stat
             )
@@ -261,10 +262,15 @@ def _raise_suggestions(
             target_name = names.get(target, target)
             key = (target, stat)
 
-            if key in declined_keys and key not in shadow_by_key:
-                # Decision 6: the model cannot defensibly estimate this
-                # redistribution. Raise an insufficient-evidence suggestion (no
-                # shadow); the contract is held from autonomous trading.
+            if key not in shadow_by_key:
+                # Decision 6: no shadow projection for a listed target that has a
+                # base — whether the model explicitly declined (insufficient
+                # evidence) OR the simulation produced neither a projection nor a
+                # decline for it. Either way we cannot defensibly estimate the
+                # redistribution, so raise an insufficient-evidence hold rather
+                # than silently leaving the contract tradeable on a possibly-stale
+                # base (review audit: closes a drop where the target was neither
+                # projected nor declined).
                 db.insert_suggestion(
                     cur,
                     row={
@@ -291,9 +297,7 @@ def _raise_suggestions(
                 out.insufficient_evidence += 1
                 continue
 
-            proj = shadow_by_key.get(key)
-            if proj is None:
-                continue
+            proj = shadow_by_key[key]
 
             base_dist = ProjectionDist(
                 quantiles=_loads(base["quantiles"]),

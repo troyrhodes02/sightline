@@ -23,7 +23,10 @@ import {
 import { decisionOutcome } from "@/lib/accuracy/derive";
 import { readOutcomeBlock } from "./outcome-block";
 import { probAtLeast } from "./probability";
-import { acceptedShadowProjectionIds } from "@/lib/suggestions/active-projection";
+import {
+  acceptedShadowProjectionIds,
+  projectionKey,
+} from "@/lib/suggestions/active-projection";
 import { formatAge } from "./staleness";
 import { latestFactKnownAtByGame, stalenessForRow } from "./staleness-read";
 
@@ -568,13 +571,11 @@ export async function readContractDetail(
 // Internals
 // ---------------------------------------------------------------------------
 
-export function projectionKey(
-  playerId: string,
-  gameId: string,
-  statType: StatType,
-): string {
-  return `${playerId}:${gameId}:${statType}`;
-}
+// Single source for the (player, game, stat) key, imported from the active-
+// projection resolver so the freshest-base map and the accepted-shadow overlay
+// can never key differently (review audit: was duplicated byte-for-byte here).
+// Re-exported for existing importers (e.g. final-snapshot).
+export { projectionKey };
 
 type FreshProjection = {
   id: string;
