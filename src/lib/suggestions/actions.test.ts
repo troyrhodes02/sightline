@@ -123,6 +123,11 @@ describe("declineSuggestion", () => {
     expect(result.outcome).toBe("applied");
     expect(result.statusNow).toBe("declined");
     expect(result.activeProjectionId).toBe("base-1"); // base stays active
+    // Conditional transition guarded on status='pending' (TOCTOU-safe).
+    expect(declineUpdateMany).toHaveBeenCalledWith({
+      where: { id: "s1", status: "pending" },
+      data: expect.objectContaining({ status: "declined" }),
+    });
     // Declining never touches a position (no exposure change of any kind).
     expect(tx.paperPosition.updateMany).not.toHaveBeenCalled();
   });
