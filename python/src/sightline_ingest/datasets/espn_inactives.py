@@ -48,6 +48,19 @@ _SOURCE = "espn"
 # How far ahead a game must kick off to still be an actionable target.
 _UPCOMING_WINDOW = timedelta(days=8)
 
+# ESPN's public, unauthenticated site API (Architecture Doc: undocumented, non-
+# critical). The scoreboard lists the current week's games; each game summary
+# carries an ``injuries`` block — the weekly injury report — which we flatten
+# into claims. There is no single ESPN endpoint in the flat shape the legacy
+# ``SIGHTLINE_ESPN_INACTIVES_URL`` path expects, so the default source is this
+# two-step adapter (scoreboard → per-game summary).
+_ESPN_SCOREBOARD_URL = (
+    "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard"
+)
+_ESPN_SUMMARY_URL = (
+    "https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary"
+)
+
 
 class EspnInactivesError(RuntimeError):
     """A fetch or parse failure. Recorded as a failed (optional) ingest run."""
@@ -65,29 +78,64 @@ class RawInactive:
 
 
 class EspnInactivesClient:
-    """Thin, schema-tolerant client for ESPN's undocumented inactives endpoint.
+    """Thin, schema-tolerant client for ESPN's undocumented injury feed.
 
-    Not exercised in tests (no network); the orchestration injects a ``fetch``.
-    Endpoint is env-configured so it can be pointed or disabled without a deploy.
+    Default path (no env override): ESPN's public site API — the scoreboard for
+    the week's games, then each upcoming game's summary, whose ``injuries`` block
+    is flattened into inactive reports. If ``SIGHTLINE_ESPN_INACTIVES_URL`` is
+    set it is used instead as a single flat-shape endpoint (legacy/override),
+    parsed by :func:`parse_payload`.
+
+    Not exercised over the network in tests; the orchestration injects a
+    ``fetch`` and the flatteners are unit-tested directly.
     """
 
-    def __init__(self, session: requests.Session | None = None, timeout: int = 15) -> None:
+    def __init__(
+        self,
+        session: requests.Session | None = None,
+        timeout: int = 15,
+        scoreboard_url: str = _ESPN_SCOREBOARD_URL,
+        summary_url: str = _ESPN_SUMMARY_URL,
+    ) -> None:
         self._session = session or requests.Session()
         self._timeout = timeout
+        self._scoreboard_url = scoreboard_url
+        self._summary_url = summary_url
+
+    def _get(self, url: str, params: dict[str, str] | None = None) -> Any:
+        try:
+            resp = self._session.get(url, params=params, timeout=self._timeout)
+            resp.raise_for_status()
+            return resp.json()
+        except (requests.RequestException, ValueError) as exc:  # network or bad JSON
+            raise EspnInactivesError(f"ESPN fetch failed: {exc}") from None
 
     def fetch(self, *, now: datetime) -> list[RawInactive]:
-        url = os.environ.get("SIGHTLINE_ESPN_INACTIVES_URL")
-        if not url:
-            raise EspnInactivesError(
-                "SIGHTLINE_ESPN_INACTIVES_URL is not configured; ESPN inactives disabled"
+        override = os.environ.get("SIGHTLINE_ESPN_INACTIVES_URL")
+        if override:
+            return parse_payload(self._get(override), now=now)
+        return self._fetch_from_espn(now=now)
+
+    def _fetch_from_espn(self, *, now: datetime) -> list[RawInactive]:
+        board = self._get(self._scoreboard_url)
+        events = board.get("events", []) if isinstance(board, dict) else []
+        out: list[RawInactive] = []
+        for event in events:
+            if not isinstance(event, dict):
+                continue
+            # Only upcoming games — a live or final game's injury report is no
+            # longer a pre-game claim. ESPN's state is "pre" | "in" | "post".
+            state = (
+                ((event.get("status") or {}).get("type") or {}).get("state")
             )
-        try:
-            resp = self._session.get(url, timeout=self._timeout)
-            resp.raise_for_status()
-            payload = resp.json()
-        except (requests.RequestException, ValueError) as exc:  # network or bad JSON
-            raise EspnInactivesError(f"ESPN inactives fetch failed: {exc}") from None
-        return parse_payload(payload, now=now)
+            if state and state != "pre":
+                continue
+            event_id = event.get("id")
+            if not event_id:
+                continue
+            summary = self._get(self._summary_url, params={"event": str(event_id)})
+            out.extend(parse_espn_summary(summary, now=now))
+        return out
 
 
 def parse_payload(payload: Any, *, now: datetime) -> list[RawInactive]:
@@ -146,6 +194,50 @@ def _first_str(rec: dict, keys: Iterable[str]) -> str | None:
             if nested:
                 return nested
     return None
+
+
+def parse_espn_summary(summary: Any, *, now: datetime) -> list[RawInactive]:
+    """Flatten one ESPN game-summary ``injuries`` block into inactive reports.
+
+    Shape (defensive): ``{"injuries": [{"team": {"abbreviation": "SF"},
+    "injuries": [{"athlete": {"displayName": "...", "id": "..."},
+    "status": "Out"}]}]}``. A record missing team, name, or status is skipped
+    rather than raised — ESPN routinely omits fields and a game with no injury
+    report is a legitimate empty result, not drift. ``known_at`` is the fetch
+    time (a live source we observe now), never reconstructed.
+    """
+    out: list[RawInactive] = []
+    groups = summary.get("injuries") if isinstance(summary, dict) else None
+    if not isinstance(groups, list):
+        return out
+    for group in groups:
+        if not isinstance(group, dict):
+            continue
+        team = _first_str(group, ("team", "abbreviation"))
+        entries = group.get("injuries")
+        if not team or not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            name = _first_str(entry, ("athlete", "displayName", "name"))
+            status = _first_str(entry, ("status", "designation"))
+            if not name or not status:
+                continue
+            athlete = entry.get("athlete")
+            espn_id = None
+            if isinstance(athlete, dict) and athlete.get("id") is not None:
+                espn_id = str(athlete["id"])
+            out.append(
+                RawInactive(
+                    player_name=name,
+                    team_abbr=team.upper(),
+                    status=status.strip().lower(),
+                    espn_player_id=espn_id,
+                    known_at=now,
+                )
+            )
+    return out
 
 
 def _rows(cur) -> list[dict[str, Any]]:
@@ -210,23 +302,24 @@ def run_espn_inactives(
 ) -> None:
     """Fetch ESPN inactives and feed each into the Adjustment Suggestions engine.
 
-    **Not configured is not a failure.** ESPN inactives are off until
-    ``SIGHTLINE_ESPN_INACTIVES_URL`` is set; when it is unset the run is marked
-    ``degraded`` (source deliberately disabled) and returns without touching the
-    feed — never a ``failed`` run, so an unconfigured optional source never adds
-    error noise to an otherwise-healthy cycle.
+    **On by default** via the ESPN site-API adapter (scoreboard → per-game
+    summary injury reports); no configuration is required. It can be turned off
+    without a deploy by setting ``SIGHTLINE_ESPN_INACTIVES_DISABLED`` — the run
+    is then marked ``degraded`` (deliberately off), never ``failed``, so an
+    intentionally-disabled optional source adds no error noise to a healthy
+    cycle. ``SIGHTLINE_ESPN_INACTIVES_URL`` still overrides the adapter with a
+    single flat-shape endpoint (legacy).
 
-    Once configured, a fetch failure raises :class:`EspnInactivesError` — recorded
-    by the cycle as a failed OPTIONAL source, which never fails the cycle.
-    Unresolvable reports are counted and skipped; the run is marked partial so the
-    gap is visible.
+    A fetch failure raises :class:`EspnInactivesError` — recorded by the cycle as
+    a failed OPTIONAL source, which never fails the cycle. Unresolvable reports
+    are counted and skipped; the run is marked partial so the gap is visible.
     """
-    # Not configured → deliberately-off, not broken. Only gate the real client;
-    # an injected fetch (tests) always proceeds.
-    if fetch is None and not os.environ.get("SIGHTLINE_ESPN_INACTIVES_URL"):
+    # Explicitly disabled → deliberately-off, not broken. Only gate the real
+    # client; an injected fetch (tests) always proceeds.
+    if fetch is None and os.environ.get("SIGHTLINE_ESPN_INACTIVES_DISABLED"):
         handle.mark_degraded(
-            "ESPN inactives not configured (SIGHTLINE_ESPN_INACTIVES_URL unset); "
-            "source disabled — affected games stay honestly stale (Pitch 5)"
+            "ESPN inactives disabled via SIGHTLINE_ESPN_INACTIVES_DISABLED; "
+            "source off — affected games stay honestly stale (Pitch 5)"
         )
         return
 

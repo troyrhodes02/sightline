@@ -18,6 +18,7 @@ from sightline_ingest.datasets.espn_inactives import (
     EspnInactivesError,
     RawInactive,
     map_game,
+    parse_espn_summary,
     parse_payload,
     resolve_player,
     run_espn_inactives,
@@ -86,16 +87,64 @@ def test_parse_payload_empty_is_empty_not_an_error() -> None:
     assert parse_payload([], now=_NOW) == []
 
 
-def test_unconfigured_source_is_degraded_not_failed(connect, monkeypatch) -> None:
-    # Not configured is deliberately-off, not broken: the run is DEGRADED (never
-    # FAILED) and touches nothing, so an unconfigured optional source adds no
-    # error noise to a healthy cycle. Returns before any DB or model access.
+def test_explicitly_disabled_source_is_degraded_not_failed(connect, monkeypatch) -> None:
+    # ESPN inactives is ON by default now (ESPN site-API adapter). Setting
+    # SIGHTLINE_ESPN_INACTIVES_DISABLED turns it off WITHOUT a deploy: the run is
+    # DEGRADED (never FAILED) and touches nothing — no network, no DB, no model —
+    # so a deliberately-off optional source adds no error noise to a healthy cycle.
     monkeypatch.delenv("SIGHTLINE_ESPN_INACTIVES_URL", raising=False)
+    monkeypatch.setenv("SIGHTLINE_ESPN_INACTIVES_DISABLED", "1")
     handle = IngestRunHandle(source="espn", dataset="espn_inactives")
     run_espn_inactives(handle, connect, 2026, 2026)  # no injected fetch
     assert handle.status == "degraded"
     assert handle.status != "failed"
     assert handle.rows_written == 0
+
+
+def test_parse_espn_summary_flattens_injury_report() -> None:
+    # The real ESPN game-summary shape: injuries grouped by team, each entry an
+    # athlete with a status. Flattened to one RawInactive per reportable entry,
+    # known_at = fetch time (a live source we observe now).
+    summary = {
+        "injuries": [
+            {
+                "team": {"abbreviation": "LAR"},
+                "injuries": [
+                    {"athlete": {"displayName": "Puka Nacua", "id": "4426515"}, "status": "Questionable"},
+                    {"athlete": {"displayName": "Aaron Donald", "id": "16716"}, "status": "Out"},
+                ],
+            },
+            {
+                "team": {"abbreviation": "SF"},
+                "injuries": [
+                    {"athlete": {"displayName": "Christian McCaffrey"}, "status": "Active"},
+                ],
+            },
+        ]
+    }
+    parsed = parse_espn_summary(summary, now=_NOW)
+    assert len(parsed) == 3
+    nacua = next(p for p in parsed if p.player_name == "Puka Nacua")
+    assert nacua.team_abbr == "LAR" and nacua.status == "questionable"
+    assert nacua.espn_player_id == "4426515" and nacua.known_at == _NOW
+    donald = next(p for p in parsed if p.player_name == "Aaron Donald")
+    assert donald.status == "out"
+    cmc = next(p for p in parsed if p.player_name == "Christian McCaffrey")
+    assert cmc.team_abbr == "SF" and cmc.status == "active" and cmc.espn_player_id is None
+
+
+def test_parse_espn_summary_skips_incomplete_and_tolerates_no_injuries() -> None:
+    # A game with no injuries block, or a malformed record, is a legitimate empty
+    # result — never a raise (unlike the flat-payload path's drift guard).
+    assert parse_espn_summary({}, now=_NOW) == []
+    assert parse_espn_summary({"injuries": []}, now=_NOW) == []
+    partial = {
+        "injuries": [
+            {"team": {"abbreviation": "KC"}, "injuries": [{"athlete": {}, "status": "Out"}]},
+            {"team": {}, "injuries": [{"athlete": {"displayName": "No Team"}, "status": "Out"}]},
+        ]
+    }
+    assert parse_espn_summary(partial, now=_NOW) == []
 
 
 # --- DB-backed resolution + orchestration ----------------------------------
