@@ -166,3 +166,25 @@ Feature branch = docs base + 9 clean per-ticket commits (SIG-91→SIG-99) + runb
 - My first merge-recovery attempt (looping `gh pr merge --squash`) made it worse: it broke the linear stack (odd PRs closed as non-mergeable, some merged into intermediate branches).
 - **Clean recovery:** `origin/feat/sig-99-lcp-gate` was verified to be the pristine linear stack (9 real ticket commits on the docs base) and already contained the JSON-bug fix (a later ticket rewrote the perf spec to read at runtime). I `git reset --hard` the feature branch to that stack, cherry-picked the runbook commit, regenerated this progress file, and force-pushed the feature branch (my own branch, not a shared/main branch — permitted; noted here and for the report). Then ran the full suite HONESTLY (above).
 - **Consequence for PR hygiene:** ticket PRs #93–#101 have inconsistent GitHub merge states (some MERGED, some CLOSED) from the botched loop, but ALL ticket code is present on the feature branch via the clean reset, and each ticket has a PR attached to its Linear issue. This is flagged for the run report; a human may want to tidy PR states, but no code is lost.
+
+## Review + audit (Steps 12-14)
+
+Review posted on PR #92 (review id 5173025238), 8 findings + 3 minors. Authz/credential/no-edge/prices-never-feed-projections invariants confirmed clean by the review.
+
+**Audit dispositions:**
+
+| # | Finding | Disposition |
+|---|---------|-------------|
+| 1 | refresh-lock: 5s txn wraps multi-second sync → P2028 500 + lock releases mid-sync (RD-2 defeat) | **IMPLEMENT** — raise `$transaction` timeout to hold the lock for the sync duration; confirm route degrades on error. Core invariant + RD-2. |
+| 2 | Slate.tsx: partial-sync warning removed, no disclosure | **IMPLEMENT** — re-surface partial-sync disclosure (thread `lastSync.status`/partial into grouped DTO + banner). Disclosure invariant. |
+| 3 | read-grouped: `pricesUpdatedAt=lastSync.finishedAt` (job time) feeds on-view gate | **DEFER (ticket)** — real but narrow (degraded sync advancing the clock); fix = track last successful price-observation time, a larger change. File follow-up. |
+| 4 | Slate.tsx: empty-state collapse (no-schedule vs no-contracts) | **IMPLEMENT** — restore the two distinct empty states. |
+| 5 | filters.ts: client best-opportunity tie-break diverges from server (edgePoints) | **IMPLEMENT** — reuse server `bestOpportunity` when a player's props are unchanged / match the edgePoints tie-break. Correctness. |
+| 6 | freshness: null price → 'updated_recently'; degraded flag not threaded to card | **IMPLEMENT** — thread `slate.degraded` into `buildPlayerCard`→`deriveFreshness`; treat absent price honestly. |
+| 7 | research/read `activeModelByStat` duplicates exported `modelSelectionMap` | **IMPLEMENT** — import the existing helper (drift prevention). |
+| 8 | SlateKeyNav ↑/↓ keyboard nav dropped/orphaned; no card keyboard nav | **DEFER (ticket)** — design doc §7 keyboard-nav gap; re-architecting nav across GameGroup/PlayerCard is a real follow-up. Note dead file for removal in that ticket. |
+| m1 | summary.ts:54 contradictory "below the floor" message | **IMPLEMENT** — cheap disclosure-correctness fix. |
+| m2 | read-grouped game-level freshness always-null timestamps | **SKIP** — harmless; consumers use player-level freshness. |
+| m3 | screens.test.tsx admin-nav test doesn't open menu | **IMPLEMENT** — strengthen to assert Health/Users reachable in the Admin menu. |
+
+Deferred follow-up tickets to file: (a) price-freshness clock should track last successful price observation, not job finishedAt; (b) keyboard navigation for the grouped GameGroup/PlayerCard layout + remove orphaned SlateKeyNav.
