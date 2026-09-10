@@ -97,6 +97,7 @@ export function SlateRow({ row }: { row: SlateRowDto }) {
         <Typography
           variant="body2"
           sx={{ color: "text.secondary", flex: { md: "0 0 auto" } }}
+          suppressHydrationWarning
         >
           {row.gameLabel ?? "—"} · {formatEtTime(row.kickoffAt)}
         </Typography>

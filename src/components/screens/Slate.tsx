@@ -1,3 +1,5 @@
+"use client";
+
 import Alert from "@mui/material/Alert";
 import Paper from "@mui/material/Paper";
 import Stack from "@mui/material/Stack";
@@ -63,6 +65,7 @@ export function Slate({
               size="sm"
               muted
               sx={{ display: { xs: "none", sm: "block" } }}
+              suppressHydrationWarning
             >
               prices as of {formatEt(slate.lastSync.finishedAt)}
             </NumericText>
@@ -93,7 +96,7 @@ export function Slate({
             title="No upcoming games."
             detail={
               slate.nextKickoffAt
-                ? `Next kickoff: ${formatEtDate(slate.nextKickoffAt)}, ${formatEt(slate.nextKickoffAt)} ET.`
+                ? `Next kickoff: ${formatEtDate(slate.nextKickoffAt)}, ${formatEt(slate.nextKickoffAt)}.`
                 : // No future games in Sightline's database. Honest about WHOSE
                   // gap that is: nflverse may well have published the schedule;
                   // Sightline's ingest has not brought it in yet.
@@ -107,7 +110,7 @@ export function Slate({
             title="No Kalshi player-prop contracts are listed yet for these games."
             detail={
               slate.lastSync?.finishedAt
-                ? `Last checked ${formatEt(slate.lastSync.finishedAt)} ET.`
+                ? `Last checked ${formatEt(slate.lastSync.finishedAt)}.`
                 : "Kalshi has not been checked yet — refresh prices to run the first sync."
             }
           />
