@@ -19,7 +19,9 @@ jest.mock("@/lib/prisma", () => ({
   },
 }));
 
-jest.mock("@/env", () => ({ serverEnv: () => ({ INACTIVES_LEAD_MINUTES: 90 }) }));
+jest.mock("@/env", () => ({
+  serverEnv: () => ({ INACTIVES_LEAD_MINUTES: 90 }),
+}));
 
 import { prisma } from "@/lib/prisma";
 import { latestFactKnownAtByGame } from "./staleness-read";
