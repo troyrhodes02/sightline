@@ -210,10 +210,26 @@ def run_espn_inactives(
 ) -> None:
     """Fetch ESPN inactives and feed each into the Adjustment Suggestions engine.
 
-    A fetch failure raises :class:`EspnInactivesError` — recorded by the cycle as
-    a failed OPTIONAL source, which never fails the cycle. Unresolvable reports
-    are counted and skipped; the run is marked partial so the gap is visible.
+    **Not configured is not a failure.** ESPN inactives are off until
+    ``SIGHTLINE_ESPN_INACTIVES_URL`` is set; when it is unset the run is marked
+    ``degraded`` (source deliberately disabled) and returns without touching the
+    feed — never a ``failed`` run, so an unconfigured optional source never adds
+    error noise to an otherwise-healthy cycle.
+
+    Once configured, a fetch failure raises :class:`EspnInactivesError` — recorded
+    by the cycle as a failed OPTIONAL source, which never fails the cycle.
+    Unresolvable reports are counted and skipped; the run is marked partial so the
+    gap is visible.
     """
+    # Not configured → deliberately-off, not broken. Only gate the real client;
+    # an injected fetch (tests) always proceeds.
+    if fetch is None and not os.environ.get("SIGHTLINE_ESPN_INACTIVES_URL"):
+        handle.mark_degraded(
+            "ESPN inactives not configured (SIGHTLINE_ESPN_INACTIVES_URL unset); "
+            "source disabled — affected games stay honestly stale (Pitch 5)"
+        )
+        return
+
     # Imported lazily so the ingest package does not hard-depend on the modelling
     # package at import time (and so the import-graph sweep stays clean).
     from sightline_ingest.asof import AsOfCorpus

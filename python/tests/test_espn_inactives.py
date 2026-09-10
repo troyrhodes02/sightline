@@ -86,6 +86,18 @@ def test_parse_payload_empty_is_empty_not_an_error() -> None:
     assert parse_payload([], now=_NOW) == []
 
 
+def test_unconfigured_source_is_degraded_not_failed(connect, monkeypatch) -> None:
+    # Not configured is deliberately-off, not broken: the run is DEGRADED (never
+    # FAILED) and touches nothing, so an unconfigured optional source adds no
+    # error noise to a healthy cycle. Returns before any DB or model access.
+    monkeypatch.delenv("SIGHTLINE_ESPN_INACTIVES_URL", raising=False)
+    handle = IngestRunHandle(source="espn", dataset="espn_inactives")
+    run_espn_inactives(handle, connect, 2026, 2026)  # no injected fetch
+    assert handle.status == "degraded"
+    assert handle.status != "failed"
+    assert handle.rows_written == 0
+
+
 # --- DB-backed resolution + orchestration ----------------------------------
 
 
