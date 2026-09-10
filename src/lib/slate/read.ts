@@ -121,6 +121,7 @@ export async function readSlate(role: SlateRole): Promise<SlateDto> {
       homeTeamId: game.homeTeamId,
       awayTeamId: game.awayTeamId,
     })),
+    now,
   );
 
   const thresholdPoints = recommendationThresholdPoints();
@@ -450,14 +451,17 @@ export async function readContractDetail(
   // because neither computes staleness locally (RD-28).
   const latestFactKnownAt = contract.game
     ? ((
-        await latestFactKnownAtByGame([
-          {
-            id: contract.game.id,
-            season: contract.game.season,
-            homeTeamId: contract.game.homeTeamId,
-            awayTeamId: contract.game.awayTeamId,
-          },
-        ])
+        await latestFactKnownAtByGame(
+          [
+            {
+              id: contract.game.id,
+              season: contract.game.season,
+              homeTeamId: contract.game.homeTeamId,
+              awayTeamId: contract.game.awayTeamId,
+            },
+          ],
+          now,
+        )
       ).get(contract.game.id) ?? null)
     : null;
   const staleness = contract.game

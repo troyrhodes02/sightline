@@ -33,9 +33,21 @@ export type GameForStaleness = {
  * about this game's players). League-wide drift is the nightly recompute's
  * job, not a stale trigger (RD-22) — another team's game completing does not
  * mark this one.
+ *
+ * Only facts already knowable count: every group is bounded by `knownAt <=
+ * now` (SIG-84). A fact whose `knownAt` is in the future cannot make a
+ * projection stale — staleness means "a fact became known after this
+ * projection's cutoff", and a not-yet-known fact has not become known. This
+ * matters because injury/practice `knownAt` is reconstructed to the day
+ * before kickoff (SIG-82), which is a *future* instant for a game later this
+ * week; without this bound, an upcoming game would read stale immediately
+ * after a fresh recompute and stay stale until that instant arrived. Once
+ * wall-clock passes it, the fact is included again and correctly flags a
+ * projection that predates it.
  */
 export async function latestFactKnownAtByGame(
   games: GameForStaleness[],
+  now: Date,
 ): Promise<Map<string, Date | null>> {
   const result = new Map<string, Date | null>(
     games.map((game) => [game.id, null]),
@@ -51,16 +63,16 @@ export async function latestFactKnownAtByGame(
   const [contexts, revisions, weather, completedGames] = await Promise.all([
     prisma.playerGameContext.groupBy({
       by: ["gameId"],
-      where: { gameId: { in: gameIds } },
+      where: { gameId: { in: gameIds }, knownAt: { lte: now } },
       _max: { knownAt: true },
     }),
     prisma.gameScheduleRevision.groupBy({
       by: ["gameId"],
-      where: { gameId: { in: gameIds } },
+      where: { gameId: { in: gameIds }, knownAt: { lte: now } },
       _max: { knownAt: true },
     }),
     prisma.gameWeather.findMany({
-      where: { gameId: { in: gameIds } },
+      where: { gameId: { in: gameIds }, knownAt: { lte: now } },
       select: { gameId: true, knownAt: true },
     }),
     prisma.game.findMany({
@@ -78,14 +90,14 @@ export async function latestFactKnownAtByGame(
     completedIds.length
       ? prisma.playerGameStat.groupBy({
           by: ["gameId"],
-          where: { gameId: { in: completedIds } },
+          where: { gameId: { in: completedIds }, knownAt: { lte: now } },
           _max: { knownAt: true },
         })
       : Promise.resolve([]),
     completedIds.length
       ? prisma.playByPlay.groupBy({
           by: ["gameId"],
-          where: { gameId: { in: completedIds } },
+          where: { gameId: { in: completedIds }, knownAt: { lte: now } },
           _max: { knownAt: true },
         })
       : Promise.resolve([]),

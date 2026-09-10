@@ -505,7 +505,7 @@ async function buildCandidates(
     observations.map((o) => [o.contractId, o]),
   );
 
-  const factKnownAt = await latestFactKnownAtByGame([game]);
+  const factKnownAt = await latestFactKnownAtByGame([game], now);
   const lead = inactivesLeadMinutes();
 
   // The active fit is chosen from the model version the freshest projections

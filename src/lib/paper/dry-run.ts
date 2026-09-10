@@ -257,7 +257,7 @@ async function buildCandidates(
     observations.map((o) => [o.contractId, o]),
   );
 
-  const factKnownAt = await latestFactKnownAtByGame([game]);
+  const factKnownAt = await latestFactKnownAtByGame([game], now);
   const lead = inactivesLeadMinutes();
   const modelVersion = [...freshest.values()][0]?.modelVersion ?? null;
   const recalibration = modelVersion
