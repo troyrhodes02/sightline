@@ -10,4 +10,5 @@ from __future__ import annotations
 
 from . import (  # noqa: F401,E402 - import registers datasets
     teams, players, schedule, identities, pbp, stats, context, weather,
+    espn_inactives,
 )
