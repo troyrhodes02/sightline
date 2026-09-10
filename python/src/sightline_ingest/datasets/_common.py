@@ -110,6 +110,29 @@ def day_after_game_knownat(kickoff: datetime) -> datetime:
     return published_et.astimezone(_UTC).replace(tzinfo=None)
 
 
+def injury_report_knownat(kickoff: datetime) -> datetime:
+    """Reconstructed availability of a weekly injury/practice designation:
+    16:00 US/Eastern the day BEFORE the game's EASTERN calendar day, naive UTC.
+
+    nflverse removed the injuries feed's ``date_modified`` column (the observed
+    publication time) in 2025+, so injury/practice ``known_at`` is now
+    reconstructed rather than observed (SIG-82). The NFL's final weekly injury
+    report is published the day before the game — Friday for a Sunday game,
+    Wednesday for Thursday night. 16:00 ET the day before is a conservative
+    *later* bound: it is after the real publication (a Sunday game's Friday
+    report, a Thursday game's Wednesday report), strictly before the
+    kickoff−90-minute projection cutoff so the designation still reaches
+    projections, and never lands on the game's own Eastern date. Resolving later
+    (never earlier) is the reconstruction rule, and later is the leak-safe
+    direction — the designation can only become *less* available, never more.
+    Reconstructed — callers set knownAtReconstructed=true.
+    """
+    et_kick = kickoff.replace(tzinfo=_UTC).astimezone(_ET)
+    prev_day = et_kick.date() - timedelta(days=1)
+    published_et = datetime(prev_day.year, prev_day.month, prev_day.day, 16, 0, tzinfo=_ET)
+    return published_et.astimezone(_UTC).replace(tzinfo=None)
+
+
 def to_decimal(value: object, places: int = 1) -> Decimal | None:
     """Coerce a numeric to a fixed-scale Decimal (never a float — precision matters)."""
     if value is None:
