@@ -109,7 +109,7 @@ function FreshnessLine({ accuracy }: { accuracy: AccuracyDto }) {
     ? `Graded through Wk ${accuracy.gradedThroughWeek.week} ${accuracy.gradedThroughWeek.season}`
     : "Nothing graded yet";
   const cycle = accuracy.lastGradingCycleAt
-    ? `last grading cycle ${formatEt(accuracy.lastGradingCycleAt)}`
+    ? `last grading cycle ${formatEt(accuracy.lastGradingCycleAt)} ET`
     : "no grading cycle has completed yet";
   return (
     <Typography variant="caption" sx={{ color: "text.secondary" }}>

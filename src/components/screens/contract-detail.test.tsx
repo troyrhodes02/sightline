@@ -467,7 +467,7 @@ describe("ContractDetail — outcome block", () => {
         isUnresolved={false}
       />,
     );
-    expect(screen.getByText(/corrected /)).toBeInTheDocument();
+    expect(screen.getByText(/corrected .* ET/)).toBeInTheDocument();
   });
 
   it("renders the decision line ONLY when the payload carries it", () => {
