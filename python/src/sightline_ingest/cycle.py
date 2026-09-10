@@ -43,13 +43,18 @@ from .provenance import STATUS_FAILED, record_ingest_run
 from .registry import get as get_dataset
 
 REQUIRED_SOURCES: tuple[str, ...] = ("schedule", "pbp", "stats", "context")
-OPTIONAL_SOURCES: tuple[str, ...] = ("weather",)
+# espn_inactives is OPTIONAL and non-critical (Adjustment Suggestions, SIG-76):
+# its outage records a failed per-source IngestRun but never fails the cycle, so
+# affected games stay honestly stale rather than the app failing. It runs last so
+# a slow/undocumented feed never delays the required nightly facts.
+OPTIONAL_SOURCES: tuple[str, ...] = ("weather", "espn_inactives")
 
 # The game-day dispatcher's ingest pass (spec: "game-scoped context/schedule/
 # weather ingest"). Only the fast-moving pre-kickoff facts; pbp and stats move
-# on the nightly cadence, not within a kickoff window.
+# on the nightly cadence, not within a kickoff window. ESPN inactives are a
+# fast-moving pre-kickoff fact, so they belong to the game-day pass too.
 GAMEDAY_REQUIRED_SOURCES: tuple[str, ...] = ("schedule", "context")
-GAMEDAY_OPTIONAL_SOURCES: tuple[str, ...] = ("weather",)
+GAMEDAY_OPTIONAL_SOURCES: tuple[str, ...] = ("weather", "espn_inactives")
 
 # How far ahead the in-week cycle looks for scheduled games. Mirrors the TS
 # health config's SEASON_LOOKAHEAD_DAYS: the two runtimes must share this

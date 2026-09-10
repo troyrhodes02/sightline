@@ -98,7 +98,9 @@ def _fake_dataset(name: str, calls: list[str], *, fail: bool = False) -> Dataset
 
 
 def _install_fakes(monkeypatch, calls: list[str], *, failing: set[str] = frozenset()) -> None:
-    for name in ("schedule", "pbp", "stats", "context", "weather"):
+    # espn_inactives (SIG-76) is an OPTIONAL source; fake it too so the cycle
+    # tests stay hermetic (the real one would attempt an ESPN fetch).
+    for name in ("schedule", "pbp", "stats", "context", "weather", "espn_inactives"):
         monkeypatch.setitem(
             DATASETS, name, _fake_dataset(name, calls, fail=name in failing)
         )
@@ -192,12 +194,12 @@ def test_cycle_success_links_every_source_to_the_run(connect, clean_db, monkeypa
     status = run_cycle(connect, invocation_id="gh-1", now=NOW)
 
     assert status == RUN_SUCCEEDED
-    assert calls == ["schedule", "pbp", "stats", "context", "weather"]
+    assert calls == ["schedule", "pbp", "stats", "context", "weather", "espn_inactives"]
     (run,) = _pipeline_runs(connect)
     assert run["status"] == RUN_SUCCEEDED
     assert run["category"] == CATEGORY_INGEST
     ingest = _ingest_runs(connect)
-    assert len(ingest) == 5
+    assert len(ingest) == 6
     assert all(r["pipeline_run_id"] == run["id"] for r in ingest)
 
 
@@ -213,7 +215,7 @@ def test_failed_required_source_fails_cycle_but_others_still_run(
 
     assert status == RUN_FAILED
     # One outage never conceals another: every source still ran.
-    assert calls == ["schedule", "pbp", "stats", "context", "weather"]
+    assert calls == ["schedule", "pbp", "stats", "context", "weather", "espn_inactives"]
     (run,) = _pipeline_runs(connect)
     assert run["status"] == RUN_FAILED
     assert "stats" in (run["error_message"] or "")
@@ -252,7 +254,7 @@ def test_duplicate_cycle_invocation_runs_nothing(connect, clean_db, monkeypatch)
     assert run_cycle(connect, invocation_id="gh-4", now=NOW) == "duplicate"
     assert calls == first_calls, "a duplicate invocation must not re-run datasets"
     assert len(_pipeline_runs(connect)) == 1
-    assert len(_ingest_runs(connect)) == 5
+    assert len(_ingest_runs(connect)) == 6
 
 
 @pytest.mark.db
