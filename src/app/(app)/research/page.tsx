@@ -1,30 +1,23 @@
-import Typography from "@mui/material/Typography";
-import Box from "@mui/material/Box";
-
 import { requireSession } from "@/lib/auth/session";
+import { readResearchPlayers } from "@/lib/research/read";
+import { PropResearch } from "@/components/screens/PropResearch";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Prop Research · Sightline" };
 
 /**
- * Prop Research — a shared, viewer-accessible destination introduced in Pitch
- * 10 alongside the admin-navigation split. This is the route stub: it exists so
- * the nav item resolves to a real authenticated page rather than a 404 while
- * the full probability checker (player search → game → stat → threshold, read
- * from stored distributions via `probAtLeast`) is built in SIG-98. It runs no
- * model and reads no price.
+ * Prop Research — a shared, viewer-accessible destination (Pitch 10, Screen 7).
+ * It runs no model and reads no price for a probability: every answer is a
+ * read of a distribution Sightline has already computed, evaluated at the
+ * entered threshold client-side (RD-1), with NO edge ever shown (RD-8).
+ *
+ * The server seeds the eligible player set (the client refetches against
+ * `/api/research/players` as the user types), so a deep-linked player resolves
+ * on first paint. `requireSession` gates it — an authenticated session, any
+ * role, is sufficient; this is a shared surface, not an admin one.
  */
 export default async function ResearchPage() {
   await requireSession();
-  return (
-    <Box>
-      <Typography variant="h1" gutterBottom>
-        Prop Research
-      </Typography>
-      <Typography variant="body1" color="text.secondary">
-        Check Sightline&apos;s probability for any player, stat, and threshold
-        on an upcoming game. Coming in this release.
-      </Typography>
-    </Box>
-  );
+  const initialPlayers = await readResearchPlayers("");
+  return <PropResearch initialPlayers={initialPlayers} />;
 }
