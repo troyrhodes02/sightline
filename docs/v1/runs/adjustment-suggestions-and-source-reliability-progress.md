@@ -78,9 +78,9 @@ NOT halt under stop condition 1:
 6. [x] Milestone + Linear issues chained with blockedBy; identifiers SIG-74…SIG-80 captured below
 7. [x] Feature PR into main → PR #72 (https://github.com/troyrhodes02/sightline/pull/72)
 8. [ ] Ticket worker — every ticket in order (SIG-74 in progress)
-9. [ ] Runbook → `docs/v1/runbooks/...-runbook.md`
-10. [ ] Squash-merge every ticket PR into feature branch
-11. [ ] Full verification suite (+ pitch-specific required tests)
+9. [x] Runbook → `docs/v1/runbooks/adjustment-suggestions-and-source-reliability-runbook.md`
+10. [x] Squash-merged PRs #73…#79 (SIG-74…SIG-80) into feature branch, in order
+11. [x] Full verification GREEN: prisma validate, tsc, test:schema 30, build, jest 850, lint(tracked)/prettier(scope) clean, pytest 489, e2e compiles (skipped w/o accounts). Untracked prisma/seed-dev-game.ts lint failure is pre-existing, not on branch, CI-invisible.
 12. [ ] /review feature branch vs main → inline comments on feature PR
 13. [ ] /sightline-review-audit those comments
 14. [ ] Commit, push, re-run full suite. STOP — do not merge to main.
