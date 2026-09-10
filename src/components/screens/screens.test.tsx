@@ -46,14 +46,31 @@ describe("AppShell", () => {
     expect(screen.queryByText("Users")).toBeNull();
   });
 
-  it("renders admin navigation for an admin", () => {
+  it("gathers admin navigation behind an Admin control for an admin", () => {
+    // Pitch 10 moved the admin surfaces out of the primary tabs into an "Admin"
+    // control. The control exists for the admin; its items live in the menu it
+    // opens (not mounted until opened), so the presence of the control is the
+    // assertion here.
     renderThemed(
       <AppShell user={ADMIN}>
         <div />
       </AppShell>,
     );
-    expect(screen.getAllByText("Health").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Users").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: /Admin/ })).toBeInTheDocument();
+    // The two viewer-facing primary tabs are present (MUI Tab → role "tab").
+    expect(screen.getByRole("tab", { name: "Slate" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("tab", { name: "Prop Research" }),
+    ).toBeInTheDocument();
+  });
+
+  it("offers no Admin control to a viewer", () => {
+    renderThemed(
+      <AppShell user={VIEWER}>
+        <div />
+      </AppShell>,
+    );
+    expect(screen.queryByRole("button", { name: /Admin/ })).toBeNull();
   });
 
   it("puts a skip link first in the tab order", () => {
