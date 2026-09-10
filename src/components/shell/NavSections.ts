@@ -25,6 +25,9 @@ export const SECTIONS: Section[] = [
   { label: "Slate", href: "/slate", adminOnly: false },
   { label: "Accuracy", href: "/accuracy", adminOnly: false },
   { label: "Autonomy", href: "/autonomy", adminOnly: true },
+  // Adjustment Suggestions: admin-only accept/decline queue, history, and the
+  // private reliability analytics. One entry; internals are a secondary tab row.
+  { label: "Suggestions", href: "/suggestions", adminOnly: true },
   { label: "Health", href: "/health", adminOnly: true },
   { label: "Users", href: "/users", adminOnly: true },
   { label: "Settings", href: "/settings", adminOnly: false, drawerOnly: true },
