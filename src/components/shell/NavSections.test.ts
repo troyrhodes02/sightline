@@ -12,6 +12,7 @@ describe("navigation sections", () => {
       "Slate",
       "Accuracy",
       "Autonomy",
+      "Suggestions",
       "Health",
       "Users",
       "Settings",
