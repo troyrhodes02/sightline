@@ -117,7 +117,7 @@ export function ContractDetail({
         </Stack>
         <Typography variant="body2" sx={{ color: "text.secondary" }}>
           {detail.gameLabel ?? "—"} ·{" "}
-          {detail.kickoffAt ? `${formatEt(detail.kickoffAt)} ET · ` : ""}
+          {detail.kickoffAt ? `${formatEt(detail.kickoffAt)} · ` : ""}
           {statSentence} ≥ {detail.threshold}
         </Typography>
         {provenance ? (
@@ -130,10 +130,10 @@ export function ContractDetail({
             <Typography variant="body2" sx={{ color: "text.secondary" }}>
               {provenance.name}
               {detail.projectionComputedAt
-                ? ` · ${insufficient ? "evaluated" : "computed"} ${formatEt(detail.projectionComputedAt)} ET`
+                ? ` · ${insufficient ? "evaluated" : "computed"} ${formatEt(detail.projectionComputedAt)}`
                 : ""}
               {detail.informationCutoff
-                ? ` · cutoff ${formatEt(detail.informationCutoff)} ET`
+                ? ` · cutoff ${formatEt(detail.informationCutoff)}`
                 : ""}
             </Typography>
           </Stack>
@@ -276,7 +276,7 @@ export function ContractDetail({
             </Stack>
             <NumericText size="sm" muted>
               {detail.priceObservedAt
-                ? `observed ${formatEt(detail.priceObservedAt)} ET · ask drives ranking; mid is context`
+                ? `observed ${formatEt(detail.priceObservedAt)} · ask drives ranking; mid is context`
                 : ""}
             </NumericText>
           </>
@@ -284,7 +284,7 @@ export function ContractDetail({
           <Typography variant="body2" sx={{ color: "text.secondary" }}>
             No current market.{" "}
             {detail.priceObservedAt
-              ? `Last observed ${formatEt(detail.priceObservedAt)} ET.`
+              ? `Last observed ${formatEt(detail.priceObservedAt)}.`
               : "Never observed."}
           </Typography>
         )}
@@ -300,7 +300,7 @@ export function ContractDetail({
               label="computed"
               value={
                 detail.projectionComputedAt
-                  ? `${formatEt(detail.projectionComputedAt)} ET${detail.projectionAge ? ` (${detail.projectionAge} ago)` : ""}`
+                  ? `${formatEt(detail.projectionComputedAt)}${detail.projectionAge ? ` (${detail.projectionAge} ago)` : ""}`
                   : "—"
               }
             />
@@ -308,7 +308,7 @@ export function ContractDetail({
               label="information cutoff"
               value={
                 detail.informationCutoff
-                  ? `${formatEt(detail.informationCutoff)} ET`
+                  ? `${formatEt(detail.informationCutoff)}`
                   : "—"
               }
             />
@@ -339,7 +339,7 @@ export function ContractDetail({
               </Typography>
               {` — official inactives for this game ${
                 detail.staleness.inactivesExpectedAt
-                  ? `are expected as of ${formatEt(detail.staleness.inactivesExpectedAt)} ET`
+                  ? `are expected as of ${formatEt(detail.staleness.inactivesExpectedAt)}`
                   : "are expected before kickoff"
               }. Sightline has no inactives source in this version; this` +
                 " projection was computed before them."}
@@ -366,7 +366,7 @@ export function ContractDetail({
               <DispositionChip disposition={detail.currentDisposition} />
               {detail.decidedAt ? (
                 <NumericText size="sm" muted>
-                  {formatEt(detail.decidedAt)} ET
+                  {formatEt(detail.decidedAt)}
                 </NumericText>
               ) : null}
             </Stack>
@@ -415,7 +415,7 @@ function OutcomeSection({
             </NumericText>
             {block.officialCorrectedAt ? (
               <Typography variant="caption" sx={{ color: "text.secondary" }}>
-                corrected {formatEt(block.officialCorrectedAt)} ET
+                corrected {formatEt(block.officialCorrectedAt)}
               </Typography>
             ) : null}
           </Stack>
@@ -431,7 +431,7 @@ function OutcomeSection({
           <NumericText size="md" sx={{ color: "market.main" }}>
             {block.settlement.result}
             {block.settlement.settledAt
-              ? ` · settled ${formatEt(block.settlement.settledAt)} ET`
+              ? ` · settled ${formatEt(block.settlement.settledAt)}`
               : ""}
           </NumericText>
         )}
@@ -597,7 +597,7 @@ function UnresolvedDetail({
             <LabelledPrice label="yes ask" cents={detail.yesAskCents} />
             <NumericText size="sm" muted>
               {detail.priceObservedAt
-                ? `observed ${formatEt(detail.priceObservedAt)} ET`
+                ? `observed ${formatEt(detail.priceObservedAt)}`
                 : ""}
             </NumericText>
           </Stack>
