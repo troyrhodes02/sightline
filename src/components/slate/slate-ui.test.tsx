@@ -24,6 +24,8 @@ function renderThemed(ui: React.ReactElement) {
 
 const row = (overrides: Partial<SlateRowDto> = {}): SlateRowDto => ({
   contractId: "c1",
+  playerId: "p1",
+  gameId: "g1",
   playerName: "Ja'Marr Chase",
   gameLabel: "CIN @ BAL",
   statType: "receiving_yards",
