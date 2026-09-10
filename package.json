@@ -20,6 +20,8 @@
     "test:schema": "node --test \"prisma/tests/**/*.test.mjs\"",
     "db:seed": "tsx prisma/seed.ts",
     "db:seed:slate": "tsx prisma/seed-slate.ts",
+    "db:seed:slate:perf": "tsx prisma/seed-slate-perf.ts",
+    "perf:slate-lcp": "playwright test perf-slate-lcp --project=desktop",
     "db:seed:dev-game": "tsx prisma/seed-dev-game.ts",
     "postinstall": "prisma generate"
   },

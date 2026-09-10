@@ -57,3 +57,6 @@ next-env.d.ts
 /playwright-report/
 /blob-report/
 /playwright/.cache/
+
+# Perf harness runtime artifact (SIG-91) — captured per run, never committed
+docs/v1/perf/slate-lcp-latest.json

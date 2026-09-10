@@ -1,0 +1,12 @@
+{
+  "metric": "largest-contentful-paint",
+  "route": "/slate",
+  "fixture": "seed-slate-perf (300 contracts)",
+  "measured": false,
+  "lcpMs": null,
+  "commit": null,
+  "capturedAt": null,
+  "status": "placeholder",
+  "note": "Pitch 10 / SIG-91. This baseline is intentionally a placeholder. The pre-change Slate LCP MUST be captured in an environment with a provisioned database + seeded accounts and the 300-contract fixture (see docs/v1/runbooks/slate-experience-and-prop-research-runbook.md and scripts described in SIG-91). The autonomous run could not measure it locally: /slate is auth-gated and no database was available. Do NOT treat a null lcpMs as a real measurement. SIG-99 flips the CI gate to enforcing and requires a real, measured baseline here first.",
+  "requiredReductionPct": 30
+}
