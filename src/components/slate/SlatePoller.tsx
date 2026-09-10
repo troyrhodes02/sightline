@@ -19,8 +19,9 @@ function pricesAreStale(
 /**
  * The ONE sanctioned client-side fetch in this product: the slate triggering
  * Sightline's own price-refresh route (RD-12). The browser never talks to
- * Kalshi — whether Kalshi is contacted is the server's call, coalesced and
- * advisory-locked server-side, so open tabs cannot multiply outbound traffic.
+ * Kalshi — whether Kalshi is contacted is the server's call, coalesced
+ * server-side (an in-process gate plus a DB min-interval), so open tabs cannot
+ * multiply outbound traffic.
  *
  * Automatic price refresh (Pitch 10): the PRIMARY path is on-view — on mount
  * and whenever the tab is refocused, a freshness-gated refresh fires only if

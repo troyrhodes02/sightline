@@ -22,11 +22,15 @@ describe("price refresh route", () => {
     expect(refreshCode).toContain("requireSession()");
   });
 
-  it("delegates rate-limit discipline to the server-side sync, under the advisory lock", () => {
-    // The route routes through the sync (passed to the advisory lock, Pitch 10),
-    // never touching the Kalshi client directly.
+  it("delegates rate-limit discipline to the server-side sync, never touching Kalshi directly", () => {
+    // The route routes through runMarketSync (which owns the in-process gate and
+    // the DB min-interval coalescing); it never touches the Kalshi client or a
+    // raw fetch. It must NOT hold the sync inside a long advisory-lock
+    // transaction — that pinned a pooled connection for the whole sync and
+    // starved sign-in on the transaction-mode pooler.
     expect(refreshCode).toContain("runMarketSync");
-    expect(refreshCode).toContain("withPriceRefreshLock");
+    expect(refreshCode).not.toContain("withPriceRefreshLock");
+    expect(refreshCode).not.toContain("$transaction");
     expect(refreshCode).not.toContain("listOpenMarkets");
     expect(refreshCode).not.toContain("fetch(");
   });
