@@ -151,6 +151,39 @@ export type OverridesDto = {
   decisions: OverrideDecisionRowDto[];
 };
 
+/**
+ * The plain-language layer (Pitch 10, Slate Experience & Prop Research). It
+ * INTERPRETS the metrics already computed for the panels below it — it computes
+ * no new metric and reads nothing the advanced panels do not. Every rate carries
+ * its two denominators, and a thin sample reads as "not enough evidence yet",
+ * never as a bad score.
+ */
+export type AccuracySummaryDto = {
+  /**
+   * `provisional` when the active record's sample is below the reporting floor;
+   * otherwise `calibrated` or `drifting` from the reliability of the populated
+   * buckets. Never a fabricated verdict on a thin sample.
+   */
+  verdict: "calibrated" | "provisional" | "drifting";
+  /** Both denominators for the active record, always shown with the verdict. */
+  thresholdObservations: number;
+  projectionCount: number;
+  /** The active record's Brier, or null when it could not be computed. */
+  brier: number | null;
+  /** Concise interpretation, not a tutorial. */
+  brierGloss: string;
+  /** One-line answers to William's real questions. */
+  calibrationVerdict: string;
+  baselineVerdict: string;
+  /** Insufficient market sample reads as not-enough-evidence, never poor. */
+  marketVerdict: string;
+  /**
+   * `insufficient` when there are not enough graded weeks to establish a trend
+   * — stated honestly rather than guessed from one aggregate.
+   */
+  trend: "improving" | "stable" | "deteriorating" | "insufficient";
+};
+
 export type AccuracyDto = {
   scope: AccuracyScope;
   gradedThroughWeek: { season: number; week: number } | null;
@@ -164,6 +197,11 @@ export type AccuracyDto = {
   exclusions: { reason: string; count: number }[];
   availableVersions: string[];
   availableSeasons: number[];
+  /**
+   * The plain-language summary rendered above the advanced panels. Optional so
+   * older fixtures remain valid; `readAccuracy` always attaches it.
+   */
+  summary?: AccuracySummaryDto;
   /** ADMIN SERIALIZER ONLY — key absent for viewers, never null. */
   overridesEntry?: { decisionCount: number };
 };

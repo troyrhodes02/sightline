@@ -413,6 +413,7 @@ describe("readAccuracy — freshness and exclusions", () => {
       "lastGradingCycleAt",
       "market",
       "scope",
+      "summary",
     ]);
 
     const serialized = JSON.stringify(dto);

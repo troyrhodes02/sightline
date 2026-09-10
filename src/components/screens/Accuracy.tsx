@@ -4,8 +4,12 @@
 "use client";
 
 import { useId } from "react";
+import Accordion from "@mui/material/Accordion";
+import AccordionDetails from "@mui/material/AccordionDetails";
+import AccordionSummary from "@mui/material/AccordionSummary";
 import Box from "@mui/material/Box";
 import Chip from "@mui/material/Chip";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import Paper from "@mui/material/Paper";
 import Stack from "@mui/material/Stack";
 import Table from "@mui/material/Table";
@@ -75,27 +79,159 @@ export function Accuracy({ accuracy }: { accuracy: AccuracyDto }) {
 
       <FreshnessLine accuracy={accuracy} />
 
-      <Box
-        sx={{
-          display: "grid",
-          gridTemplateColumns: { xs: "1fr", md: "3fr 2fr" },
-          gap: 2,
-          alignItems: "start",
-        }}
-      >
-        <CalibrationPanel accuracy={accuracy} />
-        <Stack spacing={2}>
-          <ErrorPanel accuracy={accuracy} />
-          <MarketPanel accuracy={accuracy} />
-          {accuracy.overridesEntry ? (
-            <OverridesEntry
-              decisionCount={accuracy.overridesEntry.decisionCount}
-            />
-          ) : null}
-        </Stack>
-      </Box>
+      {accuracy.summary ? <SummaryPanel summary={accuracy.summary} /> : null}
 
-      <ExclusionsLine exclusions={accuracy.exclusions} />
+      {/* The admin's doorway to the private overrides surface stays visible —
+          it is navigation, not advanced calibration, and never sits behind the
+          disclosure below. */}
+      {accuracy.overridesEntry ? (
+        <OverridesEntry decisionCount={accuracy.overridesEntry.decisionCount} />
+      ) : null}
+
+      <Accordion disableGutters sx={{ bgcolor: "transparent" }}>
+        <AccordionSummary
+          expandIcon={<ExpandMoreIcon />}
+          aria-controls="advanced-analysis"
+          id="advanced-analysis-header"
+        >
+          <Typography variant="h2">Advanced analysis</Typography>
+          <Typography
+            variant="caption"
+            sx={{ color: "text.secondary", ml: 1.5, alignSelf: "center" }}
+          >
+            reliability curve, calibration bins, error vs baselines, market
+            comparison
+          </Typography>
+        </AccordionSummary>
+        <AccordionDetails id="advanced-analysis">
+          <Stack spacing={2}>
+            <Box
+              sx={{
+                display: "grid",
+                gridTemplateColumns: { xs: "1fr", md: "3fr 2fr" },
+                gap: 2,
+                alignItems: "start",
+              }}
+            >
+              <CalibrationPanel accuracy={accuracy} />
+              <Stack spacing={2}>
+                <ErrorPanel accuracy={accuracy} />
+                <MarketPanel accuracy={accuracy} />
+              </Stack>
+            </Box>
+            <ExclusionsLine exclusions={accuracy.exclusions} />
+          </Stack>
+        </AccordionDetails>
+      </Accordion>
+    </Stack>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Plain-language summary (Pitch 10) — interprets the metrics below it.
+// ---------------------------------------------------------------------------
+
+const VERDICT_LABEL: Record<
+  "calibrated" | "provisional" | "drifting",
+  { text: string; color: "success" | "warning" }
+> = {
+  calibrated: { text: "Calibrated within tolerance", color: "success" },
+  provisional: { text: "Not enough evidence yet", color: "warning" },
+  drifting: { text: "Probabilities drifting", color: "warning" },
+};
+
+const TREND_TEXT: Record<
+  "improving" | "stable" | "deteriorating" | "insufficient",
+  string
+> = {
+  improving: "Improving over recent graded weeks",
+  stable: "Stable over recent graded weeks",
+  deteriorating: "Deteriorating over recent graded weeks",
+  insufficient: "Not enough graded weeks yet to establish a trend",
+};
+
+function SummaryPanel({
+  summary,
+}: {
+  summary: NonNullable<AccuracyDto["summary"]>;
+}) {
+  const verdict = VERDICT_LABEL[summary.verdict];
+  return (
+    <Paper variant="outlined" sx={{ p: 2 }}>
+      <Stack spacing={1.5}>
+        <Typography variant="h2">How is the active model doing?</Typography>
+        <Stack
+          direction="row"
+          spacing={1.5}
+          sx={{ alignItems: "center", flexWrap: "wrap" }}
+        >
+          <Chip
+            label={verdict.text}
+            color={verdict.color}
+            variant="outlined"
+            size="small"
+          />
+          <SampleSizePair
+            observations={summary.thresholdObservations}
+            projections={summary.projectionCount}
+          />
+        </Stack>
+
+        <SummaryRow question="Are the probabilities calibrated?">
+          {summary.calibrationVerdict}
+        </SummaryRow>
+        <SummaryRow question="Brier score">
+          {summary.brier === null ? (
+            "Not enough graded predictions to compute."
+          ) : (
+            <>
+              <NumericText>{summary.brier.toFixed(3)}</NumericText>
+              <Typography
+                component="span"
+                variant="caption"
+                sx={{ color: "text.secondary", ml: 1 }}
+              >
+                {summary.brierGloss}
+              </Typography>
+            </>
+          )}
+        </SummaryRow>
+        <SummaryRow question="Is it beating the baseline?">
+          {summary.baselineVerdict}
+        </SummaryRow>
+        <SummaryRow question="How does it compare with the market?">
+          {summary.marketVerdict}
+        </SummaryRow>
+        <SummaryRow question="Is performance improving?">
+          {TREND_TEXT[summary.trend]}
+        </SummaryRow>
+      </Stack>
+    </Paper>
+  );
+}
+
+function SummaryRow({
+  question,
+  children,
+}: {
+  question: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Stack
+      direction={{ xs: "column", sm: "row" }}
+      spacing={{ xs: 0.25, sm: 1.5 }}
+      sx={{ alignItems: { sm: "baseline" } }}
+    >
+      <Typography
+        variant="label"
+        sx={{ color: "text.secondary", minWidth: 210 }}
+      >
+        {question}
+      </Typography>
+      <Typography variant="body2" component="div">
+        {children}
+      </Typography>
     </Stack>
   );
 }

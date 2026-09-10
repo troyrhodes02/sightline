@@ -347,6 +347,47 @@ describe("Accuracy screen — the private layer is absent, not hidden", () => {
   });
 });
 
+describe("Accuracy screen — plain-language summary (Pitch 10)", () => {
+  const summary = {
+    verdict: "calibrated" as const,
+    thresholdObservations: 1847,
+    projectionCount: 412,
+    brier: 0.191,
+    brierGloss: "lower is better; 0.25 is a coin flip, 0 is perfect",
+    calibrationVerdict:
+      "Calibrated within tolerance — when Sightline says 60%, it happens about 60% of the time.",
+    baselineVerdict:
+      "Better than both baselines (season-average and trailing-five) on mean error.",
+    marketVerdict:
+      "Insufficient comparable observations — 41 of 30 graded. Not a poor score, just not enough evidence yet.",
+    trend: "insufficient" as const,
+  };
+
+  it("leads with the plain-language verdict, both denominators, and the Brier gloss", () => {
+    const { container } = renderThemed(
+      <Accuracy accuracy={dto({ summary })} />,
+    );
+    expect(screen.getByText("How is the active model doing?")).toBeTruthy();
+    expect(screen.getByText("Calibrated within tolerance")).toBeTruthy();
+    // The Brier gloss interprets the number rather than leaving it bare.
+    expect(container.textContent).toContain("lower is better");
+    // Denominators travel with the verdict.
+    expect(container.textContent).toContain("1,847 obs · 412 projections");
+    // Insufficient market sample reads as not-enough-evidence.
+    expect(container.textContent).toContain("not enough evidence yet");
+  });
+
+  it("keeps the advanced panels reachable under the Advanced analysis disclosure", () => {
+    const { container } = renderThemed(
+      <Accuracy accuracy={dto({ summary })} />,
+    );
+    // The disclosure exists; the metrics remain (mounted) beneath it.
+    expect(screen.getByText("Advanced analysis")).toBeTruthy();
+    expect(container.textContent).toContain("Brier 0.213");
+    expect(screen.getByText("Error vs baselines")).toBeTruthy();
+  });
+});
+
 describe("ReliabilityCurve", () => {
   const points = populatedBuckets;
 
