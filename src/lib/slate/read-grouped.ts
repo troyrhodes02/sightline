@@ -301,6 +301,7 @@ function buildPlayerCard(args: {
 function propsForRow(row: SlateRowDto): PropDto[] {
   const above: PropDto = {
     contractId: row.contractId,
+    statType: row.statType,
     threshold: row.threshold,
     direction: "above",
     modelProbability: row.modelProbability,
@@ -314,6 +315,7 @@ function propsForRow(row: SlateRowDto): PropDto[] {
   };
   const below: PropDto = {
     contractId: row.contractId,
+    statType: row.statType,
     threshold: row.threshold,
     direction: "below",
     modelProbability:
