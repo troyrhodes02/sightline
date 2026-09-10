@@ -111,6 +111,40 @@ def test_no_price_references_in_source() -> None:
     )
 
 
+def test_adjustment_suggestion_namespace_is_swept() -> None:
+    # Adjustment Suggestions (SIG-74…SIG-80) reach a projection via a shadow
+    # recompute. The whole point of the suggestion mechanism is that an unproven
+    # source's information is walled off from the market's prices, so the
+    # suggestion engine and the ESPN ingest are exactly where "let me sanity-
+    # check this against the price" would be tempting. The sweep globs the whole
+    # package tree, so these modules are auto-covered — but only while they LIVE
+    # in the package. This asserts the suggestion namespace is actually swept, so
+    # moving it out of the guarded package trips a test rather than silently
+    # opening a hole.
+    swept = {str(p) for p in _package_python_files()}
+    assert any(
+        "sightline_model/suggestions/" in p.replace("\\", "/") for p in swept
+    ), (
+        "the suggestions engine namespace is not under the import-graph sweep — "
+        "it must remain inside sightline_model so the prices-never-feed-"
+        "projections guard covers it"
+    )
+
+
+def test_sweep_catches_a_planted_price_reference_in_a_suggestion_path() -> None:
+    # The suggestion engine reads Contract.threshold (allowed) but must never
+    # read a price to infer status. Prove the sweep would catch it if it did.
+    planted = (
+        'select "ask_cents" from price_observations where contract_id = %s',
+        "join recommendation_snapshots rs on rs.contract_id = c.id",
+    )
+    for statement in planted:
+        assert _forbidden_tokens_in(statement), (
+            f"the sweep failed to catch a planted price reference a suggestion "
+            f"module could use: {statement!r}"
+        )
+
+
 def test_sweep_catches_a_planted_settlement_reference() -> None:
     # The token list is only worth what it catches. Plant every SQL shape a
     # module could use to reach the settlement table and assert each trips the

@@ -226,6 +226,7 @@ const BOUND_BY_COPY: Record<BindingConstraint, string> = {
   breaker: "breaker",
   no_active_recalibration: "no active recalibration",
   opposite_side_held: "opposite side held",
+  pending_suggestion: "pending suggestion",
 };
 
 /**

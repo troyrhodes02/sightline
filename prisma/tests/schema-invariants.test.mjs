@@ -39,6 +39,10 @@ const FACT_TABLES = [
   "player_game_context",
   "game_weather",
   "game_schedule_revisions",
+  // A recorded external source claim (ESPN inactives) is a bitemporal fact:
+  // valid_at is the source's effective time, known_at when Sightline ingested
+  // it. It carries ingest_run_id, so the temporal trio is required.
+  "adjustment_source_events",
 ];
 
 // Fact tables where known_at >= valid_at is deliberately NOT enforced.
@@ -482,10 +486,30 @@ test("projections carry both clocks and the idempotent persist key", () => {
   const cutoff = projection.fields.get("informationCutoff");
   assert.ok(computedAt?.required, "projections.computedAt must be non-nullable");
   assert.ok(cutoff?.required, "projections.informationCutoff must be non-nullable");
+  // Adjustment Suggestions (SIG-74) joins `provenance` to the persist key so an
+  // adjustment_shadow projection can never collide with a base sharing a cutoff.
+  // Base rows default to `base`, so this preserves the original idempotency.
   assert.match(
     projection.body,
-    /@@unique\(\[playerId, gameId, statType, modelVersion, informationCutoff\]\)/,
-    "projections must have the idempotent persist unique key",
+    /@@unique\(\[playerId, gameId, statType, modelVersion, informationCutoff, provenance\]\)/,
+    "projections must have the idempotent persist unique key (incl. provenance)",
+  );
+});
+
+test("projections discriminate base from shadow provenance and default to base", () => {
+  const projection = modelsByTable.get("projections");
+  assert.ok(projection, "projections model not found");
+  const provenance = projection.fields.get("provenance");
+  assert.ok(provenance, "projections must carry a provenance discriminator");
+  assert.equal(
+    provenance.type,
+    "ProjectionProvenance",
+    "provenance must be the ProjectionProvenance enum",
+  );
+  assert.match(
+    projection.body,
+    /provenance\s+ProjectionProvenance\s+@default\(base\)/,
+    "provenance must default to base so existing/ordinary projections are base",
   );
 });
 
