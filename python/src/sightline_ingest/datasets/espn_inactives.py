@@ -330,10 +330,29 @@ def run_espn_inactives(
     from sightline_model.suggestions.engine import Observation, process_observation
 
     resolved_now = now or datetime.now()
+
+    # Building a suggestion means re-simulating the injured player's usage
+    # redistributed, which needs the fitted Simulation Engine artefacts. Until
+    # they are provisioned to this runtime (the Simulation Engine is not yet
+    # deployed — production runs on the baseline model), there is nothing this
+    # source can do: mark it DEGRADED (deliberately-off, like an unconfigured
+    # source) rather than letting a missing-artefact FileNotFoundError read as a
+    # per-cycle FAILURE. Checked before the network fetch so a models-absent
+    # runtime does no work at all. An injected `models` (tests) skips this.
+    if models is not None:
+        sim_models = models
+    else:
+        try:
+            sim_models = live.load_simulation_models()
+        except (FileNotFoundError, OSError) as exc:
+            handle.mark_degraded(
+                "ESPN inactives: Simulation Engine models not provisioned "
+                f"({exc}); suggestions disabled until the models are staged"
+            )
+            return
+
     fetcher = fetch or EspnInactivesClient().fetch
     raws = fetcher(now=resolved_now)
-
-    sim_models = models if models is not None else live.load_simulation_models()
 
     created = 0
     unresolved = 0

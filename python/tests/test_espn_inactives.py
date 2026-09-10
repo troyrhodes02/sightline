@@ -101,6 +101,34 @@ def test_explicitly_disabled_source_is_degraded_not_failed(connect, monkeypatch)
     assert handle.rows_written == 0
 
 
+def test_missing_simulation_models_is_degraded_not_failed(connect, monkeypatch) -> None:
+    # The Simulation Engine is not yet deployed, so its fitted artefacts aren't
+    # staged in the pipeline. Without them the suggestion engine cannot build a
+    # shadow, so the source marks itself DEGRADED (deliberately-off) rather than
+    # FAILING every cycle — and does so before any network fetch or DB access.
+    import sightline_model.simulation.live as _live
+
+    def _raise(*_a, **_k):
+        raise FileNotFoundError("artifacts/simulation-models/game_environment.joblib")
+
+    monkeypatch.setattr(_live, "load_simulation_models", _raise)
+    monkeypatch.delenv("SIGHTLINE_ESPN_INACTIVES_DISABLED", raising=False)
+
+    fetched = False
+
+    def _fetch(*, now):  # must NOT be called — we degrade before fetching
+        nonlocal fetched
+        fetched = True
+        return []
+
+    handle = IngestRunHandle(source="espn", dataset="espn_inactives")
+    run_espn_inactives(handle, connect, 2026, 2026, fetch=_fetch)
+    assert handle.status == "degraded"
+    assert handle.status != "failed"
+    assert handle.rows_written == 0
+    assert fetched is False
+
+
 def test_parse_espn_summary_flattens_injury_report() -> None:
     # The real ESPN game-summary shape: injuries grouped by team, each entry an
     # athlete with a status. Flattened to one RawInactive per reportable entry,
