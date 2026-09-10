@@ -193,47 +193,53 @@ export function DispositionChip({ disposition }: { disposition: Disposition }) {
   );
 }
 
-const ET = "America/New_York";
+/**
+ * All times render in the VIEWER'S local timezone (SIG-89), not a fixed
+ * Eastern zone — `Intl` defaults to the runtime zone when `timeZone` is
+ * omitted, which is the browser's zone in these client components. Because the
+ * server SSRs these in UTC and the client re-renders in the local zone, the
+ * elements that show absolute times carry `suppressHydrationWarning` (the
+ * client value is the correct one). Relative ages are server-computed strings
+ * and unaffected.
+ */
 
-/** "Thu 9:12 AM" / "11:42 AM" in ET — same-day timestamps drop the weekday. */
+/** The viewer's short zone label, e.g. "CDT" / "EST". Empty if unavailable. */
+export function localZone(iso: string = new Date().toISOString()): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZoneName: "short",
+  }).formatToParts(new Date(iso));
+  return parts.find((p) => p.type === "timeZoneName")?.value ?? "";
+}
+
+/** "Thu 9:12 AM" / "11:42 AM" in local time — same-day timestamps drop the weekday. */
 export function formatEt(iso: string, now: Date = new Date()): string {
   const value = new Date(iso);
   const sameDay =
-    new Intl.DateTimeFormat("en-US", {
-      timeZone: ET,
-      dateStyle: "short",
-    }).format(value) ===
-    new Intl.DateTimeFormat("en-US", {
-      timeZone: ET,
-      dateStyle: "short",
-    }).format(now);
+    new Intl.DateTimeFormat("en-US", { dateStyle: "short" }).format(value) ===
+    new Intl.DateTimeFormat("en-US", { dateStyle: "short" }).format(now);
   const time = new Intl.DateTimeFormat("en-US", {
-    timeZone: ET,
     hour: "numeric",
     minute: "2-digit",
   }).format(value);
   if (sameDay) return time;
   const weekday = new Intl.DateTimeFormat("en-US", {
-    timeZone: ET,
     weekday: "short",
   }).format(value);
   return `${weekday} ${time}`;
 }
 
-/** "Sun, Nov 8" in ET. */
+/** "Sun, Nov 8" in local time. */
 export function formatEtDate(iso: string): string {
   return new Intl.DateTimeFormat("en-US", {
-    timeZone: ET,
     weekday: "short",
     month: "short",
     day: "numeric",
   }).format(new Date(iso));
 }
 
-/** "1:00 PM" kickoff time in ET. */
+/** "1:00 PM" kickoff time in local time. */
 export function formatEtTime(iso: string): string {
   return new Intl.DateTimeFormat("en-US", {
-    timeZone: ET,
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(iso));
@@ -264,6 +270,7 @@ export function RowTimestamps({
         variant="numericSm"
         sx={{ color: "text.muted" }}
         title={projectionComputedAt ?? undefined}
+        suppressHydrationWarning
       >
         proj <Clock at={projectionComputedAt} age={projectionAge ?? null} />
       </Typography>
@@ -271,6 +278,7 @@ export function RowTimestamps({
         variant="numericSm"
         sx={{ color: "text.muted" }}
         title={priceObservedAt ?? undefined}
+        suppressHydrationWarning
       >
         price <Clock at={priceObservedAt} age={priceAge ?? null} />
       </Typography>
