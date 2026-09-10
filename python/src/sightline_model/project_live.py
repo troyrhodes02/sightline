@@ -94,7 +94,10 @@ _INSERT_PROJECTION_SQL = """
         %(interval_high)s, %(confidence)s, %(n_eff)s,
         %(computed_at)s, %(information_cutoff)s
     )
-    on conflict (player_id, game_id, stat_type, model_version, information_cutoff)
+    -- provenance defaults to 'base' for these ordinary engine writes and joins
+    -- the unique key (Adjustment Suggestions, SIG-74), so a base projection can
+    -- never collide with an adjustment_shadow sharing a cutoff.
+    on conflict (player_id, game_id, stat_type, model_version, information_cutoff, provenance)
     do nothing
 """
 
