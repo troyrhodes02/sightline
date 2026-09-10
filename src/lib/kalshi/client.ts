@@ -186,12 +186,18 @@ export async function getOrderbookTop(
     { depth: "1" },
   );
 
-  const book = data.orderbook;
-  if (!book) return null;
+  // Kalshi's current book is dollar-denominated (`orderbook_fp`); fall back to
+  // the legacy integer-cent shape if only that is present (SIG-87).
+  const fp = data.orderbook_fp;
+  const legacy = data.orderbook;
+  if (!fp && !legacy) return null;
+  const dollars = fp != null;
+  const yesLevels = fp?.yes_dollars ?? legacy?.yes;
+  const noLevels = fp?.no_dollars ?? legacy?.no;
 
   // Best bid on each side is the highest price anyone is resting at.
-  const bestYesBid = bestLevel(book.yes);
-  const bestNoBid = bestLevel(book.no);
+  const bestYesBid = bestLevel(yesLevels, dollars);
+  const bestNoBid = bestLevel(noLevels, dollars);
 
   return {
     // Buying YES crosses the NO book.
@@ -211,14 +217,24 @@ export async function getOrderbookTop(
  * "something" is exactly the favourable assumption paper trading must not make.
  */
 function bestLevel(
-  levels: Array<[number, number]> | null | undefined,
+  levels: Array<[number | string, number | string]> | null | undefined,
+  dollars: boolean,
 ): { priceCents: number; sizeContracts: number } | null {
   if (!Array.isArray(levels) || levels.length === 0) return null;
 
   let best: { priceCents: number; sizeContracts: number } | null = null;
   for (const level of levels) {
     if (!Array.isArray(level) || level.length < 2) continue;
-    const [priceCents, sizeContracts] = level;
+    // Dollar shape prices are dollar strings ("0.16" → 16¢); the legacy shape
+    // is already integer cents. Size is the resting quantity at the level; the
+    // fixed-point value is treated as contracts and truncated to whole ones —
+    // the same conservative "never round liquidity up" posture as before.
+    // NOTE (SIG-87): confirm the fixed-point size unit (contracts vs notional
+    // dollars) against the DEMO environment before live paper trading, which is
+    // gated behind demo validation regardless.
+    const rawPrice = Number(level[0]);
+    const priceCents = dollars ? Math.round(rawPrice * 100) : rawPrice;
+    const sizeContracts = Number(level[1]);
     if (
       !Number.isFinite(priceCents) ||
       !Number.isFinite(sizeContracts) ||
