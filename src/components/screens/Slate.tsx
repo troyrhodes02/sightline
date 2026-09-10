@@ -28,9 +28,15 @@ import type { SlateDto } from "@/lib/dto/slate";
 export function Slate({
   slate,
   refreshIntervalSeconds,
+  refreshFreshnessSeconds = 300,
+  isAdmin = false,
 }: {
   slate: SlateDto;
   refreshIntervalSeconds: number;
+  /** On-view refresh threshold (Pitch 10). */
+  refreshFreshnessSeconds?: number;
+  /** Manual refresh is an admin diagnostic; viewers never see the control. */
+  isAdmin?: boolean;
 }) {
   const hasGames = slate.gameCount > 0;
   const hasRows = slate.rows.length > 0 || slate.unresolved.length > 0;
@@ -39,7 +45,11 @@ export function Slate({
 
   return (
     <Stack spacing={3}>
-      <SlatePoller intervalSeconds={refreshIntervalSeconds} />
+      <SlatePoller
+        intervalSeconds={refreshIntervalSeconds}
+        pricesUpdatedAt={slate.lastSync?.finishedAt ?? null}
+        freshnessSeconds={refreshFreshnessSeconds}
+      />
 
       <Stack
         direction="row"
@@ -70,7 +80,7 @@ export function Slate({
               prices as of {formatEt(slate.lastSync.finishedAt)}
             </NumericText>
           ) : null}
-          <RefreshPricesButton />
+          {isAdmin ? <RefreshPricesButton /> : null}
         </Stack>
       </Stack>
 

@@ -22,9 +22,11 @@ describe("price refresh route", () => {
     expect(refreshCode).toContain("requireSession()");
   });
 
-  it("delegates rate-limit discipline to the server-side sync", () => {
-    expect(refreshCode).toContain("runMarketSync()");
-    // The route itself never touches the Kalshi client directly.
+  it("delegates rate-limit discipline to the server-side sync, under the advisory lock", () => {
+    // The route routes through the sync (passed to the advisory lock, Pitch 10),
+    // never touching the Kalshi client directly.
+    expect(refreshCode).toContain("runMarketSync");
+    expect(refreshCode).toContain("withPriceRefreshLock");
     expect(refreshCode).not.toContain("listOpenMarkets");
     expect(refreshCode).not.toContain("fetch(");
   });

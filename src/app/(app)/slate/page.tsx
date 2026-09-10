@@ -18,10 +18,13 @@ export const metadata = { title: "Slate · Sightline" };
 export default async function SlatePage() {
   const session = await requireSession();
   const slate = await readSlate(session.user.role);
+  const env = serverEnv();
   return (
     <Slate
       slate={slate}
-      refreshIntervalSeconds={serverEnv().SLATE_REFRESH_INTERVAL_SECONDS}
+      refreshIntervalSeconds={env.SLATE_REFRESH_INTERVAL_SECONDS}
+      refreshFreshnessSeconds={env.PRICE_ONVIEW_FRESHNESS_SECONDS}
+      isAdmin={session.user.role === "admin"}
     />
   );
 }
