@@ -45,7 +45,17 @@ jobs:
           --invocation-id "gh:${{ github.run_id }}:${{ github.run_attempt }}"
         working-directory: python
 
+      # Runs even if the ingest step failed (`!cancelled()`), because a failed
+      # or partial ingest must NOT freeze projections. Recompute reads the DB
+      # through the as-of layer, so recomputing on slightly-staler facts is
+      # strictly better than leaving every projection's informationCutoff
+      # frozen while facts and prices advance — the exact failure that read as
+      # "all projections stale" when the SIG-82 injuries drift failed ingest
+      # (SIG-83). The failed ingest step still fails the job overall, so the
+      # failure notification still fires: this decouples the cascade, it does
+      # not hide the failure.
       - name: Recompute projections
+        if: ${{ !cancelled() }}
         run: >
           uv run sightline-model project
           --invocation-id "gh:${{ github.run_id }}:${{ github.run_attempt }}"
@@ -53,8 +63,11 @@ jobs:
 
       # Grade completed games after ingest (fresh stats and corrections) and
       # recompute. The job self-selects from stored state: no completed game
-      # awaiting grades means nothing runs and nothing is recorded.
+      # awaiting grades means nothing runs and nothing is recorded. Also runs
+      # on a failed ingest (SIG-83) — a completed game awaiting grades should
+      # not wait on an unrelated source failing.
       - name: Grade completed games
+        if: ${{ !cancelled() }}
         run: >
           uv run sightline-ingest grade
           --invocation-id "gh:${{ github.run_id }}:${{ github.run_attempt }}"
@@ -67,6 +80,7 @@ jobs:
       # decides server-side whether anything is fittable; a night with no new
       # grades writes no new version.
       - name: Refit probability recalibration
+        if: ${{ !cancelled() }}
         env:
           APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
           PIPELINE_SCHEDULER_TOKEN: ${{ secrets.PIPELINE_SCHEDULER_TOKEN }}
