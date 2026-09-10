@@ -30,7 +30,13 @@ squash-merge conflicts; each ticket branch chains off the previous.
   `engine.py`). RD-AS-6: insufficient_evidence keeps base_projection_id non-nullable;
   no-base contracts held via existing decline/stale path. GREEN: state machine 6,
   materiality 4, engine integration 3, import-graph 12; full pytest 476. Linear In Progress + PR linked.
-- SIG-76…SIG-80 — pending, in chain order (each branches off the previous ticket branch).
+- **SIG-76 DONE** — branch `feat/SIG-76-espn-inactives-ingest` (off SIG-75), PR
+  [#75](https://github.com/troyrhodes02/sightline/pull/75). ESPN inactives OPTIONAL cycle
+  source (`espn_inactives.py`): schema-tolerant parser, env client, resolution, team→game
+  mapping, feeds engine; cycle + gameday tests updated for the new source. GREEN: espn 9,
+  cycle+gameday+espn 33 together, full pytest 485. Linear In Progress + PR linked.
+  NIT for review: cycle.py module docstring still says "Optional sources: weather" — update to name espn_inactives.
+- SIG-77…SIG-80 — pending, in chain order (each branches off the previous ticket branch).
 
 Key design decisions taken (from codebase mapping):
 - Shadow = Projection row with new `provenance` enum {base, adjustment_shadow} + FK
