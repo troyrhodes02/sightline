@@ -36,7 +36,8 @@ squash-merge conflicts; each ticket branch chains off the previous.
   mapping, feeds engine; cycle + gameday tests updated for the new source. GREEN: espn 9,
   cycle+gameday+espn 33 together, full pytest 485. Linear In Progress + PR linked.
   NIT for review: cycle.py module docstring still says "Optional sources: weather" — update to name espn_inactives.
-- SIG-77…SIG-80 — pending, in chain order (each branches off the previous ticket branch).
+- **SIG-77 DONE** — branch `feat/SIG-77-grading-extensions` (off SIG-76), PR [#76](https://github.com/troyrhodes02/sightline/pull/76). Shadow grading pass + source-claim grading vs participation; added empirical-distribution grading (closes latent sim-grading gap). GREEN: grade-suggestions 4, grade-job 15, import-graph 12, full pytest 489. Linear In Progress + PR linked.
+- SIG-78…SIG-80 — pending (SIG-78/79/80 are the TypeScript tickets).
 
 Key design decisions taken (from codebase mapping):
 - Shadow = Projection row with new `provenance` enum {base, adjustment_shadow} + FK
