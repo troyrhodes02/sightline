@@ -23,7 +23,14 @@ squash-merge conflicts; each ticket branch chains off the previous.
   mirrored TS/Python constants, import-graph guard extended, projection persist ON CONFLICT
   updated for provenance. GREEN: prisma validate; migrate deploy (dev + test DB); test:schema 30;
   jest 824; tsc; eslint(changed); prettier(changed); build; pytest 463. Linear In Progress + PR linked.
-- SIG-75…SIG-80 — pending, in chain order (each branches off the previous ticket branch).
+- **SIG-75 DONE** — branch `feat/SIG-75-suggestion-engine-core` (off SIG-74), PR
+  [#74](https://github.com/troyrhodes02/sightline/pull/74). Python engine: state machine
+  (`state_machine.py`), materiality (`materiality.py`), shadow computation via new
+  `live.simulate_game_adjusted()` (subject forced unavailable), persistence (`db.py`,
+  `engine.py`). RD-AS-6: insufficient_evidence keeps base_projection_id non-nullable;
+  no-base contracts held via existing decline/stale path. GREEN: state machine 6,
+  materiality 4, engine integration 3, import-graph 12; full pytest 476. Linear In Progress + PR linked.
+- SIG-76…SIG-80 — pending, in chain order (each branches off the previous ticket branch).
 
 Key design decisions taken (from codebase mapping):
 - Shadow = Projection row with new `provenance` enum {base, adjustment_shadow} + FK
