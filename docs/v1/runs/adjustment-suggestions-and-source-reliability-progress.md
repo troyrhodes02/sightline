@@ -43,7 +43,7 @@ squash-merge conflicts; each ticket branch chains off the previous.
 - **SIG-80 DONE** — branch `feat/SIG-80-ui` (off SIG-79), PR [#79](https://github.com/troyrhodes02/sightline/pull/79). Admin Suggestions section (nav + Pending/History/Reliability + accept/decline + gating) + tests + e2e. GREEN: jest 850, tsc, build, e2e compiles. Linear In Progress + PR linked.
   DEFERRED (fast-follow, data layer present): shared-surface accepted-reason line + slate pending marker rendering.
 
-**Step 8 COMPLETE — all 7 tickets done (SIG-74…SIG-80, PRs #73…#79). Steps 9–15 next.**
+**RUN COMPLETE — steps 1–15 done. Feature branch verified/reviewed/audited/green; PR #72 open, NOT merged, awaiting human review. Follow-up: SIG-81 + a shared-surface reason-line fast-follow.**
 
 Key design decisions taken (from codebase mapping):
 - Shadow = Projection row with new `provenance` enum {base, adjustment_shadow} + FK
@@ -81,10 +81,10 @@ NOT halt under stop condition 1:
 9. [x] Runbook → `docs/v1/runbooks/adjustment-suggestions-and-source-reliability-runbook.md`
 10. [x] Squash-merged PRs #73…#79 (SIG-74…SIG-80) into feature branch, in order
 11. [x] Full verification GREEN: prisma validate, tsc, test:schema 30, build, jest 850, lint(tracked)/prettier(scope) clean, pytest 489, e2e compiles (skipped w/o accounts). Untracked prisma/seed-dev-game.ts lint failure is pre-existing, not on branch, CI-invisible.
-12. [ ] /review feature branch vs main → inline comments on feature PR
-13. [ ] /sightline-review-audit those comments
-14. [ ] Commit, push, re-run full suite. STOP — do not merge to main.
-15. [ ] Run report → `docs/v1/runs/...-report.md`
+12. [x] /review feature PR #72 — findings posted (8; conventions clean)
+13. [x] review-audit: 5+1 implemented, 2 deferred → SIG-81 (+code comments), 0 skipped
+14. [x] Audit fixes committed + pushed; re-ran GREEN (jest 851, pytest 489, tsc, build). STOPPED — NOT merged.
+15. [x] Run report → `docs/v1/runs/adjustment-suggestions-and-source-reliability-report.md`
 
 ## Pre-resolved decisions (from run instruction — approved-doc authority)
 
