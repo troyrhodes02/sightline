@@ -84,6 +84,7 @@ export function PropResearch({
   // Sightline route — never Kalshi, never the browser touching the DB.
   const [players, setPlayers] = useState<ResearchPlayerDto[]>(initialPlayers);
   const [searchLoading, setSearchLoading] = useState(false);
+  const [searchInput, setSearchInput] = useState("");
 
   const selectedPlayer = useMemo(
     () => players.find((player) => player.playerId === playerId) ?? null,
@@ -111,9 +112,16 @@ export function PropResearch({
   );
 
   // --- Player search (debounced fetch) -----------------------------------
+  // Name-driven; the server requires 2+ characters (an empty search would pull
+  // the whole corpus), so a shorter input clears results without a request.
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onSearchInput = useCallback((value: string) => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (value.trim().length < 2) {
+      setSearchLoading(false);
+      setPlayers([]);
+      return;
+    }
     debounceRef.current = setTimeout(async () => {
       setSearchLoading(true);
       try {
@@ -229,13 +237,18 @@ export function PropResearch({
             loading={searchLoading}
             onChange={(_event, value) => onPlayerChange(value)}
             onInputChange={(_event, value, reason) => {
+              setSearchInput(value);
               if (reason === "input") onSearchInput(value);
             }}
             getOptionLabel={(option) => option.fullName}
             isOptionEqualToValue={(option, value) =>
               option.playerId === value.playerId
             }
-            noOptionsText="No players Sightline is projecting"
+            noOptionsText={
+              searchInput.trim().length < 2
+                ? "Type at least 2 letters to search"
+                : "No players Sightline is projecting"
+            }
             renderInput={(params) => (
               <TextField
                 {...params}

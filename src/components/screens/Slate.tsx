@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
+import Pagination from "@mui/material/Pagination";
 import Paper from "@mui/material/Paper";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
@@ -85,6 +86,55 @@ export function Slate({
   // Selection over the ALREADY-DELIVERED slate. `filtered` is a subset of the
   // same rows; no probability, price, or edge is recomputed.
   const filtered = useMemo(() => applyScope(slate, scope), [slate, scope]);
+
+  // Pagination (25 per page) keeps the DOM small: a full Sunday slate is
+  // hundreds of player cards, and rendering them all is what makes the view
+  // toggle and scroll slow. Two independent page cursors — the cross-game
+  // "best" list and the by-game card list — both reset to page 1 whenever the
+  // selection or view changes.
+  const PAGE_SIZE = 25;
+  const [bestPage, setBestPage] = useState(1);
+  const [gamesPage, setGamesPage] = useState(1);
+  const scopeKey = scopeToParams(scope).toString();
+  useEffect(() => {
+    setBestPage(1);
+    setGamesPage(1);
+  }, [scopeKey]);
+
+  const bestRows = filtered.bestOpportunities;
+  const bestPageCount = Math.max(1, Math.ceil(bestRows.length / PAGE_SIZE));
+  const bestCurrent = Math.min(bestPage, bestPageCount);
+  const bestWindow = useMemo(
+    () =>
+      bestRows.slice((bestCurrent - 1) * PAGE_SIZE, bestCurrent * PAGE_SIZE),
+    [bestRows, bestCurrent],
+  );
+
+  // Paginate player cards ACROSS games, then re-group the windowed cards under
+  // their game headers so a game that straddles a page boundary still shows its
+  // header on each page.
+  const gamesPaged = useMemo(() => {
+    const flat: Array<{
+      game: (typeof filtered.games)[number];
+      card: (typeof filtered.games)[number]["players"][number];
+    }> = [];
+    for (const game of filtered.games) {
+      for (const card of game.players) flat.push({ game, card });
+    }
+    const pageCount = Math.max(1, Math.ceil(flat.length / PAGE_SIZE));
+    const current = Math.min(gamesPage, pageCount);
+    const windowed = flat.slice((current - 1) * PAGE_SIZE, current * PAGE_SIZE);
+    const games: typeof filtered.games = [];
+    for (const { game, card } of windowed) {
+      const last = games[games.length - 1];
+      if (!last || last.gameId !== game.gameId) {
+        games.push({ ...game, players: [card] });
+      } else {
+        last.players.push(card);
+      }
+    }
+    return { games, pageCount, current };
+  }, [filtered.games, gamesPage]);
 
   const view = scope.view;
   const hasGames = slate.games.length > 0;
@@ -182,12 +232,23 @@ export function Slate({
             </Paper>
           ) : (
             <>
-              {/* Best-opportunities block: expanded in `best`, a compact strip
-                  in `game`. Same rows, re-emphasised — over the FILTERED set. */}
+              {/* Best-opportunities block (best view): the cross-game strongest
+                  slice, paginated 25 per page. */}
               {view === "best" ? (
                 <Stack spacing={1.5}>
                   <Typography variant="h2">Best opportunities</Typography>
-                  <BestOpportunities rows={filtered.bestOpportunities} />
+                  <BestOpportunities rows={bestWindow} />
+                  {bestPageCount > 1 ? (
+                    <Stack sx={{ alignItems: "center", pt: 0.5 }}>
+                      <Pagination
+                        count={bestPageCount}
+                        page={bestCurrent}
+                        onChange={(_, p) => setBestPage(p)}
+                        siblingCount={0}
+                        size="small"
+                      />
+                    </Stack>
+                  ) : null}
                 </Stack>
               ) : null}
 
@@ -195,7 +256,7 @@ export function Slate({
                 <Stack spacing={1.5}>
                   <Typography variant="h2">All games</Typography>
                   <Box>
-                    {filtered.games.map((game) => (
+                    {gamesPaged.games.map((game) => (
                       <GameGroup
                         key={game.gameId}
                         game={game}
@@ -204,6 +265,17 @@ export function Slate({
                       />
                     ))}
                   </Box>
+                  {gamesPaged.pageCount > 1 ? (
+                    <Stack sx={{ alignItems: "center", pt: 0.5 }}>
+                      <Pagination
+                        count={gamesPaged.pageCount}
+                        page={gamesPaged.current}
+                        onChange={(_, p) => setGamesPage(p)}
+                        siblingCount={0}
+                        size="small"
+                      />
+                    </Stack>
+                  ) : null}
                 </Stack>
               ) : null}
             </>

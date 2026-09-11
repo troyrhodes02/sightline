@@ -520,6 +520,35 @@ describe("Slate screen states (grouped)", () => {
     expect(screen.getAllByRole("alert")).toHaveLength(1);
   });
 
+  it("paginates the game cards at 25 per page", async () => {
+    const user = userEvent.setup();
+    // 26 single-card games → 26 player cards. Only 25 render per page, so the
+    // DOM stays small no matter how large the slate is. Assert on the always-
+    // visible game header (the cards themselves sit inside a Collapse).
+    const label = (i: number) => `AW${String(i + 1).padStart(2, "0")}`;
+    const manyGames = Array.from({ length: 26 }, (_, i) =>
+      game({
+        gameId: `g${i}`,
+        awayTeam: label(i),
+        homeTeam: `HM${String(i + 1).padStart(2, "0")}`,
+        players: [card({ playerId: `p${i}` })],
+      }),
+    );
+    renderThemed(
+      <Slate
+        slate={grouped({ games: manyGames })}
+        refreshIntervalSeconds={60}
+      />,
+    );
+    // By game view: a single paginator over the (heavy) player-card list.
+    await user.click(screen.getByRole("button", { name: "By game" }));
+    expect(screen.getByText("AW01 @ HM01")).toBeInTheDocument();
+    expect(screen.queryByText("AW26 @ HM26")).toBeNull();
+    // The 26th game appears only after paging forward.
+    await user.click(screen.getByRole("button", { name: "Go to page 2" }));
+    expect(await screen.findByText("AW26 @ HM26")).toBeInTheDocument();
+  });
+
   it("toggling to By game re-emphasises the same data without a refetch", async () => {
     const user = userEvent.setup();
     renderThemed(<Slate slate={grouped()} refreshIntervalSeconds={60} />);

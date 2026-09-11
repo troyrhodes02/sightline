@@ -257,14 +257,30 @@ describe("readResearchPlayers — eligibility", () => {
       },
     ]);
 
-    const players = await readResearchPlayers("");
+    const players = await readResearchPlayers("stafford");
     expect(players).toHaveLength(1);
     expect(players[0].fullName).toBe("Matthew Stafford");
     expect(players[0].games[0].statTypes).toEqual(["passing_yards"]);
-    // The projection query is base-provenance only.
+    // The projection query is base-provenance only, name-filtered, and capped.
     expect(mock.projection.findMany.mock.calls[0][0].where.provenance).toBe(
       "base",
     );
+    expect(
+      mock.projection.findMany.mock.calls[0][0].where.player,
+    ).toBeDefined();
+    expect(mock.projection.findMany.mock.calls[0][0].take).toBeGreaterThan(0);
+  });
+
+  it("short-circuits a query under two characters without scanning projections", async () => {
+    for (const q of ["", " ", "a"]) {
+      mock.game.findMany.mockClear();
+      mock.projection.findMany.mockClear();
+      const players = await readResearchPlayers(q);
+      expect(players).toEqual([]);
+      // No projection scan (and not even the game read) for a too-short query —
+      // this is what keeps the page's first paint from pulling the whole corpus.
+      expect(mock.projection.findMany).not.toHaveBeenCalled();
+    }
   });
 
   it("returns nothing when there are no upcoming games", async () => {

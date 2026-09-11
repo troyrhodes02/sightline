@@ -47,15 +47,32 @@ function gameLabel(game: {
 }
 
 /**
+ * Minimum characters before the player search runs. Below this the query would
+ * match a large share of the corpus, so an empty/one-letter search returns
+ * nothing rather than pulling every upcoming projection into memory — which is
+ * what made the Prop Research page slow to load (it preloaded the full set).
+ */
+const RESEARCH_MIN_QUERY = 2;
+
+/** Safety cap on the name-matched projection rows a single search scans. */
+const RESEARCH_MAX_PROJECTIONS = 500;
+
+/**
  * Players with a current stored BASE projection for an upcoming game, matching
  * a partial name (case-insensitive). Only the active-model base projections
  * count; an inactive-model or shadow projection never makes a player eligible.
+ *
+ * The search is name-driven and requires at least {@link RESEARCH_MIN_QUERY}
+ * characters; a shorter query returns `[]` without touching the projection
+ * table, so neither the page's first paint nor a stray empty request runs an
+ * unbounded query.
  */
 export async function readResearchPlayers(
   q: string,
 ): Promise<ResearchPlayerDto[]> {
   const now = new Date();
   const query = q.trim();
+  if (query.length < RESEARCH_MIN_QUERY) return [];
 
   const games = await prisma.game.findMany({
     where: { status: "scheduled", kickoffAt: { gt: now } },
@@ -71,15 +88,14 @@ export async function readResearchPlayers(
 
   const activeByStat = await modelSelectionMap();
 
-  // Base projections for upcoming games, matching the searched name. The name
-  // filter is applied in the DB so a large corpus never streams into memory.
+  // Base projections for upcoming games matching the searched name. The name
+  // filter is applied in the DB so a large corpus never streams into memory,
+  // and a hard cap bounds even a very common surname.
   const projections = await prisma.projection.findMany({
     where: {
       provenance: "base",
       gameId: { in: [...gameById.keys()] },
-      ...(query.length > 0
-        ? { player: { fullName: { contains: query, mode: "insensitive" } } }
-        : {}),
+      player: { fullName: { contains: query, mode: "insensitive" } },
     },
     select: {
       playerId: true,
@@ -90,6 +106,7 @@ export async function readResearchPlayers(
       player: { select: { fullName: true } },
     },
     orderBy: { computedAt: "desc" },
+    take: RESEARCH_MAX_PROJECTIONS,
   });
 
   // Reduce to: player → game → set of stat types that have an active-model base
