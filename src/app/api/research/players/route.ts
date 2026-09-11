@@ -9,8 +9,10 @@ export const dynamic = "force-dynamic";
  * surface. Returns only players who have a current stored BASE projection for
  * an upcoming (pre-kickoff) game, matching the partial `q`.
  *
- * A pure database read through Prisma — no model runs, no price reads. An empty
- * or missing `q` returns the unfiltered eligible set.
+ * A pure database read through Prisma — no model runs, no price reads. The
+ * search is name-driven and requires at least two characters; a shorter (or
+ * missing) `q` returns an empty list without scanning the projection table, so
+ * a stray empty request never runs an unbounded query.
  */
 export async function GET(request: Request): Promise<Response> {
   await requireSession();
