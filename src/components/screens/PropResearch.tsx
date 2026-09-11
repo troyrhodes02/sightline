@@ -179,21 +179,22 @@ export function PropResearch({
     // refetches (RD-1 / spec §9 — recompute is local arithmetic).
   }, [selectionComplete, playerId, gameId, statType]);
 
-  // Prefill the threshold with the projected median when a distribution loads
-  // AND the field is empty (a fresh selection, or first paint without a deep
-  // link) — so a first result appears immediately (design doc §Behavior). It
-  // keys on `projection` only, so a value the user typed or cleared is never
-  // clobbered: clearing the field stays cleared.
-  useEffect(() => {
+  // Prefill the threshold with the projected median when a NEW distribution
+  // loads and the field is empty (a fresh selection, or first paint without a
+  // deep link) — so a first result appears immediately (design doc §Behavior).
+  // Done during render on projection change (not in an effect), so a value the
+  // user typed or cleared is never clobbered: clearing the field stays cleared.
+  const [prevProjection, setPrevProjection] = useState(projection);
+  if (projection !== prevProjection) {
+    setPrevProjection(projection);
     if (
       projection?.available === true &&
-      Number.isFinite(projection.projectedMedian)
+      Number.isFinite(projection.projectedMedian) &&
+      thresholdInput.trim() === ""
     ) {
-      setThresholdInput((prev) =>
-        prev.trim() === "" ? String(projection.projectedMedian) : prev,
-      );
+      setThresholdInput(String(projection.projectedMedian));
     }
-  }, [projection]);
+  }
 
   // --- Selection handlers -------------------------------------------------
   // Each selection change clears the threshold so the prefill effect re-seeds
