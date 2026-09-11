@@ -19,6 +19,8 @@ import uuid
 from datetime import datetime
 from typing import Any
 
+from ..constants import MODEL_VERSION
+
 _NS = uuid.UUID("b9d0e1a2-3c4d-5e6f-7a8b-9c0d1e2f3a4b")
 
 
@@ -148,15 +150,31 @@ def listed_contracts_for_game(cur, *, game_id: str) -> list[dict[str, Any]]:
 def freshest_base_projection(
     cur, *, player_id: str, game_id: str, stat_type: str
 ) -> dict[str, Any] | None:
-    """The freshest base (non-shadow) projection for a (player, game, stat)."""
+    """The freshest base projection of the ACTIVE model for a (player, game, stat).
+
+    Parallel model evaluation (SIG-103) stores BOTH engines' base projections
+    for every eligible game/stat, so a suggestion must adjust the projection the
+    slate actually shows — the one whose ``model_version`` matches the active
+    ``ModelSelection`` for the stat — not whichever base row happens to sort
+    first. Without this filter the read could return the shadow engine's base
+    projection, whose compact distribution form differs from the active one, and
+    the materiality comparison would be against a projection the user never sees.
+
+    A stat with no ``ModelSelection`` row defaults to the baseline (the migration
+    seeds every stat on the baseline), matching the live pipeline's own
+    active-model convention.
+    """
     cur.execute(
-        "select id, distribution_kind, quantiles, pmf, projected_value, "
-        "projected_median, interval_low, interval_high, confidence, model_version "
-        "from projections "
-        "where player_id = %s and game_id = %s and stat_type = %s::\"StatType\" "
-        "and provenance = 'base'::\"ProjectionProvenance\" "
-        "order by information_cutoff desc, computed_at desc limit 1",
-        (player_id, game_id, stat_type),
+        "select p.id, p.distribution_kind, p.quantiles, p.pmf, p.projected_value, "
+        "p.projected_median, p.interval_low, p.interval_high, p.confidence, "
+        "p.model_version "
+        "from projections p "
+        "left join model_selections ms on ms.stat_type = p.stat_type "
+        "where p.player_id = %s and p.game_id = %s and p.stat_type = %s::\"StatType\" "
+        "and p.provenance = 'base'::\"ProjectionProvenance\" "
+        "and p.model_version = coalesce(ms.model_version, %s) "
+        "order by p.information_cutoff desc, p.computed_at desc limit 1",
+        (player_id, game_id, stat_type, MODEL_VERSION),
     )
     found = _rows(cur)
     return found[0] if found else None

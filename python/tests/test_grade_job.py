@@ -137,17 +137,20 @@ def _insert_projection(cur, key: str, game_key: str, *, stat_type: str,
                        kind: str, params: dict, pmf: list | None,
                        cutoff: datetime, computed_at: datetime,
                        projected_value: float = PROJECTED_VALUE,
-                       projected_median: float = PROJECTED_MEDIAN) -> str:
+                       projected_median: float = PROJECTED_MEDIAN,
+                       model_version: str = "baseline-zil-0.1.0",
+                       quantiles: dict | None = None) -> str:
     row_id = _uid(key)
     cur.execute(
         "insert into projections (id, player_id, game_id, stat_type,"
         " model_version, distribution_kind, params, quantiles, pmf,"
         " projected_value, projected_median, interval_low, interval_high,"
         " confidence, n_eff, computed_at, information_cutoff, created_at)"
-        " values (%s,%s,%s,%s::\"StatType\",'baseline-zil-0.1.0',%s,%s,%s,%s,"
+        " values (%s,%s,%s,%s::\"StatType\",%s,%s,%s,%s,%s,"
         " %s,%s,40.0,120.0,'medium'::\"Confidence\",6,%s,%s,now())",
-        (row_id, _uid("player"), _uid(game_key), stat_type, kind,
-         json.dumps(params), json.dumps({"q50": projected_median}),
+        (row_id, _uid("player"), _uid(game_key), stat_type, model_version, kind,
+         json.dumps(params),
+         json.dumps(quantiles if quantiles is not None else {"q50": projected_median}),
          json.dumps(pmf) if pmf is not None else None,
          projected_value, projected_median, computed_at, cutoff),
     )
@@ -716,3 +719,61 @@ def test_baselines_are_asof_the_projection_cutoff(connect, clean_db) -> None:
     # leaked in, this would be |88 - 111.6| = 23.6.
     assert float(grade["season_avg_abs_error"]) == pytest.approx(8.5)
     assert float(grade["trailing_five_abs_error"]) == pytest.approx(12.4)
+
+
+# ---------------------------------------------------------------------------
+# Parallel model evaluation (SIG-103): dual grading
+# ---------------------------------------------------------------------------
+
+# An empirical quantile grid a simulation projection would store. Monotone,
+# spanning the official 88.0, so grading answers a real P(X >= t).
+_SIM_QUANTILES = {
+    "q01": 5.0, "q05": 18.0, "q10": 28.0, "q25": 48.0, "q50": 72.0,
+    "q75": 96.0, "q90": 120.0, "q95": 135.0, "q99": 160.0,
+}
+
+
+@pytest.mark.db
+def test_both_engines_projections_are_graded_independently(connect, clean_db) -> None:
+    """Parallel evaluation stores a baseline AND a simulation projection for the
+    same (player, game, stat). BOTH must reach a graded state through the SAME
+    machinery — the evaluative unit is per model version, so neither engine's
+    projection shadows the other out of grading (spec §Testing Priority 3)."""
+    _seed_base(connect)  # inserts the baseline projection proj-g1 for g1
+    with connect() as conn, conn.cursor() as cur:
+        # The simulation engine's shadow projection for the SAME key: a distinct
+        # model_version, an empirical quantile distribution, provenance base.
+        _insert_projection(
+            cur, "proj-g1-sim", "g1", stat_type="receiving_yards",
+            kind="empirical_quantiles", params={}, pmf=None,
+            quantiles=_SIM_QUANTILES,
+            cutoff=CUTOFF_G1, computed_at=KICKOFF_G1 - timedelta(hours=2),
+            model_version="simulation-mc-0.1.0",
+        )
+        conn.commit()
+
+    status = run_grade(connect, invocation_id="gh-grade-dual-1", now=NOW)
+    assert status == "succeeded"
+
+    baseline_grade = _grade_for(connect, "proj-g1")
+    sim_grade = _grade_for(connect, "proj-g1-sim")
+    assert baseline_grade is not None, "baseline projection was not graded"
+    assert sim_grade is not None, "simulation shadow projection was not graded"
+    assert baseline_grade["status"] == "graded"
+    assert sim_grade["status"] == "graded"
+    # Two distinct grade rows against the same official value; the errors differ
+    # because the two engines stated different distributions/medians.
+    assert baseline_grade["projection_id"] != sim_grade["projection_id"]
+    assert float(baseline_grade["official_value"]) == pytest.approx(OFFICIAL_G1)
+    assert float(sim_grade["official_value"]) == pytest.approx(OFFICIAL_G1)
+
+    # Each engine's projection carries its OWN threshold grades — the market
+    # 74.5 threshold is scored once per model version, never crossed.
+    baseline_thr = _thresholds_for(connect, "proj-g1")
+    sim_thr = _thresholds_for(connect, "proj-g1-sim")
+    assert baseline_thr, "baseline threshold grades missing"
+    assert sim_thr, "simulation threshold grades missing"
+    # Same market threshold present for both, graded against the same outcome.
+    for thr in (*baseline_thr, *sim_thr):
+        if thr["threshold_source"] == "market":
+            assert thr["outcome"] is True  # 88.0 > 74.5

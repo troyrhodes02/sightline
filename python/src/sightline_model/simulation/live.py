@@ -234,6 +234,11 @@ def simulation_stats(
     model version. A selection that names the simulation version for a stat the
     engine cannot store is refused loudly rather than silently dropped — that is a
     mis-seeded registry, not a run condition to paper over.
+
+    Retained for callers that still reason about the ACTIVE routing (e.g. the
+    promotion tooling and its tests). The live pipeline now runs BOTH engines in
+    parallel (SIG-103) and selects the simulation-supported stats with
+    :func:`supported_simulation_stats`, independent of which engine is active.
     """
     out: list[str] = []
     for stat_type in sorted(candidate_stats):
@@ -245,6 +250,21 @@ def simulation_stats(
                 )
             out.append(stat_type)
     return out
+
+
+def supported_simulation_stats(candidate_stats: set[str]) -> list[str]:
+    """The subset of ``candidate_stats`` the simulation engine can produce.
+
+    Parallel shadow evaluation (SIG-103) runs the simulation engine for every
+    stat it *supports*, not merely the stats it is *active* for: whichever engine
+    is not the active model must keep accruing comparable live projection history
+    so Sightline can learn how it would have performed on the exact games the
+    other engine was active for (spec §Core concepts, shadow evaluation). A stat
+    outside the engine's storable set is simply not simulated — that is the
+    baseline's job, and missing simulation support for a stat must never block
+    the baseline (spec §Testing Priority 3).
+    """
+    return sorted(stat for stat in candidate_stats if stat in _SIM_STAT_TYPES)
 
 
 def game_simulation_row_id(

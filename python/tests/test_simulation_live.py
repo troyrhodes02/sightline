@@ -229,23 +229,27 @@ def test_simulation_routed_stat_persists_all_simulation_outputs(corpus) -> None:
 def test_baseline_routed_stat_coexists_with_simulation(corpus) -> None:
     run_project(_CUTOFF.replace(tzinfo=timezone.utc), now=_now())
 
-    # The baseline-routed stat is persisted under the BASELINE version, from the
-    # same run — the two engines coexist per game.
-    baseline = _rows(
-        corpus,
-        "select model_version, distribution_kind from projections"
-        " where stat_type = %s::\"StatType\"",
-        (_BASELINE_STAT,),
-    )
-    assert baseline, "no projection persisted for the baseline-routed stat"
-    assert {r["model_version"] for r in baseline} == {BASELINE_MODEL_VERSION}
-    # The baseline stat never produced an empirical (simulation) distribution.
-    assert all(
-        r["distribution_kind"] not in ("empirical_quantiles", "empirical_pmf")
-        for r in baseline
-    )
+    # Parallel evaluation (SIG-103): BOTH engines run for every eligible
+    # game/stat they support. rushing_yards is active on the baseline but the
+    # simulation engine supports it too, so it now carries BOTH a baseline
+    # (active) and a simulation (shadow) projection from the same run — the
+    # non-active engine keeps accruing comparable live evidence.
+    baseline_stat_versions = {
+        r["model_version"]
+        for r in _rows(
+            corpus,
+            "select distinct model_version from projections"
+            " where stat_type = %s::\"StatType\"",
+            (_BASELINE_STAT,),
+        )
+    }
+    assert baseline_stat_versions == {
+        BASELINE_MODEL_VERSION,
+        SIMULATION_MODEL_VERSION,
+    }, "the baseline-active stat must also carry a simulation shadow projection"
 
-    # And the simulation stat never produced a baseline-version projection.
+    # And the simulation-active stat carries BOTH a simulation projection (the
+    # active model) AND a baseline shadow — symmetric parallel evaluation.
     sim_versions = {
         r["model_version"]
         for r in _rows(
@@ -255,7 +259,22 @@ def test_baseline_routed_stat_coexists_with_simulation(corpus) -> None:
             (_SIM_STAT,),
         )
     }
-    assert sim_versions == {SIMULATION_MODEL_VERSION}
+    assert sim_versions == {SIMULATION_MODEL_VERSION, BASELINE_MODEL_VERSION}, (
+        "the simulation-active stat must also carry a baseline shadow projection"
+    )
+
+    # The baseline projections are parametric (never empirical); the simulation
+    # projections are empirical — the two engines keep distinct model identity.
+    baseline_rows = _rows(
+        corpus,
+        "select distribution_kind from projections"
+        " where stat_type = %s::\"StatType\" and model_version = %s",
+        (_BASELINE_STAT, BASELINE_MODEL_VERSION),
+    )
+    assert baseline_rows and all(
+        r["distribution_kind"] not in ("empirical_quantiles", "empirical_pmf")
+        for r in baseline_rows
+    )
 
 
 def test_reruns_are_idempotent(corpus) -> None:
@@ -293,6 +312,93 @@ def test_reruns_are_idempotent(corpus) -> None:
         (SIMULATION_MODEL_VERSION,),
     )
     assert dist == dist_again
+
+
+# ---------------------------------------------------------------------------
+# Parallel model evaluation (SIG-103): shadow accrual + engine isolation
+# ---------------------------------------------------------------------------
+
+
+def test_supported_simulation_stats_is_by_capability_not_active_routing() -> None:
+    # The router selects the stats the engine CAN produce, independent of which
+    # engine ModelSelection names active. A stat the engine cannot store is not
+    # simulated (the baseline owns it); a supported stat is, active or shadow.
+    assert live.supported_simulation_stats({"receiving_yards"}) == ["receiving_yards"]
+    assert live.supported_simulation_stats({"receiving_yards", "rushing_yards"}) == [
+        "receiving_yards",
+        "rushing_yards",
+    ]
+    # An unsupported stat is excluded from simulation — it does not block the
+    # baseline, which projects every stat. (A stat outside the engine's set.)
+    assert live.supported_simulation_stats({"field_goals_made"}) == []
+    assert (
+        live.supported_simulation_stats({"receiving_yards", "field_goals_made"})
+        == ["receiving_yards"]
+    )
+
+
+def test_both_engines_accrue_regardless_of_which_is_active(corpus) -> None:
+    """Baseline keeps accruing live evidence while Simulation is active for a
+    stat, and Simulation keeps accruing while Baseline is active — neither
+    engine's collection stops on losing/never-having active status (spec
+    §Testing Priority 3). The `corpus` fixture makes receiving_yards active on
+    simulation and rushing_yards active on baseline; both must carry both."""
+    run_project(_CUTOFF.replace(tzinfo=timezone.utc), now=_now())
+
+    def versions(stat: str) -> set[str]:
+        return {
+            r["model_version"]
+            for r in _rows(
+                corpus,
+                "select distinct model_version from projections"
+                " where stat_type = %s::\"StatType\"",
+                (stat,),
+            )
+        }
+
+    # Simulation-active stat: baseline shadow still present.
+    assert BASELINE_MODEL_VERSION in versions(_SIM_STAT)
+    assert SIMULATION_MODEL_VERSION in versions(_SIM_STAT)
+    # Baseline-active stat: simulation shadow still present.
+    assert BASELINE_MODEL_VERSION in versions(_BASELINE_STAT)
+    assert SIMULATION_MODEL_VERSION in versions(_BASELINE_STAT)
+
+
+def test_simulation_failure_does_not_relabel_or_roll_back_baseline(
+    corpus, monkeypatch
+) -> None:
+    """A failure of one engine must never relabel or roll back the other's
+    stored projection (spec invariant). Force the simulation engine to explode;
+    the baseline projections for the SAME game must still be committed, still
+    attributed to the baseline, and none relabelled to the simulation version."""
+    import sightline_model.project_live as pl
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("simulation engine exploded")
+
+    monkeypatch.setattr(pl.live, "project_game_simulation", boom)
+
+    totals = run_project(
+        _CUTOFF.replace(tzinfo=timezone.utc), now=_now(), invocation_id="gh-sim-boom"
+    )
+
+    # The game is recorded failed (the simulation engine threw), but the
+    # baseline projections committed in their own transaction survive.
+    assert totals["failed_games"] == 1
+    baseline_rows = _rows(
+        corpus,
+        "select stat_type, model_version from projections where model_version = %s",
+        (BASELINE_MODEL_VERSION,),
+    )
+    assert baseline_rows, "baseline projections were rolled back by a sim failure"
+    # No baseline projection was relabelled to the simulation version, and the
+    # failed engine wrote nothing.
+    assert all(r["model_version"] == BASELINE_MODEL_VERSION for r in baseline_rows)
+    assert not _rows(
+        corpus,
+        "select 1 from projections where model_version = %s",
+        (SIMULATION_MODEL_VERSION,),
+    ), "the failed simulation engine must have persisted nothing"
 
 
 # ---------------------------------------------------------------------------
