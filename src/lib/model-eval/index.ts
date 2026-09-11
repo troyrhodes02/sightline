@@ -11,6 +11,7 @@ export {
   readRecommendation,
 } from "./comparison";
 export { readModelSeries } from "./read";
+export { readContractTrackRecord } from "./track-record";
 export {
   determineLeader,
   recommendation,
@@ -24,6 +25,7 @@ export {
   LEADER_BRIER_MARGIN,
   LIVE_SAMPLE_FLOOR,
   BACKTEST_SAMPLE_FLOOR,
+  TRACK_RECORD_BUCKET_FLOOR,
   SIMULATION_SUPPORTED_STATS,
   modelSupportsStat,
 } from "./config";
@@ -36,4 +38,5 @@ export type {
   ModelComparisonDto,
   StatLeaderRowDto,
   ModelRecommendationDto,
+  ContractTrackRecordDto,
 } from "@/lib/dto/model-eval";
