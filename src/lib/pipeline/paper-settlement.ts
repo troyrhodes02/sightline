@@ -145,7 +145,7 @@ async function reevaluateBreakers(
 ): Promise<number> {
   const campaign = await prisma.paperCampaign.findUniqueOrThrow({
     where: { id: campaignId },
-    select: { highWaterMarkCents: true, killSwitchEngaged: true },
+    select: { highWaterMarkCents: true },
   });
   const config = await prisma.paperRiskConfig.findFirst({
     where: { campaignId },

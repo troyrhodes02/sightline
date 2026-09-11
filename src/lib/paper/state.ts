@@ -53,17 +53,22 @@ export type CampaignState = {
 };
 
 export async function readCampaignState(): Promise<CampaignState | null> {
-  const campaign = await prisma.paperCampaign.findFirst({
+  const campaignRow = await prisma.paperCampaign.findFirst({
     orderBy: { startedAt: "asc" },
     select: {
       id: true,
       startingBankrollCents: true,
       autonomyEnabled: true,
-      killSwitchEngaged: true,
       highWaterMarkCents: true,
+      // Kill switch is campaign-wide, held on the parent (PME-1).
+      evaluationCampaign: { select: { killSwitchEngaged: true } },
     },
   });
-  if (!campaign) return null;
+  if (!campaignRow) return null;
+  const campaign = {
+    ...campaignRow,
+    killSwitchEngaged: campaignRow.evaluationCampaign.killSwitchEngaged,
+  };
 
   const configRow = await prisma.paperRiskConfig.findFirst({
     where: { campaignId: campaign.id },

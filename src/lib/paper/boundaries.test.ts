@@ -32,15 +32,17 @@ describe("Dry Run writes nothing but its own record", () => {
     expect(DRY_RUN).not.toContain("settleCampaign");
   });
 
-  it("touches exactly one table with a write", () => {
+  it("performs no database writes", () => {
+    // PME-1 dropped the PaperDryRun table. The preview capability is retained
+    // (planCycle, shared with the scheduled cycle) but the inspection record is
+    // no longer persisted — so Dry Run now writes nothing at all, an even
+    // stronger form of the original "writes nothing but its own record".
     const writes = [
       ...DRY_RUN.matchAll(
         /prisma\.(\w+)\.(create|update|upsert|delete|createMany|updateMany|deleteMany)/g,
       ),
     ];
-    expect(writes.map((match) => `${match[1]}.${match[2]}`)).toEqual([
-      "paperDryRun.create",
-    ]);
+    expect(writes.map((match) => `${match[1]}.${match[2]}`)).toEqual([]);
   });
 
   it("creates no position, fill, ledger entry, breach, or desired exposure", () => {

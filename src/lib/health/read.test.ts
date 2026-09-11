@@ -129,7 +129,7 @@ describe("health read", () => {
     mockPrisma.paperCampaign.findFirst.mockResolvedValue({
       id: "campaign-1",
       autonomyEnabled: true,
-      killSwitchEngaged: false,
+      evaluationCampaign: { killSwitchEngaged: false },
     });
     mockPrisma.paperBreach.findMany.mockResolvedValue([
       { condition: "drawdown_halt" },
@@ -148,7 +148,7 @@ describe("health read", () => {
     mockPrisma.paperCampaign.findFirst.mockResolvedValue({
       id: "campaign-1",
       autonomyEnabled: true,
-      killSwitchEngaged: true,
+      evaluationCampaign: { killSwitchEngaged: true },
     });
 
     const { signals } = await readHealth();
@@ -168,7 +168,7 @@ describe("health read", () => {
     mockPrisma.paperCampaign.findFirst.mockResolvedValue({
       id: "campaign-1",
       autonomyEnabled: true,
-      killSwitchEngaged: false,
+      evaluationCampaign: { killSwitchEngaged: false },
     });
     mockPrisma.paperPosition.count.mockResolvedValue(3);
     routePipelineRuns({

@@ -107,25 +107,15 @@ export async function runDryRun(
     markToMarketUnavailable: !state.mark.available,
   });
 
-  const row = await prisma.paperDryRun.create({
-    data: {
-      campaignId: state.campaignId,
-      riskConfigId: state.riskConfig.id,
-      recalibrationId: candidates.recalibration?.id ?? null,
-      gameId: game.id,
-      actorUserId,
-      wouldExecute: plan.candidates.some(
-        (candidate) => candidate.filledContracts > 0,
-      ),
-      blockedByBreaches: halting,
-      plan: JSON.parse(JSON.stringify(plan)),
-      ranAt: now,
-    },
-    select: { id: true },
-  });
+  // PME-1: the PaperDryRun table was dropped. The preview CAPABILITY is retained
+  // (planCycle above, the same function the scheduled cycle uses) but the
+  // inspection record is no longer persisted. The route and screen removal, and
+  // the reframing of this as a test-only utility, land in a later Pitch 11 ticket
+  // (D7). `void actorUserId` keeps the signature stable for those callers.
+  void actorUserId;
 
   return {
-    dryRunId: row.id,
+    dryRunId: `dry-run-${now.getTime()}`,
     gameLabel: `${game.awayTeam.nflverseAbbr} @ ${game.homeTeam.nflverseAbbr}`,
     kickoffAt: game.kickoffAt.toISOString(),
     ranAt: now.toISOString(),

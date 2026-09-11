@@ -118,6 +118,12 @@ export type PlannedCandidate = {
   contractId: string;
   kalshiTicker: string;
   projectionId: string | null;
+  /**
+   * The model version behind the driving probability, carried through for the
+   * permanent Hybrid attribution recorded on the candidate and position rows
+   * (PME-1, D6). Null when no projection backed the candidate.
+   */
+  modelVersion: string | null;
   priceObservationId: string | null;
   rank: number;
   side: MarketSide | null;
@@ -465,6 +471,7 @@ function emptyPlanned(candidate: CandidateInput): PlannedCandidate {
     contractId: candidate.contractId,
     kalshiTicker: candidate.kalshiTicker,
     projectionId: candidate.projectionId,
+    modelVersion: candidate.modelVersion,
     priceObservationId: candidate.priceObservationId,
     rank: 0,
     side: null,
