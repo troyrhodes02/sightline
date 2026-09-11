@@ -220,6 +220,70 @@ describe("candidate eligibility", () => {
     expect(mismatched.candidates[0].boundBy).toBe("no_active_recalibration");
   });
 
+  it("corrects each candidate under its OWN model's fit for a Hybrid cycle (D6)", () => {
+    // A Hybrid portfolio prices some stats from Baseline and others from
+    // Simulation. Each candidate must be corrected under the fit keyed to its
+    // own model version — never a neighbour's, so crossing stays impossible.
+    const baselineFit: ActiveRecalibration = {
+      id: "fit-base",
+      version: 1,
+      modelVersion: "baseline-v1",
+      knots: [
+        [0, 0],
+        [0.62, 0.55],
+        [1, 1],
+      ],
+    };
+    const simFit: ActiveRecalibration = {
+      id: "fit-sim",
+      version: 1,
+      modelVersion: "sim-v2",
+      knots: [
+        [0, 0],
+        [0.62, 0.7],
+        [1, 1],
+      ],
+    };
+    const plan = planCycle(
+      input({
+        recalibration: null,
+        recalibrationByVersion: new Map([
+          ["baseline-v1", baselineFit],
+          ["sim-v2", simFit],
+        ]),
+        candidates: [
+          candidate({ contractId: "cb", modelVersion: "baseline-v1" }),
+          candidate({
+            contractId: "cs",
+            kalshiTicker: "KXNFLX-26NOV02-40.5",
+            modelVersion: "sim-v2",
+          }),
+        ],
+      }),
+    );
+    const byId = Object.fromEntries(
+      plan.candidates.map((c) => [c.contractId, c]),
+    );
+    // Baseline candidate corrected by the baseline fit (0.62 → 0.55).
+    expect(byId.cb.correctedProbability).toBeCloseTo(0.55, 6);
+    // Simulation candidate corrected by the simulation fit (0.62 → 0.70).
+    expect(byId.cs.correctedProbability).toBeCloseTo(0.7, 6);
+  });
+
+  it("refuses a Hybrid candidate whose model version has no fit in the map", () => {
+    const baselineFit: ActiveRecalibration = { ...IDENTITY };
+    const plan = planCycle(
+      input({
+        recalibration: null,
+        recalibrationByVersion: new Map([["baseline-v1", baselineFit]]),
+        candidates: [candidate({ modelVersion: "sim-v2" })],
+      }),
+    );
+    expect(plan.candidates[0].verdict).toBe("refused");
+    expect(plan.candidates[0].boundBy).toBe("no_active_recalibration");
+    expect(plan.candidates[0].boundByDetail).toBe("sim-v2");
+  });
+
   it("refuses a contract with no ask on either side", () => {
     const plan = planCycle(
       input({

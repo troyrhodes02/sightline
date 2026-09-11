@@ -72,6 +72,62 @@ export type StatLeaderRowDto = {
   belowFloor: boolean;
 };
 
+export type PortfolioKind = "baseline" | "simulation" | "hybrid";
+
+export type PaperRiskModeName =
+  "conservative" | "moderate" | "aggressive" | "custom";
+
+/**
+ * One paper portfolio's financial + opportunity scorecard (spec §UI data
+ * contracts, D5/D11/D17/D19/D20). Shared by Model Performance → Summary and
+ * Paper Bot → Performance; the field names mean the same on both surfaces.
+ *
+ * Contract rules that must survive refactors:
+ *
+ * - `null` is not `0`. `activeBankrollCents === null` means mark-to-market was
+ *   unavailable (a degraded read), which is a different fact from an active
+ *   bankroll that happens to be zero; when it is null, everything that depends
+ *   on a live mark — `totalValueCents`, `netPnlCents`, `returnPct`,
+ *   `maxDrawdownBps` — is null too rather than silently settling-only.
+ * - Every scorecard carries `candidatesEvaluated` and `candidatesSized` (D5) so
+ *   a bankroll figure is never shown without the opportunity set behind it. The
+ *   three portfolios may legitimately differ in opportunity set.
+ * - Money is presented neutral; only the SIGN of a P&L figure takes colour
+ *   (D19) — a display concern the DTO supports by carrying signed cents, never
+ *   a pre-formatted string.
+ * - These are paper figures, permanently (D20), and are never aggregated with
+ *   one another or with any future live-money ledger — each row stands alone.
+ */
+export type PortfolioScorecardDto = {
+  portfolio: PortfolioKind;
+  startingBankrollCents: number;
+  /** null = mark-to-market unavailable (degraded). Distinct from a real 0. */
+  activeBankrollCents: number | null;
+  withdrawnCents: number;
+  /** Active bankroll + cumulative withdrawals; null when the mark is degraded. */
+  totalValueCents: number | null;
+  /** Total value − starting bankroll; null when the mark is degraded. */
+  netPnlCents: number | null;
+  returnPct: number | null;
+  /** null when active bankroll is unavailable. */
+  maxDrawdownBps: number | null;
+  /** Aggregated from PaperCycle.candidatesEvaluated across the window (D5). */
+  candidatesEvaluated: number;
+  /** Aggregated from PaperCycle.candidatesSized across the window (D5). */
+  candidatesSized: number;
+  positionCount: number;
+  riskMode: PaperRiskModeName;
+  breakerEventCount: number;
+};
+
+/**
+ * The period a scorecard read windows over. NONE of these reset the campaign
+ * bankroll — they window the opportunity/position aggregates and the P&L is
+ * always measured against the campaign's real starting bankroll (D-period).
+ */
+export type ScorecardPeriod =
+  "current_week" | "previous_week" | "two_week" | "campaign";
+
 /**
  * The plain-language recommendation (D12). Decision support only — this is a
  * DTO, never a config write. `canRecommend` is false whenever the evidence

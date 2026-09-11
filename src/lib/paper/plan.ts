@@ -82,6 +82,17 @@ export type CyclePlanInput = {
   config: PlanRiskConfig;
   /** Null when no fit governs the projections' model version. */
   recalibration: ActiveRecalibration | null;
+  /**
+   * Per-model-version fits for a portfolio whose candidates span more than one
+   * model version in a single window — the Hybrid portfolio (PME-5, D6), which
+   * prices some stats from Baseline and others from Simulation. When present,
+   * each candidate resolves its fit by its OWN `modelVersion` from this map;
+   * `recalibration` remains the fallback for the single-version portfolios and
+   * every existing caller, so this is purely additive. Crossing is still
+   * impossible: a candidate is only ever corrected by the fit keyed to its own
+   * model version, never a neighbour's.
+   */
+  recalibrationByVersion?: ReadonlyMap<string, ActiveRecalibration>;
   /** Settled balance plus the market value of open positions. */
   activeBankrollCents: number;
   /** Settled, unallocated cash this cycle may spend. */
@@ -551,12 +562,21 @@ function priceCandidate(
     return planned;
   }
 
+  // The fit that governs THIS candidate: the per-version map wins when supplied
+  // (Hybrid), otherwise the single cycle fit. Either way it must match the
+  // candidate's own model version — a fit for another model is not evidence
+  // about this one, so crossing stays structurally impossible.
+  const fit =
+    input.recalibrationByVersion?.get(candidate.modelVersion) ??
+    input.recalibration;
+
   // Sizing from a raw probability is a No-Go. With no fit governing this
   // model version there is no corrected probability, so the candidate is
   // refused rather than sized from the uncorrected number.
   if (
-    input.recalibration === null ||
-    input.recalibration.modelVersion !== candidate.modelVersion
+    fit === null ||
+    fit === undefined ||
+    fit.modelVersion !== candidate.modelVersion
   ) {
     planned.verdict = "refused";
     planned.boundBy = "no_active_recalibration";
@@ -565,7 +585,7 @@ function priceCandidate(
   }
 
   const corrected = correctedProbability(
-    input.recalibration,
+    fit,
     candidate.rawYesProbability,
   ) as number;
   planned.correctedProbability = corrected;
