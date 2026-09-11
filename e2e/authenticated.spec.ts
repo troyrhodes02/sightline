@@ -241,7 +241,9 @@ test.describe("model performance surface", () => {
     });
   }
 
-  test("renders the three levels for the admin (PME-4/D9)", async ({ page }) => {
+  test("renders the three levels for the admin (PME-4/D9)", async ({
+    page,
+  }) => {
     await signIn(page, ADMIN_EMAIL!, ADMIN_PASSWORD!);
     await page.goto("/model-performance");
 
