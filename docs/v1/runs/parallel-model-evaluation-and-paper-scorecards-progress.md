@@ -68,7 +68,19 @@ Note: spec fork hallucinated completion once (0 tool uses); spec was authored di
 
 ## Tickets
 
-(none created yet — see Step 6)
+Milestone: **Pitch 11: Parallel Model Evaluation & Paper Scorecards** (`3d847a2f-6962-42f9-a693-cd38c47543a8`).
+Linear team `Sightline` (prefix SIG-). Linear chain (each branches off the previous; first off the feature branch):
+
+1. **SIG-102** PME-1: Data model — evaluation campaign, portfolio discriminator, Hybrid attribution, drop PaperDryRun
+2. **SIG-103** PME-2: Parallel live shadow projections + dual grading (temporal integrity) — blockedBy 102
+3. **SIG-104** PME-3: Model comparison read + leader/recommendation engine (D1/D3/D4) — blockedBy 103
+4. **SIG-105** PME-4: Model Performance surface (Summary/Breakdown/Advanced) + Accuracy→Model Performance rename — blockedBy 104
+5. **SIG-106** PME-5: Three paper portfolios — per-portfolio cycles, scorecards, opportunity counts, Hybrid attribution — blockedBy 105
+6. **SIG-107** PME-6: Paper Bot reorg + model selection + readiness reset + Dry Run removal — blockedBy 106
+7. **SIG-108** PME-7: Viewer track-record block on contract detail (D8/D18) — blockedBy 107
+
+Status: created (Backlog). Feature branch: `feature/parallel-model-evaluation-and-paper-scorecards`.
+Ticket PR status: (none opened yet)
 
 ## Resolved Decisions
 
