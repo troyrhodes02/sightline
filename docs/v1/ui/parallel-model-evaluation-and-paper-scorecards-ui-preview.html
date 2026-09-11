@@ -1,0 +1,981 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sightline · Parallel Model Evaluation & Paper Scorecards — UI preview</title>
+
+<!--
+  SIGHTLINE UI PREVIEW — Parallel Model Evaluation & Paper Scorecards
+  ===================================================================
+  A rendering of the design doc's screens for review. NOT product code.
+  The application is built in Material UI against the theme; nothing here
+  is copied into it. When this preview and the MUI theme disagree, the
+  theme wins and this preview is wrong.
+
+  Generated from docs/v1/design-docs/parallel-model-evaluation-and-paper-scorecards-design-doc.md v1.0
+
+  Two token layers, deliberately separate:
+    --pv-*   PREVIEW CHROME. Achromatic. Never Sightline's palette.
+    --sl-*   PRODUCT TOKENS. Scoped to .sl, flipped by .sl[data-sl="dark"].
+-->
+
+<style>
+/* ===== FONTS — real Space Grotesk, self-hosted ===== */
+@font-face{
+  font-family:'Space Grotesk';
+  src:url('../../../src/assets/fonts/space-grotesk/SpaceGrotesk-Variable.woff2') format('woff2');
+  font-weight:300 700;font-style:normal;font-display:swap;
+}
+
+/* ===== PREVIEW CHROME — achromatic studio scaffolding ===== */
+:root{
+  --pv-bg:#EDEEF1; --pv-panel:#FFFFFF; --pv-frame:#E3E4E9;
+  --pv-ink:#16171A; --pv-muted:#5B5D66; --pv-line:#DBDCE1; --pv-accent:#3A3B42;
+  --pv-sans:'Space Grotesk',ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --pv-mono:'Space Grotesk',ui-sans-serif,system-ui,sans-serif;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --pv-bg:#0E0E10; --pv-panel:#161618; --pv-frame:#111113;
+    --pv-ink:#E9E9EC; --pv-muted:#8B8B93; --pv-line:#242428; --pv-accent:#B4B4BD;
+  }
+}
+:root[data-pv="dark"]{
+  --pv-bg:#0E0E10; --pv-panel:#161618; --pv-frame:#111113;
+  --pv-ink:#E9E9EC; --pv-muted:#8B8B93; --pv-line:#242428; --pv-accent:#B4B4BD;
+}
+:root[data-pv="light"]{
+  --pv-bg:#EDEEF1; --pv-panel:#FFFFFF; --pv-frame:#E3E4E9;
+  --pv-ink:#16171A; --pv-muted:#5B5D66; --pv-line:#DBDCE1; --pv-accent:#3A3B42;
+}
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--pv-bg);color:var(--pv-ink);font-family:var(--pv-sans);line-height:1.5;-webkit-font-smoothing:antialiased}
+:focus-visible{outline:2px solid var(--pv-accent);outline-offset:2px;border-radius:4px}
+
+.pv-head{position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--pv-bg) 90%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--pv-line)}
+.pv-head-in{max-width:1240px;margin:0 auto;padding:14px 24px;display:flex;align-items:center;gap:20px;flex-wrap:wrap}
+.pv-brand{display:flex;align-items:center;gap:11px;margin-right:auto}
+.pv-brand h1{font-size:15px;margin:0;font-weight:600;letter-spacing:-.01em}
+.pv-brand p{font-size:11.5px;margin:0;color:var(--pv-muted)}
+.pv-jump{display:flex;gap:2px;flex-wrap:wrap}
+.pv-jump a{font-size:12px;color:var(--pv-muted);text-decoration:none;padding:5px 9px;border-radius:6px;font-weight:500}
+.pv-jump a:hover{color:var(--pv-ink);background:var(--pv-frame)}
+.pv-toggle{display:flex;align-items:center;gap:9px}
+.pv-toggle .lbl{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--pv-muted);font-weight:600}
+.pv-seg{display:inline-flex;background:var(--pv-frame);border:1px solid var(--pv-line);border-radius:999px;padding:3px}
+.pv-seg button{font-family:inherit;border:0;background:transparent;color:var(--pv-muted);font-size:12.5px;font-weight:600;padding:5px 14px;border-radius:999px;cursor:pointer;display:flex;align-items:center;gap:6px}
+.pv-seg button.on{background:var(--pv-panel);color:var(--pv-ink)}
+.pv-seg svg{width:14px;height:14px}
+
+.pv-wrap{max-width:1240px;margin:0 auto;padding:36px 24px 96px}
+.pv-eyebrow{font-size:11px;letter-spacing:.14em;text-transform:uppercase;font-weight:600;color:var(--pv-muted)}
+.pv-lead{max-width:820px}
+.pv-lead h2{font-size:26px;letter-spacing:-.02em;font-weight:600;margin:10px 0 8px;text-wrap:balance}
+.pv-lead p{color:var(--pv-muted);font-size:14.5px;margin:0}
+.pv-note{display:inline-flex;align-items:flex-start;gap:8px;margin-top:16px;font-size:12px;color:var(--pv-muted);background:var(--pv-panel);border:1px solid var(--pv-line);padding:7px 13px;border-radius:999px}
+.pv-note b{color:var(--pv-ink);font-weight:600}
+
+.pv-section{margin-top:56px}
+.pv-sec-head{display:flex;align-items:baseline;gap:14px;margin-bottom:18px;flex-wrap:wrap}
+.pv-sec-head h3{font-size:18px;font-weight:600;letter-spacing:-.01em;margin:0}
+.pv-sec-head .desc{font-size:13px;color:var(--pv-muted);max-width:680px}
+.pv-num{font-family:var(--pv-mono);font-variant-numeric:tabular-nums;font-size:12px;font-weight:500;color:var(--pv-accent);border:1px solid var(--pv-line);border-radius:6px;padding:2px 7px}
+
+.pv-frame{background:var(--pv-frame);border:1px solid var(--pv-line);border-radius:16px;padding:12px;margin-bottom:20px;overflow-x:auto}
+.pv-cap{display:flex;align-items:center;gap:10px;padding:2px 6px 11px;flex-wrap:wrap}
+.pv-cap .name{font-size:12.5px;font-weight:600}
+.pv-cap .route{font-size:11.5px;color:var(--pv-muted);font-family:var(--pv-mono);background:var(--pv-panel);border:1px solid var(--pv-line);padding:2px 8px;border-radius:5px}
+.pv-cap .tag{font-size:11px;color:var(--pv-muted);margin-left:auto}
+.pv-grid2{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+@media(max-width:1000px){.pv-grid2{grid-template-columns:1fr}}
+.pv-row{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start}
+
+.pv-legend{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+@media(max-width:900px){.pv-legend{grid-template-columns:1fr}}
+.pv-card{background:var(--pv-panel);border:1px solid var(--pv-line);border-radius:14px;padding:18px 20px}
+.pv-card h4{margin:0 0 12px;font-size:13px;font-weight:600}
+.pv-rules{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:10px}
+.pv-rules li{display:flex;gap:10px;font-size:12.5px;color:var(--pv-muted);line-height:1.5}
+.pv-rules li svg{width:15px;height:15px;flex:none;margin-top:2px;color:var(--pv-accent)}
+.pv-rules b{color:var(--pv-ink);font-weight:600}
+.pv-foot{margin-top:70px;padding-top:22px;border-top:1px solid var(--pv-line);color:var(--pv-muted);font-size:12.5px;display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+
+/* ===== PRODUCT TOKENS — the design doc's theme ===== */
+.sl{
+  --sl-bg:#FAFAFA; --sl-paper:#FFFFFF; --sl-elev:#FFFFFF; --sl-hover:#F4F4F6;
+  --sl-line:#E4E4E7; --sl-line-strong:#C9C9CF;
+  --sl-ink:#131316; --sl-ink2:#5C5C66; --sl-ink3:#8A8A93;
+  --sl-model:#5B51E8; --sl-model-hover:#4A40D6; --sl-model-press:#3F35C4; --sl-model-soft:#EFEDFF;
+  --sl-market:#0F9C6E; --sl-market-fill:#4DE4B2; --sl-market-soft:#E6FAF3;
+  --sl-caution:#B57414; --sl-caution-soft:#FDF3E2;
+  --sl-negative:#C4425F; --sl-negative-soft:#FCEBEF;
+  --sl-radius:6px; --sl-radius-chip:4px;
+  --sl-shadow-pop:0 12px 32px -8px rgba(16,24,40,.24);
+  font-family:'Space Grotesk',ui-sans-serif,system-ui,sans-serif;
+  color:var(--sl-ink);
+}
+.sl[data-sl="dark"]{
+  --sl-bg:#0A0A0B; --sl-paper:#131315; --sl-elev:#1A1A1D; --sl-hover:#1F1F23;
+  --sl-line:#26262A; --sl-line-strong:#35353B;
+  --sl-ink:#ECECEE; --sl-ink2:#9B9BA3; --sl-ink3:#6B6B73;
+  --sl-model:#7C74FF; --sl-model-hover:#8F88FF; --sl-model-press:#6A61F0; --sl-model-soft:#1E1C3A;
+  --sl-market:#4DE4B2; --sl-market-fill:#4DE4B2; --sl-market-soft:#12332A;
+  --sl-caution:#E8A33D; --sl-caution-soft:#33260F;
+  --sl-negative:#E06C8A; --sl-negative-soft:#3A1C25;
+  --sl-shadow-pop:0 16px 40px -10px rgba(0,0,0,.7);
+}
+
+/* --- product type scale --- */
+.sl .t-h1{font-size:22px;line-height:30px;font-weight:600;letter-spacing:-.01em;margin:0}
+.sl .t-h2{font-size:18px;line-height:26px;font-weight:500;margin:0}
+.sl .t-body{font-size:15px;line-height:22px;font-weight:400;margin:0}
+.sl .t-body2{font-size:14px;line-height:20px;font-weight:400;margin:0}
+.sl .t-label{font-size:13px;line-height:18px;font-weight:500}
+.sl .t-caption{font-size:13px;line-height:18px;font-weight:400;color:var(--sl-ink3)}
+.sl .num{font-variant-numeric:tabular-nums;font-weight:400}
+.sl .num-lg{font-size:22px;line-height:30px}
+.sl .num-md{font-size:15px;line-height:22px}
+.sl .num-sm{font-size:13px;line-height:18px}
+.sl .ink2{color:var(--sl-ink2)} .sl .ink3{color:var(--sl-ink3)}
+.sl .pos{color:var(--sl-model)} .sl .neg{color:var(--sl-negative)}
+
+/* --- mock frames --- */
+.mock{background:var(--sl-bg);border:1px solid var(--sl-line);border-radius:10px;overflow:hidden}
+.mock--shell{min-width:940px}
+.mock--pane{min-width:600px}
+.mock--phone{width:375px;min-width:375px;flex:none}
+
+/* --- app shell --- */
+.sl-shell{display:flex;flex-direction:column;min-height:520px}
+.sl-appbar{display:flex;align-items:center;gap:16px;height:60px;padding:0 32px;background:var(--sl-paper);border-bottom:1px solid var(--sl-line)}
+.mock--phone .sl-appbar{padding:0 16px;gap:12px}
+.sl-lockup{display:flex;align-items:center}
+.sl-mark{width:20px;height:20px;color:var(--sl-ink);display:block}
+.sl-wordmark{font-size:15px;font-weight:600;letter-spacing:-.01em;margin-left:9px}
+.sl-tabs{display:flex;align-items:stretch;height:60px;margin-left:8px}
+.sl-tab{display:flex;align-items:center;padding:0 12px;font-size:14px;font-weight:500;color:var(--sl-ink2);border-bottom:2px solid transparent;cursor:pointer}
+.sl-tab.on{color:var(--sl-model);border-bottom-color:var(--sl-model)}
+.sl-spacer{margin-left:auto}
+.sl-avatar{width:28px;height:28px;border-radius:50%;background:var(--sl-model-soft);color:var(--sl-model);display:grid;place-items:center;font-size:12px;font-weight:500;cursor:pointer}
+.sl-burger{width:24px;height:24px;color:var(--sl-ink);cursor:pointer}
+.sl-content{padding:28px 32px;flex:1}
+.mock--phone .sl-content{padding:20px 16px}
+
+/* --- surfaces --- */
+.sl-paper{background:var(--sl-paper);border:1px solid var(--sl-line);border-radius:var(--sl-radius)}
+.sl-stack{display:flex;flex-direction:column}
+.sl-row{display:flex;align-items:center;gap:8px}
+.sl-between{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.sl-divider{border-bottom:1px solid var(--sl-line)}
+
+/* --- secondary tab row (levels) --- */
+.sl-subtabs{display:flex;gap:2px;border-bottom:1px solid var(--sl-line);margin-bottom:18px}
+.sl-subtab{padding:8px 14px;font-size:13.5px;font-weight:500;color:var(--sl-ink2);border-bottom:2px solid transparent;cursor:pointer;margin-bottom:-1px}
+.sl-subtab.on{color:var(--sl-model);border-bottom-color:var(--sl-model)}
+
+/* --- inline segmented control (record / facet / view) --- */
+.sl-seg{display:inline-flex;border:1px solid var(--sl-line-strong);border-radius:var(--sl-radius);overflow:hidden}
+.sl-seg span{padding:6px 12px;font-size:12.5px;font-weight:500;color:var(--sl-ink2);cursor:pointer;border-right:1px solid var(--sl-line)}
+.sl-seg span:last-child{border-right:0}
+.sl-seg span.on{background:var(--sl-model-soft);color:var(--sl-model)}
+.sl-select{display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 10px;border:1px solid var(--sl-line-strong);border-radius:var(--sl-radius);font-size:13px;color:var(--sl-ink);background:var(--sl-paper);cursor:pointer}
+.sl-select svg{width:14px;height:14px;color:var(--sl-ink3)}
+
+/* --- chips --- */
+.sl-chip{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 8px;border-radius:var(--sl-radius-chip);font-size:12px;font-weight:500;border:1px solid;white-space:nowrap}
+.sl-chip svg{width:13px;height:13px}
+.sl-chip--neutral{color:var(--sl-ink2);border-color:var(--sl-line-strong);background:transparent}
+.sl-chip--model{color:var(--sl-model);border-color:var(--sl-model);background:transparent}
+.sl-chip--model-fill{color:var(--sl-model);border-color:var(--sl-model);background:var(--sl-model-soft)}
+.sl-chip--caution{color:var(--sl-caution);border-color:var(--sl-caution);background:transparent}
+.sl-chip--caution-fill{color:var(--sl-caution);border-color:var(--sl-caution);background:var(--sl-caution-soft)}
+.sl-chip--market{color:var(--sl-market);border-color:var(--sl-market);background:transparent}
+
+/* --- evidence indicator: three steps, word-labelled --- */
+.sl-ev{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--sl-ink2)}
+.sl-ev .bars{display:inline-flex;gap:2px}
+.sl-ev .bars i{width:4px;height:11px;border-radius:1px;background:var(--sl-line-strong);display:block}
+.sl-ev--strong .bars i{background:var(--sl-model)}
+.sl-ev--moderate .bars i:nth-child(-n+2){background:var(--sl-model)}
+.sl-ev--limited{color:var(--sl-caution)}
+.sl-ev--limited .bars i:first-child{background:var(--sl-caution)}
+
+/* --- buttons --- */
+.sl-btn{font-family:inherit;font-size:14px;font-weight:500;line-height:1;border-radius:var(--sl-radius);border:1px solid transparent;padding:0 16px;height:36px;display:inline-flex;align-items:center;gap:8px;cursor:pointer;white-space:nowrap}
+.sl-btn--contained{background:var(--sl-model);color:#fff;border-color:var(--sl-model)}
+.sl-btn--outlined{background:transparent;color:var(--sl-ink);border-color:var(--sl-line-strong)}
+.sl-btn--text{background:transparent;color:var(--sl-model);border-color:transparent;padding:0 10px}
+.sl-btn--danger-out{background:transparent;color:var(--sl-negative);border-color:var(--sl-negative)}
+.sl-btn--caution-out{background:transparent;color:var(--sl-caution);border-color:var(--sl-caution)}
+.sl-btn--sm{height:30px;font-size:13px;padding:0 12px}
+.sl-btn[disabled]{opacity:.5;cursor:not-allowed}
+
+/* --- fields --- */
+.sl-field{display:flex;flex-direction:column;gap:6px}
+.sl-field > label{font-size:12px;font-weight:500;color:var(--sl-ink2)}
+.sl-input{height:38px;border:1px solid var(--sl-line-strong);border-radius:var(--sl-radius);background:var(--sl-paper);padding:0 12px;font-family:inherit;font-size:14px;color:var(--sl-ink);width:110px}
+.sl-input[disabled]{opacity:.55;background:var(--sl-hover)}
+.sl-help{font-size:12px;color:var(--sl-ink3)}
+
+/* --- alerts --- */
+.sl-alert{display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border-radius:var(--sl-radius);font-size:14px;line-height:20px;border:1px solid}
+.sl-alert svg{width:20px;height:20px;flex:none}
+.sl-alert--info{border-color:var(--sl-line-strong);color:var(--sl-ink2);background:transparent}
+.sl-alert--caution{border-color:var(--sl-caution);color:var(--sl-caution);background:var(--sl-caution-soft)}
+.sl-alert--error{border-color:var(--sl-negative);color:var(--sl-negative);background:var(--sl-negative-soft)}
+.sl-alert .body{flex:1}
+
+/* --- table --- */
+.sl-tbl{width:100%;border-collapse:collapse}
+.sl-tbl th{text-align:left;font-size:12px;font-weight:500;color:var(--sl-ink2);padding:9px 14px;border-bottom:1px solid var(--sl-line)}
+.sl-tbl td{padding:11px 14px;border-bottom:1px solid var(--sl-line);font-size:14px;vertical-align:middle}
+.sl-tbl tr:last-child td{border-bottom:0}
+.sl-tbl .right{text-align:right}
+
+/* --- overall leader / recommendation cards --- */
+.sl-cards2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:760px){.sl-cards2{grid-template-columns:1fr}}
+.sl-block{border:1px solid var(--sl-line);border-radius:var(--sl-radius);padding:16px;background:var(--sl-paper)}
+.sl-block h4{margin:0 0 10px;font-size:13px;font-weight:500;color:var(--sl-ink2)}
+
+/* --- portfolio scorecards --- */
+.sl-scores{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+@media(max-width:820px){.sl-scores{grid-template-columns:1fr}}
+.sl-score{border:1px solid var(--sl-line);border-radius:var(--sl-radius);background:var(--sl-paper);padding:14px}
+.sl-score--hybrid{background:var(--sl-model-soft);border-color:var(--sl-model)}
+.sl-score .hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.sl-score .tv{font-size:22px;line-height:28px;font-variant-numeric:tabular-nums}
+.sl-score .rows{display:flex;flex-direction:column;gap:5px;margin-top:8px}
+.sl-score .rows div{display:flex;justify-content:space-between;font-size:13px;font-variant-numeric:tabular-nums;color:var(--sl-ink2)}
+.sl-score .rows div b{font-weight:400;color:var(--sl-ink)}
+.sl-cap{font-size:12px;color:var(--sl-ink3);margin-top:10px}
+
+/* --- comparison bars (Baseline dashed / Simulation solid) --- */
+.sl-bars{display:flex;flex-direction:column;gap:10px;padding:12px;border:1px solid var(--sl-line);border-radius:var(--sl-radius)}
+.sl-bar{display:grid;grid-template-columns:110px 1fr 64px;align-items:center;gap:10px;font-size:12.5px}
+.sl-bar .track{height:14px;background:var(--sl-hover);border-radius:2px;position:relative;overflow:hidden}
+.sl-bar .fill{position:absolute;inset:0 auto 0 0;background:var(--sl-model)}
+.sl-bar .fill--base{background:repeating-linear-gradient(90deg,var(--sl-model) 0 6px,transparent 6px 10px)}
+.sl-bar .v{font-variant-numeric:tabular-nums;text-align:right;color:var(--sl-ink)}
+.sl-legend{display:flex;gap:16px;font-size:12px;color:var(--sl-ink2);margin-top:2px}
+.sl-legend span{display:inline-flex;align-items:center;gap:6px}
+.sl-legend i{width:18px;height:0;border-top:2px solid var(--sl-model);display:inline-block}
+.sl-legend i.dash{border-top-style:dashed}
+
+/* --- readiness summary --- */
+.sl-ready{border:1px solid var(--sl-line);border-radius:var(--sl-radius);padding:14px;background:var(--sl-paper)}
+.sl-ready .grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 24px;margin:10px 0;font-size:13px}
+.sl-ready .grid div{display:flex;justify-content:space-between;color:var(--sl-ink2)}
+.sl-ready .grid div b{font-weight:400;color:var(--sl-ink)}
+.sl-crit{display:flex;gap:8px;font-size:13px;padding:6px 0;color:var(--sl-ink2)}
+.sl-crit svg{width:15px;height:15px;flex:none;margin-top:2px}
+.sl-crit .ok{color:var(--sl-model)} .sl-crit .no{color:var(--sl-caution)}
+
+/* --- model-selection table (radios) --- */
+.sl-radio{display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;color:var(--sl-ink2)}
+.sl-radio i{width:14px;height:14px;border-radius:50%;border:1.5px solid var(--sl-line-strong);display:inline-block;position:relative}
+.sl-radio.on{color:var(--sl-ink)}
+.sl-radio.on i{border-color:var(--sl-model)}
+.sl-radio.on i::after{content:"";position:absolute;inset:3px;border-radius:50%;background:var(--sl-model)}
+.sl-radio.dis{opacity:.45;cursor:not-allowed}
+.sl-star{color:var(--sl-model);font-size:12px}
+
+/* --- reliability curve (SVG) --- */
+.sl-relwrap{display:grid;grid-template-columns:320px 1fr;gap:18px}
+@media(max-width:760px){.sl-relwrap{grid-template-columns:1fr}}
+
+/* --- track-record block --- */
+.sl-track{border:1px solid var(--sl-line);border-radius:var(--sl-radius);padding:14px;background:var(--sl-paper)}
+.sl-track h4{margin:0 0 8px;font-size:13px;font-weight:500;color:var(--sl-ink2)}
+
+/* --- empty / dialog / snackbar / skeleton --- */
+.sl-empty{display:flex;flex-direction:column;align-items:center;gap:14px;padding:48px 24px;text-align:center}
+.sl-empty p{margin:0;font-size:14px;line-height:20px;color:var(--sl-ink2);max-width:420px}
+.sl-stage{position:relative;min-height:360px;display:grid;place-items:center;padding:24px;background:var(--sl-bg)}
+.sl-scrim{position:absolute;inset:0;background:rgba(9,11,18,.45)}
+.sl[data-sl="dark"] .sl-scrim{background:rgba(0,0,0,.6)}
+.sl-dialog{position:relative;background:var(--sl-elev);border:1px solid var(--sl-line);border-radius:var(--sl-radius);box-shadow:var(--sl-shadow-pop);width:100%;max-width:440px;padding:20px 24px 16px}
+.sl-dialog h4{margin:0 0 12px;font-size:16px;font-weight:500}
+.sl-dialog-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}
+.sl-snack{display:inline-flex;align-items:center;gap:10px;background:var(--sl-elev);border:1px solid var(--sl-line);border-radius:var(--sl-radius);padding:10px 14px;font-size:13.5px;box-shadow:var(--sl-shadow-pop)}
+.sl-sk{background:var(--sl-hover);border-radius:4px;animation:sl-pulse 1.6s ease-in-out infinite}
+@keyframes sl-pulse{0%,100%{opacity:1}50%{opacity:.55}}
+@media (prefers-reduced-motion:reduce){.sl-sk{animation:none}}
+</style>
+</head>
+
+<body>
+
+<!-- ============ STUDIO HEADER ============ -->
+<header class="pv-head">
+  <div class="pv-head-in">
+    <div class="pv-brand">
+      <svg viewBox="0 0 64 64" style="width:26px;height:26px;color:var(--pv-ink)" aria-hidden="true">
+        <circle cx="32" cy="32" r="20" fill="none" stroke="currentColor" stroke-width="2.6"/>
+        <path d="M32 12 A20 20 0 0 1 52 32" fill="none" stroke="currentColor" stroke-width="4.6" stroke-linecap="round"/>
+        <line x1="32" y1="5" x2="32" y2="12" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>
+        <line x1="32" y1="52" x2="32" y2="59" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>
+        <line x1="5" y1="32" x2="12" y2="32" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>
+        <line x1="52" y1="32" x2="59" y2="32" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>
+        <circle cx="32" cy="32" r="3.4" fill="currentColor"/>
+      </svg>
+      <div>
+        <h1>Sightline · Parallel Model Evaluation &amp; Paper Scorecards</h1>
+        <p>UI preview — Model Performance &amp; Paper Bot, admin surfaces + viewer track record, both appearance modes</p>
+      </div>
+    </div>
+    <nav class="pv-jump" aria-label="Jump to section">
+      <a href="#s1">Summary</a><a href="#s2">Breakdown</a><a href="#s3">Advanced</a><a href="#s4">Paper Bot</a><a href="#s5">Viewer</a><a href="#s6">States</a>
+    </nav>
+    <div class="pv-toggle">
+      <span class="lbl">Appearance</span>
+      <div class="pv-seg" role="tablist" aria-label="Product appearance">
+        <button id="pv-light" class="on" role="tab" aria-selected="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>Light
+        </button>
+        <button id="pv-dark" role="tab" aria-selected="false">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg>Dark
+        </button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="pv-wrap">
+
+  <!-- ============ LEAD ============ -->
+  <div class="pv-lead">
+    <span class="pv-eyebrow">Design handoff · v1.0</span>
+    <h2>Two engines on the same track, graded in plain language — with the ugly evidence one click away and the verdict never touching the throttle.</h2>
+    <p>Model Performance replaces the analytics-first Accuracy surface with Summary → Breakdown → Advanced; Paper Bot replaces the Autonomy sprawl with Performance · Activity · Settings, retires Dry Run, and runs three continuous paper portfolios side by side. Both are admin-only; a viewer's only model-quality context is one track-record block on a contract. The commitment to check every frame against: a difference is never rendered as a decision, and no recommendation surface can change production. Use the <b>Light / Dark</b> switch to flip every product surface.</p>
+    <span class="pv-note"><b>Note</b>&nbsp;This preview is a rendering of the design, not product code. The application is built in Material UI against the theme; nothing here is copied into it.</span>
+  </div>
+
+  <!-- ============ 01 · MODEL PERFORMANCE — SUMMARY ============ -->
+  <section class="pv-section" id="s1">
+    <div class="pv-sec-head">
+      <span class="pv-num">01</span>
+      <h3>Model Performance — Summary</h3>
+      <span class="desc">The default admin level: overall leader, plain-language recommendation, best model by stat type, three paper scorecards, readiness summary. A leader is only named when the margin clears 0.01 and the sample clears its floor.</span>
+    </div>
+
+    <div class="pv-frame">
+      <div class="pv-cap">
+        <span class="name">Model Performance · Summary</span>
+        <span class="route">/model-performance</span>
+        <span class="tag">admin · Live record</span>
+      </div>
+      <div class="mock mock--shell sl js-sl" data-sl="light">
+        <div class="sl-shell">
+          <div class="sl-appbar">
+            <span class="sl-lockup">
+              <svg class="sl-mark" viewBox="0 0 64 64" aria-label="Sightline"><circle cx="32" cy="32" r="20" fill="none" stroke="currentColor" stroke-width="2.6"/><path d="M32 12 A20 20 0 0 1 52 32" fill="none" stroke="currentColor" stroke-width="4.6" stroke-linecap="round"/><circle cx="32" cy="32" r="3.4" fill="currentColor"/></svg>
+              <span class="sl-wordmark">sightline</span>
+            </span>
+            <nav class="sl-tabs">
+              <span class="sl-tab">Slate</span><span class="sl-tab">Prop Research</span><span class="sl-tab on">Model Performance</span><span class="sl-tab">Paper Bot</span><span class="sl-tab">Health</span>
+            </nav>
+            <span class="sl-spacer"></span>
+            <span class="sl-avatar">WR</span>
+          </div>
+          <div class="sl-content">
+            <h1 class="t-h1" style="margin-bottom:14px">Model Performance</h1>
+            <div class="sl-subtabs">
+              <span class="sl-subtab on">Summary</span><span class="sl-subtab">Breakdown</span><span class="sl-subtab">Advanced</span>
+            </div>
+            <div class="sl-between" style="margin-bottom:8px">
+              <div class="sl-seg" role="tablist" aria-label="Record">
+                <span class="on">Live</span><span>Backtest</span><span>Compare</span>
+              </div>
+              <span class="t-caption num">Graded through Wk 9 · last grading cycle Sun 11:40p ET</span>
+            </div>
+
+            <div class="sl-cards2" style="margin-bottom:14px">
+              <div class="sl-block">
+                <h4>Overall leader</h4>
+                <span class="sl-chip sl-chip--model-fill">Simulation leads</span>
+                <div class="num num-sm ink2" style="margin-top:10px">Brier <span style="color:var(--sl-model)">0.211</span> vs 0.224 &nbsp;·&nbsp; margin 0.013</div>
+                <div class="num num-sm ink2" style="margin-top:3px">Live 96 obs · Backtest 4,812 obs · contract-like</div>
+                <div class="t-caption" style="margin-top:8px">Live: Simulation leads <span class="ink3">(limited)</span></div>
+                <div class="t-caption">Backtest: Simulation leads <span class="ink3">(strong)</span></div>
+              </div>
+              <div class="sl-block">
+                <h4>Sightline recommends</h4>
+                <p class="t-body2">Use Simulation overall. Baseline remains stronger for touchdowns. Live evidence still limited for receptions.</p>
+                <div style="margin-top:12px"><span class="sl-btn sl-btn--text" style="padding-left:0">Review selection →</span></div>
+              </div>
+            </div>
+            <p class="t-caption" style="margin:-4px 0 16px">Paper P&amp;L is a financial result, not proof of model quality on its own.</p>
+
+            <div class="sl-paper" style="margin-bottom:16px">
+              <div style="padding:12px 14px" class="sl-between"><span class="t-label">Best model by stat type</span><span class="t-caption">record: Live</span></div>
+              <table class="sl-tbl">
+                <thead><tr><th>Stat type</th><th>Leader</th><th class="right">Margin</th><th class="right">Live n</th><th>Evidence</th></tr></thead>
+                <tbody>
+                  <tr><td>Passing yards</td><td><span class="sl-chip sl-chip--model">Simulation</span></td><td class="right num">0.018</td><td class="right num">58</td><td><span class="sl-ev sl-ev--moderate"><span class="bars"><i></i><i></i><i></i></span>moderate</span></td></tr>
+                  <tr><td>Receiving yards</td><td><span class="sl-chip sl-chip--model">Simulation</span></td><td class="right num">0.021</td><td class="right num">61</td><td><span class="sl-ev sl-ev--moderate"><span class="bars"><i></i><i></i><i></i></span>moderate</span></td></tr>
+                  <tr><td>Rushing yards</td><td><span class="sl-chip sl-chip--model">Baseline</span></td><td class="right num">0.014</td><td class="right num">52</td><td><span class="sl-ev sl-ev--moderate"><span class="bars"><i></i><i></i><i></i></span>moderate</span></td></tr>
+                  <tr><td>Receptions</td><td><span class="sl-chip sl-chip--neutral">Too close to call</span></td><td class="right num">0.004</td><td class="right num">47</td><td><span class="sl-ev sl-ev--limited"><span class="bars"><i></i><i></i><i></i></span>limited (n&lt;50)</span></td></tr>
+                  <tr><td>Touchdowns</td><td><span class="sl-chip sl-chip--caution">Not enough evidence</span></td><td class="right num ink3">—</td><td class="right num">18</td><td><span class="sl-ev sl-ev--limited"><span class="bars"><i></i><i></i><i></i></span>limited (n&lt;50)</span></td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="sl-between" style="margin-bottom:8px"><span class="t-label">Paper portfolios</span><span class="t-caption num">$1,000 start · conservative · this campaign</span></div>
+            <div class="sl-scores">
+              <div class="sl-score">
+                <div class="hd"><span class="sl-chip sl-chip--neutral">Baseline</span></div>
+                <div class="tv">$1,043</div><div class="t-caption">total value</div>
+                <div class="rows">
+                  <div>active<b>$1,043</b></div><div>withdrawn<b>$0.00</b></div>
+                  <div>net P&amp;L<b class="pos">+$43.00</b></div><div>return<b class="pos">+4.3%</b></div>
+                  <div>max drawdown<b>3.1%</b></div><div>evaluated<b>74</b></div><div>sized<b>22 · 22 pos</b></div>
+                </div>
+              </div>
+              <div class="sl-score">
+                <div class="hd"><span class="sl-chip sl-chip--model">Simulation</span></div>
+                <div class="tv">$1,061</div><div class="t-caption">total value</div>
+                <div class="rows">
+                  <div>active<b>$1,011</b></div><div>withdrawn<b>$50.00</b></div>
+                  <div>net P&amp;L<b class="pos">+$61.00</b></div><div>return<b class="pos">+6.1%</b></div>
+                  <div>max drawdown<b>6.8%</b></div><div>evaluated<b>71</b></div><div>sized<b>19 · 19 pos</b></div>
+                </div>
+              </div>
+              <div class="sl-score sl-score--hybrid">
+                <div class="hd"><span class="sl-chip sl-chip--model-fill">Hybrid</span><span class="sl-chip sl-chip--model" style="height:20px">active</span></div>
+                <div class="tv">$1,052</div><div class="t-caption">total value</div>
+                <div class="rows">
+                  <div>active<b>$1,052</b></div><div>withdrawn<b>$0.00</b></div>
+                  <div>net P&amp;L<b class="pos">+$52.00</b></div><div>return<b class="pos">+5.2%</b></div>
+                  <div>max drawdown<b>4.0%</b></div><div>evaluated<b>74</b></div><div>sized<b>24 · 24 pos</b></div>
+                </div>
+              </div>
+            </div>
+            <p class="sl-cap">Portfolios may evaluate different opportunity sets — evaluated / sized counts shown above. <span class="sl-btn sl-btn--text" style="padding:0 4px">Open Paper Bot →</span></p>
+
+            <div class="sl-between sl-paper" style="padding:12px 14px;margin-top:8px">
+              <span class="t-label">Real-money readiness</span>
+              <span class="sl-row"><span class="sl-chip sl-chip--caution-fill">paper evidence building</span><span class="num num-sm ink2">1 of 2 weeks (Hybrid)</span></span>
+            </div>
+            <p class="t-caption" style="margin-top:12px">Excluded: 12 unresolvable · shown, never silently dropped.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- phone -->
+    <div class="pv-frame">
+      <div class="pv-cap"><span class="name">Model Performance · Summary — phone</span><span class="route">/model-performance</span><span class="tag">375 · scorecards stack</span></div>
+      <div class="pv-row">
+        <div class="mock mock--phone sl js-sl" data-sl="light">
+          <div class="sl-shell" style="min-height:600px">
+            <div class="sl-appbar">
+              <svg class="sl-burger" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+              <svg class="sl-mark" viewBox="0 0 64 64" aria-label="Sightline"><circle cx="32" cy="32" r="20" fill="none" stroke="currentColor" stroke-width="2.6"/><path d="M32 12 A20 20 0 0 1 52 32" fill="none" stroke="currentColor" stroke-width="4.6" stroke-linecap="round"/><circle cx="32" cy="32" r="3.4" fill="currentColor"/></svg>
+              <span class="sl-spacer"></span><span class="sl-avatar">WR</span>
+            </div>
+            <div class="sl-content">
+              <h1 class="t-h1" style="margin-bottom:12px">Model Performance</h1>
+              <div class="sl-subtabs"><span class="sl-subtab on">Summary</span><span class="sl-subtab">Breakdown</span><span class="sl-subtab">Advanced</span></div>
+              <div class="sl-seg" style="margin-bottom:12px"><span class="on">Live</span><span>Backtest</span><span>Compare</span></div>
+              <div class="sl-block" style="margin-bottom:12px">
+                <h4>Overall leader</h4>
+                <span class="sl-chip sl-chip--model-fill">Simulation leads</span>
+                <div class="num num-sm ink2" style="margin-top:8px">Brier 0.211 vs 0.224 · margin 0.013</div>
+                <div class="num num-sm ink2">Live 96 · Backtest 4,812</div>
+              </div>
+              <div class="sl-score" style="margin-bottom:10px">
+                <div class="hd"><span class="sl-chip sl-chip--neutral">Baseline</span></div>
+                <div class="tv">$1,043</div><div class="t-caption">total value</div>
+                <div class="rows"><div>net P&amp;L<b class="pos">+$43.00</b></div><div>max DD<b>3.1%</b></div><div>sized<b>22 · 22 pos</b></div></div>
+              </div>
+              <div class="sl-score sl-score--hybrid">
+                <div class="hd"><span class="sl-chip sl-chip--model-fill">Hybrid</span><span class="sl-chip sl-chip--model" style="height:20px">active</span></div>
+                <div class="tv">$1,052</div><div class="t-caption">total value</div>
+                <div class="rows"><div>net P&amp;L<b class="pos">+$52.00</b></div><div>max DD<b>4.0%</b></div><div>sized<b>24 · 24 pos</b></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 02 · BREAKDOWN ============ -->
+  <section class="pv-section" id="s2">
+    <div class="pv-sec-head">
+      <span class="pv-num">02</span>
+      <h3>Model Performance — Breakdown</h3>
+      <span class="desc">Engine comparisons along the axes that inform a per-stat selection. Confidence is words, probability is percentages — never conflated. Every rate carries its n; nothing renders below the 30-observation floor.</span>
+    </div>
+
+    <div class="pv-frame">
+      <div class="pv-cap"><span class="name">Breakdown · Stat type + Confidence + Probability range</span><span class="route">/model-performance?level=breakdown</span><span class="tag">admin</span></div>
+      <div class="mock mock--shell sl js-sl" data-sl="light">
+        <div class="sl-shell">
+          <div class="sl-appbar">
+            <span class="sl-lockup"><svg class="sl-mark" viewBox="0 0 64 64" aria-label="Sightline"><circle cx="32" cy="32" r="20" fill="none" stroke="currentColor" stroke-width="2.6"/><path d="M32 12 A20 20 0 0 1 52 32" fill="none" stroke="currentColor" stroke-width="4.6" stroke-linecap="round"/><circle cx="32" cy="32" r="3.4" fill="currentColor"/></svg><span class="sl-wordmark">sightline</span></span>
+            <nav class="sl-tabs"><span class="sl-tab on">Model Performance</span><span class="sl-tab">Paper Bot</span></nav>
+            <span class="sl-spacer"></span><span class="sl-avatar">WR</span>
+          </div>
+          <div class="sl-content">
+            <h1 class="t-h1" style="margin-bottom:14px">Model Performance</h1>
+            <div class="sl-subtabs"><span class="sl-subtab">Summary</span><span class="sl-subtab on">Breakdown</span><span class="sl-subtab">Advanced</span></div>
+            <div class="sl-between" style="margin-bottom:16px">
+              <div class="sl-seg" aria-label="Facet"><span class="on">Stat type</span><span>Confidence</span><span>Probability</span><span>Live vs backtest</span><span>Financial</span></div>
+              <div class="sl-seg"><span class="on">Live</span><span>Backtest</span><span>Compare</span></div>
+            </div>
+
+            <div class="sl-block" style="margin-bottom:16px">
+              <div class="sl-between" style="margin-bottom:8px">
+                <span class="t-label">Receiving yards</span>
+                <span class="sl-chip sl-chip--model">Simulation leads</span>
+              </div>
+              <div class="num num-sm ink2">Brier &nbsp; Baseline 0.238 &nbsp; Simulation <span style="color:var(--sl-model)">0.217</span> &nbsp;·&nbsp; margin 0.021</div>
+              <div class="num num-sm ink2" style="margin:3px 0 10px">Live 61 obs · 24 proj &nbsp;·&nbsp; Backtest 4,812 obs · 1,203 proj</div>
+              <div class="sl-bars">
+                <div class="sl-bar"><span>Baseline</span><span class="track"><span class="fill fill--base" style="width:62%"></span></span><span class="v">0.238</span></div>
+                <div class="sl-bar"><span>Simulation</span><span class="track"><span class="fill" style="width:57%"></span></span><span class="v">0.217</span></div>
+                <div class="sl-legend"><span><i class="dash"></i>Baseline (dashed)</span><span><i></i>Simulation (solid)</span><span class="ink3">lower Brier is better</span></div>
+              </div>
+            </div>
+
+            <div class="sl-paper" style="margin-bottom:16px">
+              <div style="padding:12px 14px"><span class="t-label">Confidence</span> <span class="t-caption">— the model's own confidence level, not a predicted probability</span></div>
+              <table class="sl-tbl">
+                <thead><tr><th>Confidence</th><th>Baseline hit / Brier</th><th>Simulation hit / Brier</th><th class="right">n</th></tr></thead>
+                <tbody>
+                  <tr><td>high confidence</td><td class="num">78% · 0.171</td><td class="num">81% · 0.158</td><td class="right num">120</td></tr>
+                  <tr><td>medium confidence</td><td class="num ink3">— (n&lt;30)</td><td class="num ink3">— (n&lt;30)</td><td class="right num">22</td></tr>
+                  <tr><td>low confidence</td><td colspan="2" class="ink3">not enough evidence in this group</td><td class="right num">9</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="sl-paper">
+              <div style="padding:12px 14px"><span class="t-label">Probability range</span> <span class="t-caption">— when a model says this likely, how often does it happen?</span></div>
+              <table class="sl-tbl">
+                <thead><tr><th>Range</th><th>Baseline observed</th><th>Simulation observed</th><th class="right">n (B / S)</th></tr></thead>
+                <tbody>
+                  <tr><td class="num">70–80%</td><td class="num">74% of the time</td><td class="num">72% of the time</td><td class="right num">88 / 61</td></tr>
+                  <tr><td class="num">80–90%</td><td class="num" style="color:var(--sl-caution)">67% ⚠ overconfident</td><td class="num">79% of the time</td><td class="right num">41 / 33</td></tr>
+                  <tr><td class="num">90–100%</td><td colspan="2" class="ink3">not enough evidence (n&lt;30)</td><td class="right num">18 / 12</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 03 · ADVANCED ============ -->
+  <section class="pv-section" id="s3">
+    <div class="pv-sec-head">
+      <span class="pv-num">03</span>
+      <h3>Model Performance — Advanced</h3>
+      <span class="desc">The prior Accuracy surface preserved intact: two-model reliability overlay (Baseline dashed, Simulation solid, hollow points below floor), headline Brier with two denominators, bucket table. Each series scored under its own recalibration version.</span>
+    </div>
+
+    <div class="pv-frame">
+      <div class="pv-cap"><span class="name">Advanced · Calibration (two-model overlay)</span><span class="route">/model-performance?level=advanced</span><span class="tag">admin</span></div>
+      <div class="mock mock--shell sl js-sl" data-sl="light">
+        <div class="sl-shell">
+          <div class="sl-appbar">
+            <span class="sl-lockup"><svg class="sl-mark" viewBox="0 0 64 64" aria-label="Sightline"><circle cx="32" cy="32" r="20" fill="none" stroke="currentColor" stroke-width="2.6"/><path d="M32 12 A20 20 0 0 1 52 32" fill="none" stroke="currentColor" stroke-width="4.6" stroke-linecap="round"/><circle cx="32" cy="32" r="3.4" fill="currentColor"/></svg><span class="sl-wordmark">sightline</span></span>
+            <nav class="sl-tabs"><span class="sl-tab on">Model Performance</span><span class="sl-tab">Paper Bot</span></nav>
+            <span class="sl-spacer"></span><span class="sl-avatar">WR</span>
+          </div>
+          <div class="sl-content">
+            <h1 class="t-h1" style="margin-bottom:14px">Model Performance</h1>
+            <div class="sl-subtabs"><span class="sl-subtab">Summary</span><span class="sl-subtab">Breakdown</span><span class="sl-subtab on">Advanced</span></div>
+            <div class="sl-row" style="margin-bottom:14px;flex-wrap:wrap">
+              <span class="sl-select">Population: Contract-like <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span>
+              <span class="sl-select">Version: all (deployed) <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span>
+              <span class="sl-select">Stat: Receiving yards <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span>
+            </div>
+
+            <div class="sl-block">
+              <div class="sl-between" style="margin-bottom:6px"><span class="t-label">Calibration</span><span class="num num-sm ink2">Brier: Simulation <span style="color:var(--sl-model)">0.217</span> · Baseline 0.238 &nbsp;·&nbsp; 1,847 obs · 412 proj</span></div>
+              <div class="sl-relwrap">
+                <div>
+                  <svg viewBox="0 0 240 200" width="100%" role="img" aria-label="Reliability curve: two model series against the diagonal. Bucket table follows.">
+                    <!-- axes -->
+                    <line x1="34" y1="10" x2="34" y2="170" stroke="var(--sl-line-strong)" stroke-width="1"/>
+                    <line x1="34" y1="170" x2="228" y2="170" stroke="var(--sl-line-strong)" stroke-width="1"/>
+                    <!-- diagonal reference -->
+                    <line x1="34" y1="170" x2="228" y2="10" stroke="var(--sl-ink3)" stroke-width="1" stroke-dasharray="3 4"/>
+                    <!-- baseline series (dashed) -->
+                    <polyline points="46,150 78,132 110,108 142,86 174,58 206,30" fill="none" stroke="var(--sl-model)" stroke-width="1.6" stroke-dasharray="4 4" opacity="0.75"/>
+                    <!-- simulation series (solid) -->
+                    <polyline points="46,156 78,140 110,116 142,80 174,46 206,22" fill="none" stroke="var(--sl-model)" stroke-width="2"/>
+                    <circle cx="110" cy="116" r="3" fill="var(--sl-model)"/>
+                    <circle cx="142" cy="80" r="3" fill="var(--sl-model)"/>
+                    <circle cx="174" cy="46" r="3" fill="var(--sl-model)"/>
+                    <!-- hollow provisional point below floor -->
+                    <circle cx="206" cy="22" r="3.5" fill="none" stroke="var(--sl-caution)" stroke-width="1.5" stroke-dasharray="2 2"/>
+                    <text x="30" y="174" text-anchor="end" font-size="8" fill="var(--sl-ink3)">0</text>
+                    <text x="30" y="14" text-anchor="end" font-size="8" fill="var(--sl-ink3)">1</text>
+                  </svg>
+                  <div class="sl-legend" style="padding-left:8px"><span><i class="dash"></i>Baseline v7</span><span><i></i>Simulation v3</span><span class="ink3">○ below floor</span></div>
+                  <p class="t-caption" style="padding:0 8px">Each series scored under its own recalibration: Simulation v3, Baseline v7. No shared correction.</p>
+                </div>
+                <table class="sl-tbl">
+                  <thead><tr><th>Range</th><th class="right">pred</th><th class="right">obs</th><th class="right">obs n</th><th class="right">proj</th></tr></thead>
+                  <tbody>
+                    <tr><td class="num">50–60%</td><td class="right num">0.55</td><td class="right num">0.53</td><td class="right num">312</td><td class="right num">74</td></tr>
+                    <tr><td class="num">60–70%</td><td class="right num">0.65</td><td class="right num">0.66</td><td class="right num">288</td><td class="right num">69</td></tr>
+                    <tr><td class="num">70–80%</td><td class="right num">0.74</td><td class="right num">0.72</td><td class="right num">149</td><td class="right num">38</td></tr>
+                    <tr><td class="num">80–90%</td><td class="right num">0.84</td><td class="right num">0.79</td><td class="right num">74</td><td class="right num">19</td></tr>
+                    <tr style="color:var(--sl-caution)"><td class="num">90–100%</td><td class="right num">0.93</td><td class="right num ink3">—</td><td class="right num">12</td><td class="right num">4</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <p class="t-caption" style="margin-top:8px">90–100% bucket below the 30-observation floor — provisional (hollow, dashed), excluded from any summary sentence.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 04 · PAPER BOT — PERFORMANCE ============ -->
+  <section class="pv-section" id="s4">
+    <div class="pv-sec-head">
+      <span class="pv-num">04</span>
+      <h3>Paper Bot — Performance</h3>
+      <span class="desc">Three portfolios under identical assumptions, a per-portfolio halt banner, the leading line with its financial-vs-quality sentence, a three-series bankroll chart, and the readiness summary naming the active configuration — with reset-on-switch stated and no auto-enable.</span>
+    </div>
+
+    <div class="pv-frame">
+      <div class="pv-cap"><span class="name">Paper Bot · Performance</span><span class="route">/autonomy</span><span class="tag">admin · Simulation halted</span></div>
+      <div class="mock mock--shell sl js-sl" data-sl="light">
+        <div class="sl-shell">
+          <div class="sl-appbar">
+            <span class="sl-lockup"><svg class="sl-mark" viewBox="0 0 64 64" aria-label="Sightline"><circle cx="32" cy="32" r="20" fill="none" stroke="currentColor" stroke-width="2.6"/><path d="M32 12 A20 20 0 0 1 52 32" fill="none" stroke="currentColor" stroke-width="4.6" stroke-linecap="round"/><circle cx="32" cy="32" r="3.4" fill="currentColor"/></svg><span class="sl-wordmark">sightline</span></span>
+            <nav class="sl-tabs"><span class="sl-tab">Model Performance</span><span class="sl-tab on">Paper Bot</span><span class="sl-tab">Health</span></nav>
+            <span class="sl-spacer"></span><span class="sl-avatar">WR</span>
+          </div>
+          <div class="sl-content">
+            <div class="sl-between" style="margin-bottom:2px">
+              <h1 class="t-h1">Paper Bot</h1>
+              <span class="sl-btn sl-btn--danger-out sl-btn--sm">Kill autonomy</span>
+            </div>
+            <p class="t-caption" style="margin-bottom:12px">Paper mode · all figures simulated</p>
+            <div class="sl-subtabs"><span class="sl-subtab on">Performance</span><span class="sl-subtab">Activity</span><span class="sl-subtab">Settings</span></div>
+
+            <div class="sl-alert sl-alert--error" style="margin-bottom:14px">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
+              <span class="body"><b style="font-weight:500">Simulation portfolio halted</b> — drawdown 11.2% vs 10.0% (conservative). Tripped Sun 26 Oct 1:47p.</span>
+              <span class="sl-row"><span class="sl-btn sl-btn--outlined sl-btn--sm">Resume</span><span class="sl-btn sl-btn--caution-out sl-btn--sm">Force override →</span></span>
+            </div>
+
+            <div class="sl-between" style="margin-bottom:8px">
+              <span class="sl-select">Period: Campaign <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span>
+              <span class="t-caption num">$1,000 start · conservative · began Wk 7</span>
+            </div>
+
+            <div class="sl-scores">
+              <div class="sl-score">
+                <div class="hd"><span class="sl-chip sl-chip--neutral">Baseline</span></div>
+                <div class="tv">$1,043</div><div class="t-caption">total value</div>
+                <div class="rows">
+                  <div>active<b>$1,043</b></div><div>withdrawn<b>$0.00</b></div>
+                  <div>net P&amp;L<b class="pos">+$43.00</b></div><div>return<b class="pos">+4.3%</b></div>
+                  <div>max drawdown<b>3.1%</b></div><div>evaluated<b>74</b></div><div>sized<b>22 · 22 pos</b></div>
+                  <div>risk<b>conservative</b></div><div>breaker<b>1 trip</b></div>
+                </div>
+              </div>
+              <div class="sl-score">
+                <div class="hd"><span class="sl-chip sl-chip--model">Simulation</span><span class="sl-chip sl-chip--caution-fill" style="height:20px">halted</span></div>
+                <div class="tv">$1,061</div><div class="t-caption">total value</div>
+                <div class="rows">
+                  <div>active<b>$1,011</b></div><div>withdrawn<b>$50.00</b></div>
+                  <div>net P&amp;L<b class="pos">+$61.00</b></div><div>return<b class="pos">+6.1%</b></div>
+                  <div>max drawdown<b>6.8%</b></div><div>evaluated<b>71</b></div><div>sized<b>19 · 19 pos</b></div>
+                  <div>risk<b>conservative</b></div><div>breaker<b class="ink2">1 halt (overridden)</b></div>
+                </div>
+              </div>
+              <div class="sl-score sl-score--hybrid">
+                <div class="hd"><span class="sl-chip sl-chip--model-fill">Hybrid</span><span class="sl-chip sl-chip--model" style="height:20px">active</span></div>
+                <div class="tv">$1,052</div><div class="t-caption">total value</div>
+                <div class="rows">
+                  <div>active<b>$1,052</b></div><div>withdrawn<b>$0.00</b></div>
+                  <div>net P&amp;L<b class="pos">+$52.00</b></div><div>return<b class="pos">+5.2%</b></div>
+                  <div>max drawdown<b>4.0%</b></div><div>evaluated<b>74</b></div><div>sized<b>24 · 24 pos</b></div>
+                  <div>risk<b>conservative</b></div><div>breaker<b>0 events</b></div>
+                </div>
+              </div>
+            </div>
+            <p class="t-body2" style="margin:12px 0 4px">Leading by paper P&amp;L: Simulation (+$61.00). This is a financial result over a small number of positions, not proof of model quality. <span class="sl-btn sl-btn--text" style="padding:0 4px">See Model Performance →</span></p>
+            <p class="sl-cap">Portfolios may evaluate different opportunity sets — counts shown above.</p>
+
+            <div class="sl-block" style="margin:10px 0 16px">
+              <div class="sl-between" style="margin-bottom:8px"><span class="t-label">Bankroll history</span><span class="sl-select">per portfolio <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span></div>
+              <svg viewBox="0 0 640 140" width="100%" role="img" aria-label="Three-series bankroll history: Baseline, Simulation, Hybrid, with high-water and halt-threshold reference lines.">
+                <line x1="0" y1="30" x2="640" y2="30" stroke="var(--sl-ink3)" stroke-width="1" stroke-dasharray="2 3"/>
+                <text x="4" y="26" font-size="9" fill="var(--sl-ink3)">high-water $1,090</text>
+                <line x1="0" y1="112" x2="640" y2="112" stroke="var(--sl-negative)" stroke-width="1" stroke-dasharray="2 3"/>
+                <text x="4" y="108" font-size="9" fill="var(--sl-negative)">halt threshold</text>
+                <polyline points="0,96 90,90 180,84 270,76 360,70 450,64 540,60 640,58" fill="none" stroke="var(--sl-model)" stroke-width="1.6" stroke-dasharray="4 4" opacity="0.7"/>
+                <polyline points="0,96 90,88 180,70 270,86 360,58 450,80 540,50 640,46" fill="none" stroke="var(--sl-model)" stroke-width="2"/>
+                <polyline points="0,96 90,89 180,78 270,72 360,64 450,60 540,55 640,52" fill="none" stroke="var(--sl-ink2)" stroke-width="1.4" stroke-dasharray="1 3"/>
+              </svg>
+              <div class="sl-legend"><span><i class="dash"></i>Baseline</span><span><i></i>Simulation</span><span><i style="border-top-style:dotted;border-color:var(--sl-ink2)"></i>Hybrid</span></div>
+            </div>
+
+            <div class="sl-ready">
+              <div class="sl-between"><span class="t-label">Real-money readiness</span><span class="sl-chip sl-chip--caution-fill">paper evidence building</span></div>
+              <p class="t-caption" style="margin:6px 0 2px">Evaluating the active configuration: Hybrid</p>
+              <div class="grid">
+                <div>NFL weeks complete<b>1 of 2</b></div><div>Paper result<b>Positive</b></div>
+                <div>Model quality<b>Healthy</b></div><div>Operational record<b>Healthy</b></div>
+              </div>
+              <p class="t-body2">Remaining: one additional complete week. <span class="ink2">Switching the active configuration resets this clock against the new configuration's own portfolio.</span> <span class="sl-btn sl-btn--text" style="padding:0 4px">Detail ⌄</span></p>
+              <p class="t-caption">Readiness never enables real-money trading. That is a separate human act in the later Kalshi Live Trading capability.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings frame -->
+    <div class="pv-frame">
+      <div class="pv-cap"><span class="name">Paper Bot · Settings — model selection (the only production mutation)</span><span class="route">/autonomy/settings</span><span class="tag">admin</span></div>
+      <div class="mock mock--pane sl js-sl" data-sl="light" style="padding:24px">
+        <h1 class="t-h1" style="margin-bottom:2px">Paper Bot</h1>
+        <p class="t-caption" style="margin-bottom:12px">Paper mode · all settings apply to simulated trading only</p>
+        <div class="sl-subtabs"><span class="sl-subtab">Performance</span><span class="sl-subtab">Activity</span><span class="sl-subtab on">Settings</span></div>
+        <div class="sl-block">
+          <div class="sl-between" style="margin-bottom:2px"><span class="t-label">Active model by stat type</span></div>
+          <p class="t-caption" style="margin-bottom:10px">Sightline recommends a selection. It never applies one — you do.</p>
+          <table class="sl-tbl">
+            <thead><tr><th>Stat type</th><th>Active selection</th><th>Recommended</th><th>Evidence</th></tr></thead>
+            <tbody>
+              <tr><td>Passing yards</td><td><span class="sl-radio">Baseline<i></i></span> &nbsp; <span class="sl-radio on">Simulation<i></i></span></td><td>Simulation <span class="sl-star">★</span></td><td class="t-caption">Simulation (moderate)</td></tr>
+              <tr><td>Receiving yards</td><td><span class="sl-radio">Baseline<i></i></span> &nbsp; <span class="sl-radio on">Simulation<i></i></span></td><td>Simulation <span class="sl-star">★</span></td><td class="t-caption">Simulation (moderate)</td></tr>
+              <tr><td>Rushing yards</td><td><span class="sl-radio on">Baseline<i></i></span> &nbsp; <span class="sl-radio">Simulation<i></i></span></td><td>Baseline</td><td class="t-caption">Baseline (moderate)</td></tr>
+              <tr><td>Receptions</td><td><span class="sl-radio on">Baseline<i></i></span> &nbsp; <span class="sl-radio">Simulation<i></i></span></td><td>Simulation <span class="sl-star">★</span></td><td class="t-caption">too close to call</td></tr>
+              <tr><td>Touchdowns</td><td><span class="sl-radio on">Baseline<i></i></span> &nbsp; <span class="sl-radio dis">Sim n/a<i></i></span></td><td class="ink3">—</td><td class="t-caption">not enough evidence</td></tr>
+            </tbody>
+          </table>
+          <p class="t-caption" style="margin:10px 0 0">★ = Sightline's current recommendation. Changing a stat type changes only that stat type. Switching a stat's model resets the readiness clock against the newly active configuration.</p>
+          <div class="sl-row" style="justify-content:flex-end;margin-top:14px"><span class="sl-btn sl-btn--text">Cancel</span><span class="sl-btn sl-btn--contained sl-btn--sm">Save selection</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 05 · VIEWER TRACK RECORD ============ -->
+  <section class="pv-section" id="s5">
+    <div class="pv-sec-head">
+      <span class="pv-num">05</span>
+      <h3>Viewer — contract track-record block</h3>
+      <span class="desc">The one and only model-quality surface a viewer sees, in context on a shared contract detail. Range interpretation with its sample size, a strong/moderate/limited label. No leader, no comparison, no bankroll, no admin link — and nothing that hints a second engine runs.</span>
+    </div>
+
+    <div class="pv-frame">
+      <div class="pv-cap"><span class="name">Contract detail with track-record block</span><span class="route">/slate/[contractId]</span><span class="tag">viewer · phone</span></div>
+      <div class="pv-row">
+        <div class="mock mock--phone sl js-sl" data-sl="light">
+          <div class="sl-shell" style="min-height:560px">
+            <div class="sl-appbar">
+              <svg class="sl-burger" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+              <svg class="sl-mark" viewBox="0 0 64 64" aria-label="Sightline"><circle cx="32" cy="32" r="20" fill="none" stroke="currentColor" stroke-width="2.6"/><path d="M32 12 A20 20 0 0 1 52 32" fill="none" stroke="currentColor" stroke-width="4.6" stroke-linecap="round"/><circle cx="32" cy="32" r="3.4" fill="currentColor"/></svg>
+              <span class="sl-spacer"></span><span class="sl-avatar" style="background:var(--sl-hover);color:var(--sl-ink2)">DP</span>
+            </div>
+            <div class="sl-content">
+              <h1 class="t-h1">Ja'Marr Chase</h1>
+              <p class="t-body2 ink2" style="margin:2px 0 14px">CIN · receiving yards ≥ 74.5</p>
+              <div class="sl-block" style="margin-bottom:12px">
+                <div class="sl-between"><span class="t-caption">Sightline probability</span><span class="sl-row"><span class="num num-lg" style="color:var(--sl-model)">61.4%</span></span></div>
+                <div class="sl-between" style="margin-top:6px"><span class="t-caption">Kalshi price</span><span class="num num-md" style="color:var(--sl-market)">54¢</span></div>
+                <div class="sl-between" style="margin-top:6px"><span class="t-caption">Edge</span><span class="num num-md" style="color:var(--sl-model)">+7.4 pts ▲</span></div>
+                <div class="sl-between" style="margin-top:6px"><span class="t-caption">Confidence</span><span class="sl-ev sl-ev--strong"><span class="bars"><i></i><i></i><i></i></span>high</span></div>
+              </div>
+              <div class="sl-track">
+                <h4>Model track record</h4>
+                <p class="t-body2">Predictions in the <span class="num">60–70%</span> range have occurred <span class="num">64%</span> of the time across <span class="num">184</span> graded observations.</p>
+                <div class="sl-between" style="margin-top:10px"><span class="t-caption">Receiving yards track record</span><span class="sl-ev sl-ev--strong"><span class="bars"><i></i><i></i><i></i></span>Strong</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- desktop version showing the 74% variant note context -->
+        <div class="mock mock--pane sl js-sl" data-sl="light" style="min-width:380px;padding:24px">
+          <p class="t-caption" style="margin-bottom:10px">Same block, admin view — renders identically; the richer comparison lives on Model Performance, not here.</p>
+          <div class="sl-track">
+            <h4>Model track record</h4>
+            <div class="sl-between"><span class="t-caption">Sightline probability</span><span class="num num-md" style="color:var(--sl-model)">74%</span> <span class="sl-ev sl-ev--strong"><span class="bars"><i></i><i></i><i></i></span>high</span></div>
+            <p class="t-body2" style="margin-top:8px">Predictions in the <span class="num">70–80%</span> range have occurred <span class="num">72%</span> of the time across <span class="num">184</span> graded observations.</p>
+            <div class="sl-between" style="margin-top:10px"><span class="t-caption">Receiving yards track record</span><span class="sl-ev sl-ev--strong"><span class="bars"><i></i><i></i><i></i></span>Strong</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 06 · STATES ============ -->
+  <section class="pv-section" id="s6">
+    <div class="pv-sec-head">
+      <span class="pv-num">06</span><h3>States</h3>
+      <span class="desc">Empty, below-floor, absent-Hybrid, degraded, the one confirmed production mutation, loading/error/feedback, and permission-denied — each a legitimate designed answer, none a failure.</span>
+    </div>
+
+    <div class="pv-grid2">
+      <div class="pv-frame">
+        <div class="pv-cap"><span class="name">Summary — not enough evidence yet</span><span class="route">/model-performance</span><span class="tag">empty</span></div>
+        <div class="mock sl js-sl" data-sl="light" style="padding:24px">
+          <div class="sl-block">
+            <h4>Overall leader</h4>
+            <div class="sl-empty" style="padding:28px 12px">
+              <span class="sl-chip sl-chip--caution">Not enough evidence</span>
+              <p>Not enough evidence to compare the engines yet. Live grading began Wk 1 2026 · 8 obs.</p>
+              <span class="sl-btn sl-btn--outlined sl-btn--sm">View backtest record</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="pv-frame">
+        <div class="pv-cap"><span class="name">Viewer track record — below the 30-obs floor</span><span class="route">/slate/[contractId]</span><span class="tag">viewer · limited</span></div>
+        <div class="mock sl js-sl" data-sl="light" style="padding:24px">
+          <div class="sl-track">
+            <h4>Model track record</h4>
+            <div class="sl-between"><span class="t-caption">Sightline probability</span><span class="num num-md" style="color:var(--sl-model)">74%</span> <span class="sl-ev sl-ev--strong"><span class="bars"><i></i><i></i><i></i></span>high</span></div>
+            <p class="t-body2" style="margin-top:8px">Not enough graded predictions in this range yet to report how often they've occurred (<span class="num">18</span> so far).</p>
+            <div class="sl-between" style="margin-top:10px"><span class="t-caption">Receiving yards track record</span><span class="sl-ev sl-ev--limited"><span class="bars"><i></i><i></i><i></i></span>Limited</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="pv-frame">
+        <div class="pv-cap"><span class="name">Paper Bot — no Hybrid selection (column absent, not zeroed)</span><span class="route">/autonomy</span><span class="tag">two portfolios</span></div>
+        <div class="mock sl js-sl" data-sl="light" style="padding:24px">
+          <div class="sl-scores" style="grid-template-columns:1fr 1fr">
+            <div class="sl-score"><div class="hd"><span class="sl-chip sl-chip--neutral">Baseline</span></div><div class="tv">$1,043</div><div class="t-caption">total value</div><div class="rows"><div>net P&amp;L<b class="pos">+$43.00</b></div><div>sized<b>22 · 22 pos</b></div></div></div>
+            <div class="sl-score"><div class="hd"><span class="sl-chip sl-chip--model">Simulation</span></div><div class="tv">$1,061</div><div class="t-caption">total value</div><div class="rows"><div>net P&amp;L<b class="pos">+$61.00</b></div><div>sized<b>19 · 19 pos</b></div></div></div>
+          </div>
+          <p class="sl-cap">No Hybrid configuration selected — the Hybrid portfolio is absent, not shown as $0. Set a per-stat selection in Settings to begin one.</p>
+        </div>
+      </div>
+
+      <div class="pv-frame">
+        <div class="pv-cap"><span class="name">Mark-to-market unavailable (Kalshi degraded)</span><span class="route">/autonomy</span><span class="tag">degraded</span></div>
+        <div class="mock sl js-sl" data-sl="light" style="padding:24px">
+          <div class="sl-alert sl-alert--info" style="margin-bottom:12px">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>
+            <span class="body">Kalshi prices unavailable — mark-to-market and drawdown show as unavailable. Last fetch Sun 26 Oct 1:32p ET. Settled figures are unaffected.</span>
+          </div>
+          <div class="sl-score" style="max-width:280px">
+            <div class="hd"><span class="sl-chip sl-chip--model">Simulation</span></div>
+            <div class="tv ink3">unavailable</div><div class="t-caption">total value · last fetch 1:32p</div>
+            <div class="rows"><div>active<b class="ink3">unavailable</b></div><div>settled<b>$1,006.00</b></div><div>max drawdown<b class="ink3">unavailable</b></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pv-grid2">
+      <div class="pv-frame">
+        <div class="pv-cap"><span class="name">Save model selection — confirm (the human action)</span><span class="route">dialog</span><span class="tag">consequential</span></div>
+        <div class="mock sl js-sl" data-sl="light">
+          <div class="sl-stage">
+            <div class="sl-scrim"></div>
+            <div class="sl-dialog">
+              <h4>Change production model for Receiving yards?</h4>
+              <p class="t-body">This changes production for receiving yards from <b style="font-weight:500">Baseline</b> to <b style="font-weight:500">Simulation</b>. It resets the readiness clock against the newly active configuration's own paper portfolio.</p>
+              <div class="sl-dialog-actions">
+                <button class="sl-btn sl-btn--text">Cancel</button>
+                <button class="sl-btn sl-btn--contained">Change &amp; save</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="pv-frame">
+        <div class="pv-cap"><span class="name">Loading · error · feedback</span><span class="route">shared</span></div>
+        <div class="mock sl js-sl" data-sl="light" style="padding:24px">
+          <div class="sl-stack" style="gap:16px">
+            <div class="sl-paper" style="padding:16px">
+              <div class="sl-sk" style="height:96px;margin-bottom:8px"></div>
+              <div class="sl-row" style="gap:8px"><div class="sl-sk" style="height:120px;flex:1"></div><div class="sl-sk" style="height:120px;flex:1"></div><div class="sl-sk" style="height:120px;flex:1"></div></div>
+            </div>
+            <div class="sl-alert sl-alert--error">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>
+              <span class="body">Model performance is temporarily unavailable — the last completed results could not be read.</span>
+              <button class="sl-btn sl-btn--sm sl-btn--outlined">Retry</button>
+            </div>
+            <span class="sl-snack">Selection saved. Receiving yards now uses Simulation in production. Readiness clock reset.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pv-frame">
+      <div class="pv-cap"><span class="name">Viewer reaching an admin route — absent, not disabled</span><span class="route">/model-performance · /autonomy</span><span class="tag">viewer · 403</span></div>
+      <div class="mock sl js-sl" data-sl="light" style="padding:24px">
+        <div class="sl-empty" style="padding:40px 24px">
+          <h2 class="t-h2">Not available</h2>
+          <p>This surface is not part of your account. Model Performance and Paper Bot are admin-only — they never appear in a viewer's navigation and are rejected server-side before any page renders.</p>
+          <span class="sl-btn sl-btn--outlined sl-btn--sm">Back to slate</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ CLOSING LEGEND ============ -->
+  <section class="pv-section">
+    <div class="pv-sec-head">
+      <span class="pv-num">✳</span><h3>What these screens are built to respect</h3>
+      <span class="desc">The design commitments a reviewer should check the frames above against.</span>
+    </div>
+    <div class="pv-legend">
+      <div class="pv-card">
+        <h4>A difference is not a decision; a recommendation is not control</h4>
+        <ul class="pv-rules">
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg><span><b>Leader only when earned.</b> A leader is named only when the Brier margin clears 0.01 and the sample clears its floor (50 live / 500 backtest). Receptions reads "too close to call"; touchdowns reads "not enough evidence".</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg><span><b>No apply button anywhere.</b> The recommendation card offers only "Review selection →". Production changes only through a confirmed human Save on Settings — the one mutation in the feature.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg><span><b>Financial ≠ verdict.</b> The leading-by-P&amp;L line always carries the sentence separating money from model quality; the overall leader is driven by probability quality.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg><span><b>Readiness never enables trading.</b> Switching the active configuration resets the two-week clock against the new portfolio; nothing on the page can move to real money.</span></li>
+        </ul>
+      </div>
+      <div class="pv-card">
+        <h4>Evidence stays honest; sources stay distinct</h4>
+        <ul class="pv-rules">
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg><span><b>Two records, never merged.</b> Live and Backtest each carry their own Brier and counts; the summary interprets both without blending them into one score.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg><span><b>Each model under its own correction.</b> The Advanced overlay labels Simulation v3 and Baseline v7, each scored under its own recalibration — no shared correction object.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg><span><b>Sample size travels with every rate.</b> No probability-bucket rate renders below 30 observations, on the admin surfaces or the viewer block; below-floor buckets are hollow and dashed.</span></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg><span><b>Engines by label, not colour.</b> Both engines wear the model accent; Baseline is dashed, Simulation solid, and each figure carries its engine label. Money is neutral; only its sign takes colour.</span></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <div class="pv-foot">
+    <span>Sightline · Parallel Model Evaluation &amp; Paper Scorecards — UI preview generated from <b>parallel-model-evaluation-and-paper-scorecards-design-doc.md</b> v1.0</span>
+    <span>A difference is not a decision · recommendation never control · two records never merged · each model under its own correction · light + near-black dark</span>
+  </div>
+</div>
+
+<script>
+(function(){
+  var light=document.getElementById('pv-light'), dark=document.getElementById('pv-dark');
+  function set(mode){
+    document.querySelectorAll('.js-sl').forEach(function(el){ el.setAttribute('data-sl',mode); });
+    document.documentElement.setAttribute('data-pv',mode);
+    dark.classList.toggle('on',mode==='dark'); light.classList.toggle('on',mode!=='dark');
+    dark.setAttribute('aria-selected',mode==='dark'); light.setAttribute('aria-selected',mode!=='dark');
+  }
+  light.addEventListener('click',function(){set('light');});
+  dark.addEventListener('click',function(){set('dark');});
+  if(window.matchMedia&&window.matchMedia('(prefers-color-scheme:dark)').matches){set('dark');}
+})();
+</script>
+
+</body>
+</html>
