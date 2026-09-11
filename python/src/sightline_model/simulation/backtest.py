@@ -446,7 +446,7 @@ def _prediction_row(
 
     Same columns, same quantisation keys, so ``metrics`` and ``digests`` treat
     the two engines uniformly. The empirical distribution kind and the fact that
-    ``quantiles`` xor ``pmf`` is populated are the only content differences; the
+    a count family additionally carrying an explicit ``pmf`` are the only content differences; the
     error/comparison columns are computed identically. The baseline-comparison
     columns (``baseline_season_avg`` etc.) are left null: the per-stat
     Brier-vs-baseline comparison (RD-1) is a cross-run comparison against the

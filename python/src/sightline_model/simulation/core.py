@@ -122,7 +122,8 @@ class SimulatedProjection:
     Mirrors the baseline :class:`~sightline_model.projection.ProjectionResult`
     contract closely enough that the harness and the persistence layer treat the
     two engines uniformly, differing only in the empirical ``distribution_kind``
-    and the fact that ``quantiles`` xor ``pmf`` is populated.
+    and the fact that a count family additionally carries an explicit ``pmf``
+    (``quantiles`` is always populated, matching the baseline).
     """
 
     player_id: str
@@ -700,7 +701,14 @@ def _build_projection(
     else:
         k = pmf_support(stat_type)
         pmf = to_pmf(draws, k)
-        quantiles = None
+        # A count family is stored as an explicit PMF (the authoritative
+        # distribution readers use for `empirical_pmf`), but the shared
+        # `projections.quantiles` column is NOT NULL and the baseline populates a
+        # quantile grid for count families too. So emit the empirical grid here as
+        # well — it costs nothing (the draws are in hand) and keeps the two engines'
+        # stored shape uniform. Without it, every count-stat simulation projection
+        # (receptions, TDs) violates the not-null constraint at persist.
+        quantiles = to_quantile_grid(draws)
         params = _summary_params(draws, include_sd=False)
         projected_median = _pmf_median(pmf)
         low, high = _pmf_interval(pmf, 0.10, 0.90)
