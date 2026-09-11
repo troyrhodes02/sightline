@@ -82,8 +82,11 @@ Linear team `Sightline` (prefix SIG-). Linear chain (each branches off the previ
 Status / PRs (base of every ticket PR = feature branch; each ticket branch stacked off the previous):
 - **SIG-102** ✅ DONE — PR #107, branch `wtrhodesdev/sig-102-pme-1-data-model-...`. Verification all green (prisma validate/format, typecheck, test 957/957, test:schema 36/36, format, build). Migration+backfill exercised end-to-end. Linear → In Progress (no "In Review" state in this workflow).
 - **SIG-103** ✅ DONE — PR #108, branch `wtrhodesdev/sig-103-pme-2-parallel-live-shadow-projections-dual-grading` (stacked on SIG-102). Python 500 passed, TS 957 passed, build success, format clean. Both engines run live per window; kickoff-freeze reused (`computed_at < kickoff` guard added, D3); per-engine transactions isolate failures; grading already dual (`_ELIGIBLE_SQL` groups by model_version); `freshest_base_projection` pinned to active model to keep Adjustment Suggestions correct. Linear → In Progress.
-- **SIG-104** ⏳ next — branches off SIG-103's branch.
-- SIG-105..108 pending.
+- **SIG-104** ✅ DONE — PR #109, branch `wtrhodesdev/sig-104-pme-3-model-comparison-read-leaderrecommendation-engine` (stacked on SIG-103). Jest 984/984, typecheck/build/format clean. New lib `src/lib/model-eval/` (config/leader/read/comparison/index) + DTOs `src/lib/dto/model-eval.ts`. D4 API `readModelSeries(modelVersion, record, population, statType?)` — fit resolved internally via `activeRecalibration(modelVersion)`, no crossing param (structural). D3 dedup, D1 leader (inclusive 0.01 w/ 1e-9 epsilon), D12/D15 held. Linear → In Progress.
+- **SIG-105** ⏳ next — branches off SIG-104's branch.
+- SIG-106..108 pending.
+
+**Merge-time note:** SIG-104's branch (and possibly others) carry their own edits to THIS progress file (workers wrote status). At Step 10 squash-merge, resolve any progress-file conflict in favour of the feature-branch version (authoritative). Remaining workers (105–108) instructed NOT to touch the progress file.
 
 Standing note: only lint issue across tickets is 4 pre-existing `no-console` errors in the untracked out-of-scope `prisma/seed-dev-game.ts` — NOT introduced by this run; ignore.
 
