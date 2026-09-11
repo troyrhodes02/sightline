@@ -7,7 +7,33 @@
 
 ## Current step
 
-Step 1 complete (pitch pulled to repo). Starting Step 2: design doc.
+Steps 1–2 complete (pitch + design doc). Starting Step 3: UI preview.
+
+## Codebase facts (from Explore survey — ground truth for spec/tickets)
+
+**Accuracy (to become Model Performance):**
+- Page `src/app/(app)/accuracy/page.tsx` — **admin-only (`requireAdmin()`)**, `adminGroup` in nav. Overrides at `.../overrides`.
+- Screen `src/components/screens/Accuracy.tsx`; `src/components/accuracy/{ReliabilityCurve,AccuracyScopeBar,SampleSizePair,OverridesEntry}.tsx`.
+- DTOs `src/lib/dto/accuracy.ts`; read `src/lib/accuracy/read.ts`; scope `src/lib/accuracy/scope.ts`.
+- Scope params: record(live|backtest|compare), population(contract_like|all|market_linked), modelVersion(active|all|lifetime), stat, season. 10 fixed calibration bins.
+- **DECISION: Model Performance stays admin-only** (matches impl + pitch framing). Viewers' only model evidence = contract track-record block.
+
+**Autonomy (to become Paper Bot):**
+- Pages under `src/app/(app)/autonomy/{,cycles,positions,review,readiness,configuration,dry-run,override}/`.
+- Screens `src/components/screens/Autonomy*.tsx` (7); tabs `src/components/autonomy/AutonomyTabs.tsx`; primitives `src/components/autonomy/primitives.tsx` (RiskModeChip, ExposureMeter, Figure, BankrollChart).
+- DTOs `src/lib/dto/autonomy.ts`. Paper libs `src/lib/paper/{plan,breakers,read,dry-run,recalibration/store}.ts`.
+
+**Prisma (schema.prisma):**
+- `ModelSelection` (@id statType → modelVersion, backtestRunId, brierDelta, sampleSize, promotedAt). One row per StatType.
+- `RecalibrationFit` (version Int unique, **modelVersion**, backtestRunId, method, shrinkageK, knots Json, isActive). Correction already keyed by modelVersion → D4 friendly.
+- `Projection` (modelVersion; unique [playerId,gameId,statType,modelVersion,informationCutoff,provenance]; index [gameId,statType,modelVersion,computedAt desc]).
+- `PaperCampaign` (single campaign: startingBankrollCents, activeBankrollCents, highWaterMarkCents, autonomyEnabled, killSwitchEngaged). **Needs a portfolio dimension (baseline/simulation/hybrid) — real schema change.**
+- `PaperPosition`, `PaperLedgerEntry` (kinds incl withdrawal), `PaperRiskConfig` (append-only), `PaperCycle`, `PaperCycleCandidate` (raw+corrected prob), `PaperDryRun` (schema.prisma ~1740) — **remove table + route + screen + tab; keep runDryRun()/planCycle() logic as internal/test util (D7).**
+- Model versions: Baseline `baseline-zil-0.1.0`; Simulation `simulation-mc-0.1.0`.
+
+**Nav:** `src/components/shell/NavSections.ts` (`SECTIONS`), `src/components/shell/AppShell.tsx`. adminGroup gathers admin items into Admin dropdown; `requireAdmin()` server gate per route; nav absence for viewers (not disabled).
+
+**Dry Run removal file list:** AutonomyDryRun screen, `/autonomy/dry-run` page, `/api/autonomy/dry-run` route, AutonomyTabs entry, PaperDryRun model+migration. Keep `runDryRun()` body reachable by tests only, `planCycle()`.
 
 ## Pipeline steps
 
