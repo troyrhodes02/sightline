@@ -518,6 +518,7 @@ test("projections discriminate base from shadow provenance and default to base",
 // ---------------------------------------------------------------------------
 
 const PAPER_TABLES = [
+  "paper_evaluation_campaigns",
   "paper_campaigns",
   "paper_risk_configs",
   "paper_control_events",
@@ -528,7 +529,6 @@ const PAPER_TABLES = [
   "paper_fills",
   "paper_desired_exposures",
   "paper_breaches",
-  "paper_dry_runs",
   "paper_replays",
   "paper_replay_mode_results",
   "recalibration_fits",
@@ -685,12 +685,7 @@ test("risk configuration is append-only by construction", () => {
     "paper_risk_configs must not carry updatedAt — versions are appended, " +
       "never edited, or historical cycles would silently re-describe themselves",
   );
-  for (const consumer of [
-    "paper_cycles",
-    "paper_positions",
-    "paper_breaches",
-    "paper_dry_runs",
-  ]) {
+  for (const consumer of ["paper_cycles", "paper_positions", "paper_breaches"]) {
     const model = modelsByTable.get(consumer);
     assert.ok(
       model.fields.has("riskConfigId"),
@@ -699,15 +694,10 @@ test("risk configuration is append-only by construction", () => {
   }
 });
 
-test("dry runs and replays are separate tables from the ledger", () => {
-  // A dry run creates no position and alters no bankroll; a replay must never
-  // be readable as real. Separate tables make both structural rather than a
-  // filter every future aggregate has to remember.
-  for (const table of [
-    "paper_dry_runs",
-    "paper_replays",
-    "paper_replay_mode_results",
-  ]) {
+test("replays are separate tables from the ledger, and PaperDryRun is gone", () => {
+  // A replay must never be readable as real; separate tables make that
+  // structural rather than a filter every future aggregate has to remember.
+  for (const table of ["paper_replays", "paper_replay_mode_results"]) {
     const model = modelsByTable.get(table);
     assert.ok(model, `${table} not found`);
     assert.ok(
@@ -715,11 +705,21 @@ test("dry runs and replays are separate tables from the ledger", () => {
       `${table} must not reference a position`,
     );
   }
+  // PME-1 dropped PaperDryRun (inspection-only records; no Decision/Position).
+  // The migration must drop the table, and the model must be gone from schema.
+  assert.ok(
+    !modelsByTable.has("paper_dry_runs"),
+    "paper_dry_runs must be removed from the schema (PME-1)",
+  );
+  assert.match(
+    migration,
+    /DROP TABLE "paper_dry_runs"/,
+    "the PME-1 migration must drop the paper_dry_runs table",
+  );
   const cycle = modelsByTable.get("paper_cycles");
   assert.ok(
     !cycle.fields.has("trigger"),
-    "paper_cycles must not carry a scheduled/dry-run trigger discriminator — " +
-      "dry runs live in their own table",
+    "paper_cycles must not carry a scheduled/dry-run trigger discriminator",
   );
 });
 
@@ -759,5 +759,177 @@ test("a paper position keeps the intended stake beside the actual cost", () => {
     position.body,
     /@@unique\(\[campaignId, contractId\]\)/,
     "one position per contract per campaign; increments accumulate onto it",
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Parallel Model Evaluation & Paper Scorecards — PME-1 (SIG-102)
+// ---------------------------------------------------------------------------
+
+test("the PaperPortfolio enum has exactly the three portfolios", () => {
+  // A fourth portfolio value would be a product change; a missing one would
+  // break the three-column scorecard the whole feature renders.
+  const m = schema.match(/enum\s+PaperPortfolio\s*\{([\s\S]*?)\}/);
+  assert.ok(m, "PaperPortfolio enum not found");
+  const values = m[1]
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith("//"));
+  assert.deepEqual(
+    values.sort(),
+    ["baseline", "hybrid", "simulation"],
+    "PaperPortfolio must be exactly {baseline, simulation, hybrid}",
+  );
+});
+
+test("PaperEvaluationCampaign is the parent that owns campaign-wide config", () => {
+  const parent = modelsByTable.get("paper_evaluation_campaigns");
+  assert.ok(parent, "paper_evaluation_campaigns model not found");
+  for (const field of [
+    "startingBankrollCents",
+    "withdrawalCeilingMultiple",
+    "continuousEvaluationEnabled",
+    "killSwitchEngaged",
+    "campaignStartedAt",
+  ]) {
+    assert.ok(
+      parent.fields.get(field)?.required,
+      `paper_evaluation_campaigns.${field} must be non-nullable`,
+    );
+  }
+  // activeConfigChangedAt is nullable audit metadata (no change until first switch).
+  assert.equal(
+    parent.fields.get("activeConfigChangedAt")?.required,
+    false,
+    "activeConfigChangedAt must be nullable",
+  );
+  assert.match(
+    parent.fields.get("withdrawalCeilingMultiple").line,
+    /@db\.Decimal\(4, 2\)/,
+    "withdrawal_ceiling_multiple must be Decimal(4,2)",
+  );
+});
+
+test("the kill switch moved to the parent and is gone from the portfolio", () => {
+  // A breach halts a single portfolio; the kill switch is campaign-wide (PME-1).
+  const parent = modelsByTable.get("paper_evaluation_campaigns");
+  const child = modelsByTable.get("paper_campaigns");
+  assert.ok(
+    parent.fields.has("killSwitchEngaged"),
+    "the parent must hold the campaign-wide kill switch",
+  );
+  assert.ok(
+    !child.fields.has("killSwitchEngaged"),
+    "paper_campaigns must NOT carry killSwitchEngaged — it moved to the parent",
+  );
+  assert.match(
+    migration,
+    /ALTER TABLE "paper_campaigns" DROP COLUMN "kill_switch_engaged"/,
+    "the migration must drop kill_switch_engaged from paper_campaigns",
+  );
+});
+
+test("PaperCampaign is a portfolio within an evaluation campaign", () => {
+  const child = modelsByTable.get("paper_campaigns");
+  for (const field of [
+    "evaluationCampaignId",
+    "portfolio",
+    "portfolioStartedAt",
+  ]) {
+    assert.ok(
+      child.fields.get(field)?.required,
+      `paper_campaigns.${field} must be non-nullable (PME-1)`,
+    );
+  }
+  assert.equal(
+    child.fields.get("portfolio").type,
+    "PaperPortfolio",
+    "portfolio must be the PaperPortfolio enum",
+  );
+  // One portfolio of each kind per evaluation campaign.
+  assert.match(
+    child.body,
+    /@@unique\(\[evaluationCampaignId, portfolio\]\)/,
+    "one row per (evaluationCampaign, portfolio)",
+  );
+  assert.match(
+    child.body,
+    /@@index\(\[evaluationCampaignId\]\)/,
+    "portfolios must be indexed by their parent",
+  );
+});
+
+test("the PME-1 migration backfills before it tightens, per the plan", () => {
+  // The whole point of a hand-authored migration here is ordering: create the
+  // parent and populate the discriminators BEFORE they are made non-null, and
+  // backfill source_model_version BEFORE it is tightened. A regression that
+  // reorders these would fail on any non-empty campaign in production.
+  const pme1 = readFileSync(
+    join(
+      migrationsDir,
+      "20260911050000_pme1_evaluation_campaign_portfolios",
+      "migration.sql",
+    ),
+    "utf8",
+  );
+  const at = (needle) => pme1.indexOf(needle);
+
+  assert.ok(at('CREATE TYPE "PaperPortfolio"') >= 0, "creates the enum");
+  assert.ok(
+    at('CREATE TABLE "paper_evaluation_campaigns"') >= 0,
+    "creates the parent table",
+  );
+  // Parent + additive columns exist before the backfill DO block.
+  assert.ok(
+    at("INSERT INTO \"paper_evaluation_campaigns\"") >
+      at('CREATE TABLE "paper_evaluation_campaigns"'),
+    "backfill inserts the parent after the table exists",
+  );
+  // Discriminators tightened to NOT NULL only AFTER the backfill populates them.
+  assert.ok(
+    at('ALTER COLUMN "portfolio" SET NOT NULL') >
+      at('UPDATE "paper_campaigns"'),
+    "portfolio is tightened only after the backfill sets it",
+  );
+  // source_model_version backfilled from projection.modelVersion before tightening.
+  assert.ok(
+    at('SET "source_model_version" = p."model_version"') >= 0,
+    "candidate source_model_version is backfilled from projection.modelVersion",
+  );
+  assert.ok(
+    at('ALTER COLUMN "source_model_version" SET NOT NULL') >
+      at('UPDATE "paper_positions"'),
+    "position source_model_version is tightened only after backfill",
+  );
+  // Hybrid is created only when a mixed selection exists.
+  assert.ok(
+    at("distinct_versions > 1") >= 0,
+    "the backfill gates the hybrid sibling on a mixed ModelSelection",
+  );
+  // Kill switch moved to the parent, then dropped from the child.
+  assert.ok(
+    at('DROP COLUMN "kill_switch_engaged"') > at("INSERT INTO \"paper_evaluation_campaigns\""),
+    "the child kill switch is dropped only after the parent carries it",
+  );
+});
+
+test("Hybrid attribution is permanent: source model version on candidate and position", () => {
+  // D6: an opened position keeps its originating model even after a selection
+  // change. The position column is non-null (every fill has a model); the
+  // candidate column is nullable (a refused candidate may have had no projection).
+  const candidate = modelsByTable.get("paper_cycle_candidates");
+  const position = modelsByTable.get("paper_positions");
+  assert.ok(
+    candidate.fields.has("sourceModelVersion"),
+    "paper_cycle_candidates must carry sourceModelVersion",
+  );
+  assert.equal(
+    candidate.fields.get("sourceModelVersion").required,
+    false,
+    "candidate.sourceModelVersion is nullable (refused candidates may lack a projection)",
+  );
+  assert.ok(
+    position.fields.get("sourceModelVersion")?.required,
+    "paper_positions.sourceModelVersion must be non-nullable — attribution is fixed at open time",
   );
 });

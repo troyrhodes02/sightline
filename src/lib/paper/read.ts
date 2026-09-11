@@ -621,7 +621,11 @@ export async function readConfiguration(): Promise<ConfigurationDto> {
 export async function readActiveBreaches(): Promise<ActiveBreachesDto> {
   const campaign = await prisma.paperCampaign.findFirst({
     orderBy: { startedAt: "asc" },
-    select: { id: true, killSwitchEngaged: true },
+    select: {
+      id: true,
+      // Kill switch is campaign-wide, held on the parent (PME-1).
+      evaluationCampaign: { select: { killSwitchEngaged: true } },
+    },
   });
   if (!campaign) {
     return { campaignExists: false, killSwitchEngaged: false, breaches: [] };
@@ -635,7 +639,7 @@ export async function readActiveBreaches(): Promise<ActiveBreachesDto> {
 
   return {
     campaignExists: true,
-    killSwitchEngaged: campaign.killSwitchEngaged,
+    killSwitchEngaged: campaign.evaluationCampaign.killSwitchEngaged,
     breaches: stored.map(toBreachDto).filter((breach) => breach.halts),
   };
 }

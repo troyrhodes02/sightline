@@ -23,9 +23,10 @@ function transactionWith(active: Array<{ id: string; condition: string }>) {
   mockPrisma.$transaction.mockImplementation(async (fn: unknown) =>
     (fn as (tx: unknown) => Promise<unknown>)({
       paperCampaign: {
-        findUniqueOrThrow: jest
-          .fn()
-          .mockResolvedValue({ killSwitchEngaged: false }),
+        // The kill switch is campaign-wide and read through the parent (PME-1).
+        findUniqueOrThrow: jest.fn().mockResolvedValue({
+          evaluationCampaign: { killSwitchEngaged: false },
+        }),
       },
       paperBreach: {
         findMany: jest.fn().mockResolvedValue(active),

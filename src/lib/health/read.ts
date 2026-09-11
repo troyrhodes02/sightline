@@ -601,7 +601,12 @@ async function readAutonomyHealth(): Promise<{
 }> {
   const campaign = await prisma.paperCampaign.findFirst({
     orderBy: { startedAt: "asc" },
-    select: { id: true, autonomyEnabled: true, killSwitchEngaged: true },
+    select: {
+      id: true,
+      autonomyEnabled: true,
+      // Kill switch is campaign-wide, held on the parent (PME-1).
+      evaluationCampaign: { select: { killSwitchEngaged: true } },
+    },
   });
   if (!campaign) {
     return { status: "disabled", activeBreaches: 0, openPositions: 0 };
@@ -618,7 +623,7 @@ async function readAutonomyHealth(): Promise<{
   ]);
 
   const halting = breaches.filter((breach) => halts(breach.condition)).length;
-  const status = campaign.killSwitchEngaged
+  const status = campaign.evaluationCampaign.killSwitchEngaged
     ? "killed"
     : !campaign.autonomyEnabled
       ? "disabled"

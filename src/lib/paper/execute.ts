@@ -173,6 +173,10 @@ async function executeInner(
         cycleId: cycle.id,
         contractId: candidate.contractId,
         projectionId: candidate.projectionId,
+        // Denormalised for the Hybrid audit trail (PME-1, D6): equals the
+        // projection's model version at cycle time, frozen against later
+        // selection changes.
+        sourceModelVersion: candidate.modelVersion,
         priceObservationId: candidate.priceObservationId,
         recalibrationId: input.recalibrationId,
         rank: candidate.rank,
@@ -257,6 +261,10 @@ async function executeInner(
           costBasisCents: candidate.filledCostCents,
           feesPaidCents: candidate.filledFeeCents,
           intendedStakeCents: candidate.intendedStakeCents,
+          // Fixed at open time, never rewritten (PME-1, D6). A filled candidate
+          // always carries a projection (planCycle refuses those without one), so
+          // this is non-null in practice; the fallback keeps the column honest.
+          sourceModelVersion: candidate.modelVersion ?? "unknown",
           status: "open",
           openedAt: input.finishedAt,
         },
