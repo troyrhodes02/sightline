@@ -3,6 +3,7 @@ import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import { NumericText } from "@/components/primitives/NumericText";
 import type { LeaderState } from "@/lib/dto/model-eval";
+import { modelDisplayName } from "@/lib/model-eval/config";
 
 /**
  * The leader indicator — one closed four-state vocabulary (D14).
@@ -20,14 +21,10 @@ import type { LeaderState } from "@/lib/dto/model-eval";
  * sees which record is thin (D15 — the two are labelled, never blended).
  */
 
-const MODEL_NAMES: Record<string, string> = {
-  "simulation-mc-0.1.0": "Simulation Engine",
-  "baseline-zil-0.1.0": "Baseline",
-};
-
-function modelName(version: string): string {
-  return MODEL_NAMES[version] ?? "Model";
-}
+// Engine display names resolve through the shared `modelDisplayName` helper,
+// keyed on the version constants, so a version bump never silently falls back to
+// the generic label here.
+const modelName = modelDisplayName;
 
 function label(
   leader: LeaderState,

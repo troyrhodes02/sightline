@@ -176,13 +176,19 @@ export async function runPaperCycle(
     // another. The invocationId is namespaced per portfolio so each portfolio's
     // idempotency key is distinct on the (campaignId, gameId, invocationId)
     // unique index, and a coalesce on one portfolio never suppresses another.
+    // The risk config is authored once (the configuration route is the only
+    // writer) and SHARED by every portfolio of the campaign, so all portfolios
+    // size under identical assumptions (D5/D11). Resolve it once, scoped to the
+    // evaluation campaign; a portfolio is skipped only when the campaign was
+    // never configured — never because a sibling lacks its own copy. Making this
+    // per-portfolio is what silently left Simulation and Hybrid untraded.
+    const config = await prisma.paperRiskConfig.findFirst({
+      where: { campaign: { evaluationCampaignId: evaluationCampaign.id } },
+      orderBy: { effectiveFrom: "desc" },
+    });
+
     for (const portfolio of portfolios) {
       if (!portfolio.autonomyEnabled) continue;
-
-      const config = await prisma.paperRiskConfig.findFirst({
-        where: { campaignId: portfolio.campaignId },
-        orderBy: { effectiveFrom: "desc" },
-      });
       if (!config) continue;
 
       const portfolioInvocationId = `${input.invocationId}:${portfolio.portfolio}`;

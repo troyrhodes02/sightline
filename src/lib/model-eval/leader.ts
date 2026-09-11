@@ -1,11 +1,10 @@
 import {
   BACKTEST_SAMPLE_FLOOR,
-  BASELINE_VERSION,
   EVIDENCE_MODERATE_MULTIPLE,
   EVIDENCE_STRONG_MULTIPLE,
   LEADER_BRIER_MARGIN,
   LIVE_SAMPLE_FLOOR,
-  SIMULATION_VERSION,
+  modelDisplayName,
 } from "./config";
 import type {
   EvidenceRecord,
@@ -108,13 +107,8 @@ export function belowFloor(
   return sampleSize < sampleFloor(record);
 }
 
-const MODEL_NAMES: Record<string, string> = {
-  [SIMULATION_VERSION]: "Simulation Engine",
-  [BASELINE_VERSION]: "Baseline",
-};
-
 function modelName(modelVersion: string): string {
-  return MODEL_NAMES[modelVersion] ?? "the leading model";
+  return modelDisplayName(modelVersion, "the leading model");
 }
 
 export type RecommendationInput = {

@@ -13,6 +13,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { LEADER_BRIER_MARGIN } from "@/lib/model-eval/config";
 
 /**
  * The two-model Brier comparison bar chart (spec §UI integration).
@@ -55,7 +56,14 @@ export function ComparisonBarChart({
     { label: "Baseline", brier: baselineBrier, dashed: true },
     { label: "Simulation", brier: simulationBrier, dashed: false },
   ];
-  const better = simulationBrier < baselineBrier ? "Simulation" : "Baseline";
+  // Only name a better-calibrated engine when the gap clears the same absolute
+  // Brier margin the leader logic uses (D1/D14). At or within the margin the two
+  // are too close to call — the chart must never assert a winner the LeaderChip
+  // deliberately withholds (rabbit hole: don't let simplification turn
+  // uncertainty into false certainty). Epsilon mirrors leader.ts's inclusive bar.
+  const brierGap = baselineBrier - simulationBrier; // > 0 ⇒ Simulation lower (better)
+  const decided = Math.abs(brierGap) + 1e-9 >= LEADER_BRIER_MARGIN;
+  const better = !decided ? null : brierGap > 0 ? "Simulation" : "Baseline";
 
   return (
     <Box>
@@ -116,8 +124,10 @@ export function ComparisonBarChart({
         sx={{ color: "text.muted", display: "block", mt: 0.5 }}
       >
         Brier — Baseline {baselineBrier.toFixed(3)} (dashed), Simulation{" "}
-        {simulationBrier.toFixed(3)} (solid). Lower is better; {better} is
-        better calibrated here.
+        {simulationBrier.toFixed(3)} (solid). Lower is better;{" "}
+        {better
+          ? `${better} is better calibrated here.`
+          : "the two are too close to call here."}
       </Typography>
     </Box>
   );

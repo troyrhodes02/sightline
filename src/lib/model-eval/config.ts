@@ -12,6 +12,21 @@ export const SIMULATION_VERSION = "simulation-mc-0.1.0";
 export const BASELINE_VERSION = "baseline-zil-0.1.0";
 
 /**
+ * Human display names for the two engine versions, keyed on the version
+ * constants above so a version bump updates the name lookup in one place. Every
+ * surface that renders an engine name (LeaderChip, the recommendation text)
+ * resolves through this helper rather than hardcoding version literals.
+ */
+const MODEL_DISPLAY_NAMES: Record<string, string> = {
+  [SIMULATION_VERSION]: "Simulation Engine",
+  [BASELINE_VERSION]: "Baseline",
+};
+
+export function modelDisplayName(version: string, fallback = "Model"): string {
+  return MODEL_DISPLAY_NAMES[version] ?? fallback;
+}
+
+/**
  * The Simulation-Engine promotion bar (D1). A leader is only declared when the
  * absolute Brier margin reaches this; below it the models are `too_close_to_call`.
  */

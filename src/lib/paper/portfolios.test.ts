@@ -8,16 +8,36 @@ import { resolvePortfolios, selectionIsHybrid } from "./portfolios";
 jest.mock("@/lib/prisma", () => ({
   prisma: {
     paperEvaluationCampaign: { findUniqueOrThrow: jest.fn() },
-    paperCampaign: { create: jest.fn() },
     modelSelection: { findMany: jest.fn() },
+    paperRiskConfig: { findFirst: jest.fn() },
+    $transaction: jest.fn(),
   },
 }));
 
 const mockPrisma = prisma as unknown as {
   paperEvaluationCampaign: { findUniqueOrThrow: jest.Mock };
-  paperCampaign: { create: jest.Mock };
   modelSelection: { findMany: jest.Mock };
+  paperRiskConfig: { findFirst: jest.Mock };
+  $transaction: jest.Mock;
 };
+
+// Provisioning a sibling creates its campaign, opening-balance ledger entry, and
+// a clone of the shared risk config atomically. These track the tx-scoped writes.
+const txCampaignCreate = jest.fn();
+const txLedgerCreate = jest.fn();
+const txRiskConfigCreate = jest.fn();
+
+function installTransaction() {
+  mockPrisma.paperRiskConfig.findFirst.mockResolvedValue(null);
+  mockPrisma.$transaction.mockImplementation(
+    async (fn: (tx: unknown) => unknown) =>
+      fn({
+        paperCampaign: { create: txCampaignCreate },
+        paperLedgerEntry: { create: txLedgerCreate },
+        paperRiskConfig: { create: txRiskConfigCreate },
+      }),
+  );
+}
 
 const EXECUTE = readCode(
   join(process.cwd(), "src", "lib", "paper", "execute.ts"),
@@ -66,7 +86,10 @@ describe("selectionIsHybrid", () => {
 });
 
 describe("resolvePortfolios", () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    installTransaction();
+  });
 
   const START = new Date("2026-09-01T00:00:00Z");
 
@@ -80,7 +103,7 @@ describe("resolvePortfolios", () => {
       portfolios: [],
     });
     let created = 0;
-    mockPrisma.paperCampaign.create.mockImplementation(async ({ data }) => ({
+    txCampaignCreate.mockImplementation(async ({ data }) => ({
       id: `new-${created++}`,
       portfolio: data.portfolio,
       highWaterMarkCents: data.highWaterMarkCents,
@@ -92,6 +115,10 @@ describe("resolvePortfolios", () => {
     expect(targets.map((t) => t.portfolio)).toEqual(["baseline", "simulation"]);
     // Both seeded from the SAME starting bankroll.
     for (const t of targets) expect(t.startingBankrollCents).toBe(100_000);
+    // Each newly-provisioned sibling gets an opening-balance ledger entry so its
+    // scorecard reads its starting bankroll, not a settled balance of zero.
+    expect(txLedgerCreate).toHaveBeenCalledTimes(2);
+    expect(txLedgerCreate.mock.calls[0][0].data.kind).toBe("opening_balance");
   });
 
   it("provisions a hybrid portfolio when the selection is mixed", async () => {
@@ -121,7 +148,7 @@ describe("resolvePortfolios", () => {
         },
       ],
     });
-    mockPrisma.paperCampaign.create.mockImplementation(async ({ data }) => ({
+    txCampaignCreate.mockImplementation(async ({ data }) => ({
       id: "ch",
       portfolio: data.portfolio,
       highWaterMarkCents: data.highWaterMarkCents,
@@ -136,10 +163,14 @@ describe("resolvePortfolios", () => {
       "hybrid",
     ]);
     // Only the hybrid was newly created; the two engines already existed.
-    expect(mockPrisma.paperCampaign.create).toHaveBeenCalledTimes(1);
-    expect(
-      mockPrisma.paperCampaign.create.mock.calls[0][0].data.portfolio,
-    ).toBe("hybrid");
+    expect(txCampaignCreate).toHaveBeenCalledTimes(1);
+    expect(txCampaignCreate.mock.calls[0][0].data.portfolio).toBe("hybrid");
+    // The hybrid mirrors baseline's autonomy deterministically, and gets its own
+    // opening-balance ledger entry. Its risk config is the campaign's shared one,
+    // read by the cycle — never cloned here (that keeps the config single-writer).
+    expect(txCampaignCreate.mock.calls[0][0].data.autonomyEnabled).toBe(true);
+    expect(txLedgerCreate).toHaveBeenCalledTimes(1);
+    expect(txRiskConfigCreate).not.toHaveBeenCalled();
   });
 
   it("resolves a fixed-engine portfolio to its own version for every stat", async () => {
@@ -268,5 +299,17 @@ describe("the three portfolios never merge", () => {
 
   it("namespaces the idempotency key per portfolio so a coalesce cannot cross portfolios", () => {
     expect(CYCLE).toContain("${input.invocationId}:${portfolio.portfolio}");
+  });
+});
+
+describe("every portfolio sizes under the campaign's shared risk config", () => {
+  it("resolves ONE config scoped to the evaluation campaign, not per portfolio", () => {
+    // Regression guard: a per-portfolio config lookup left the Simulation and
+    // Hybrid siblings (which never had their own config row) skipped on every
+    // tick, so only Baseline ever traded. The config is authored once and shared,
+    // so the cycle resolves it by evaluationCampaignId and applies it to all.
+    expect(CYCLE).toContain(
+      "campaign: { evaluationCampaignId: evaluationCampaign.id }",
+    );
   });
 });

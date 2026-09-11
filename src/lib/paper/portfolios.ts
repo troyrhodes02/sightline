@@ -108,28 +108,52 @@ export async function resolvePortfolios(
   for (const portfolio of wanted) {
     let row = existing.get(portfolio);
     if (!row) {
-      // The autonomy flag mirrors any sibling that already exists so a newly
-      // provisioned portfolio does not silently start trading (or stay off)
-      // out of step with the campaign the operator configured. Default off.
-      const autonomyEnabled = parent.portfolios[0]?.autonomyEnabled ?? false;
-      const created = await prisma.paperCampaign.create({
-        data: {
-          evaluationCampaignId,
-          portfolio,
-          startingBankrollCents: parent.startingBankrollCents,
-          highWaterMarkCents: parent.startingBankrollCents,
-          highWaterMarkAt: parent.campaignStartedAt,
-          startedAt: parent.campaignStartedAt,
-          portfolioStartedAt: parent.campaignStartedAt,
-          autonomyEnabled,
-        },
-        select: {
-          id: true,
-          portfolio: true,
-          highWaterMarkCents: true,
-          startingBankrollCents: true,
-          autonomyEnabled: true,
-        },
+      // Deterministic: a new sibling mirrors the BASELINE portfolio's autonomy
+      // (baseline is always provisioned first, at bootstrap), never an arbitrary
+      // row of an unordered relation. Default off when baseline is somehow absent.
+      const autonomyEnabled =
+        existing.get("baseline")?.autonomyEnabled ??
+        parent.portfolios.find((p) => p.portfolio === "baseline")
+          ?.autonomyEnabled ??
+        false;
+      // Campaign and its opening-balance ledger entry are created atomically, so
+      // a sibling is never observed with a bankroll but no opening balance. The
+      // risk config is NOT copied here: it is authored in exactly one place (the
+      // configuration route) and SHARED across the campaign's portfolios by the
+      // cycle, which is what keeps "risk mode never changes itself" structural.
+      const created = await prisma.$transaction(async (tx) => {
+        const campaign = await tx.paperCampaign.create({
+          data: {
+            evaluationCampaignId,
+            portfolio,
+            startingBankrollCents: parent.startingBankrollCents,
+            highWaterMarkCents: parent.startingBankrollCents,
+            highWaterMarkAt: parent.campaignStartedAt,
+            startedAt: parent.campaignStartedAt,
+            portfolioStartedAt: parent.campaignStartedAt,
+            autonomyEnabled,
+          },
+          select: {
+            id: true,
+            portfolio: true,
+            highWaterMarkCents: true,
+            startingBankrollCents: true,
+            autonomyEnabled: true,
+          },
+        });
+        // Opening balance is a ledger fact, exactly as the baseline records at
+        // bootstrap — without it the scorecard reads a settled balance of 0 and
+        // reports the portfolio as down its whole starting bankroll.
+        await tx.paperLedgerEntry.create({
+          data: {
+            campaignId: campaign.id,
+            kind: "opening_balance",
+            amountCents: parent.startingBankrollCents,
+            balanceAfterCents: parent.startingBankrollCents,
+            occurredAt: parent.campaignStartedAt,
+          },
+        });
+        return campaign;
       });
       row = created;
       existing.set(portfolio, created);

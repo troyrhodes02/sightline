@@ -89,24 +89,27 @@ async function scorecardForPortfolio(
   // Measured against the WHOLE campaign, never the window: a period is a lens,
   // not a reset. The settled balance is the running ledger total; the mark adds
   // the market value of currently-open positions.
-  const lastEntry = await prisma.paperLedgerEntry.findFirst({
-    where: { campaignId: campaign.id },
-    orderBy: [{ occurredAt: "desc" }, { id: "desc" }],
-    select: { balanceAfterCents: true },
-  });
+  // The running-total ledger tail and the open positions are independent reads;
+  // fetch them together rather than serially.
+  const [lastEntry, openPositions] = await Promise.all([
+    prisma.paperLedgerEntry.findFirst({
+      where: { campaignId: campaign.id },
+      orderBy: [{ occurredAt: "desc" }, { id: "desc" }],
+      select: { balanceAfterCents: true },
+    }),
+    prisma.paperPosition.findMany({
+      where: { campaignId: campaign.id, status: "open" },
+      select: {
+        id: true,
+        contractId: true,
+        side: true,
+        contracts: true,
+        costBasisCents: true,
+        feesPaidCents: true,
+      },
+    }),
+  ]);
   const settledBalanceCents = lastEntry?.balanceAfterCents ?? 0;
-
-  const openPositions = await prisma.paperPosition.findMany({
-    where: { campaignId: campaign.id, status: "open" },
-    select: {
-      id: true,
-      contractId: true,
-      side: true,
-      contracts: true,
-      costBasisCents: true,
-      feesPaidCents: true,
-    },
-  });
   const observations = await prisma.priceObservation.findMany({
     where: { contractId: { in: openPositions.map((p) => p.contractId) } },
     orderBy: { observedAt: "desc" },
@@ -128,10 +131,42 @@ async function scorecardForPortfolio(
   }));
   const mark = markToMarket(settledBalanceCents, marks);
 
-  const withdrawals = await prisma.paperLedgerEntry.aggregate({
-    where: { campaignId: campaign.id, kind: "withdrawal" },
-    _sum: { amountCents: true },
-  });
+  // These five reads share no data dependency — the cumulative withdrawal, the
+  // windowed opportunity counts (D5), the windowed position/breaker counts, and
+  // the active risk mode — so they run together rather than as five serial
+  // round-trips per portfolio.
+  const [withdrawals, cycleAgg, positionCount, breakerEventCount, config] =
+    await Promise.all([
+      prisma.paperLedgerEntry.aggregate({
+        where: { campaignId: campaign.id, kind: "withdrawal" },
+        _sum: { amountCents: true },
+      }),
+      prisma.paperCycle.aggregate({
+        where: {
+          campaignId: campaign.id,
+          ...(startedAtFilter ? { startedAt: startedAtFilter } : {}),
+        },
+        _sum: { candidatesEvaluated: true, candidatesSized: true },
+      }),
+      // Positions opened in the window (the whole campaign for `campaign`).
+      prisma.paperPosition.count({
+        where: {
+          campaignId: campaign.id,
+          ...(startedAtFilter ? { openedAt: startedAtFilter } : {}),
+        },
+      }),
+      prisma.paperBreach.count({
+        where: {
+          campaignId: campaign.id,
+          ...(startedAtFilter ? { trippedAt: startedAtFilter } : {}),
+        },
+      }),
+      prisma.paperRiskConfig.findFirst({
+        where: { campaignId: campaign.id },
+        orderBy: { effectiveFrom: "desc" },
+        select: { mode: true },
+      }),
+    ]);
   const withdrawnCents = Math.abs(withdrawals._sum.amountCents ?? 0);
 
   // null (mark unavailable) is a distinct state from a real 0: when the mark is
@@ -149,36 +184,6 @@ async function scorecardForPortfolio(
       ? null
       : (netPnlCents / campaign.startingBankrollCents) * 100;
   const maxDrawdownBps = drawdownBps(campaign.highWaterMarkCents, mark);
-
-  // --- Opportunity counts (D5) — windowed --------------------------------
-  const cycleAgg = await prisma.paperCycle.aggregate({
-    where: {
-      campaignId: campaign.id,
-      ...(startedAtFilter ? { startedAt: startedAtFilter } : {}),
-    },
-    _sum: { candidatesEvaluated: true, candidatesSized: true },
-  });
-
-  // Positions opened in the window (the whole campaign for `campaign`).
-  const positionCount = await prisma.paperPosition.count({
-    where: {
-      campaignId: campaign.id,
-      ...(startedAtFilter ? { openedAt: startedAtFilter } : {}),
-    },
-  });
-
-  const breakerEventCount = await prisma.paperBreach.count({
-    where: {
-      campaignId: campaign.id,
-      ...(startedAtFilter ? { trippedAt: startedAtFilter } : {}),
-    },
-  });
-
-  const config = await prisma.paperRiskConfig.findFirst({
-    where: { campaignId: campaign.id },
-    orderBy: { effectiveFrom: "desc" },
-    select: { mode: true },
-  });
 
   return {
     portfolio: campaign.portfolio,
