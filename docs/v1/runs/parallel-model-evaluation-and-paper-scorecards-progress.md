@@ -7,7 +7,23 @@
 
 ## Current step
 
-Implementation. SIG-102 (branch), SIG-103 (branch) committed+pushed. **SIG-104 IN PROGRESS** — model-comparison evidence layer.
+**Steps 8–11 complete.** All 7 tickets squash-merged into the feature branch in order (102→103→104→106→105→107→108). Ticket PRs #107–#113 CLOSED with squash-merge notes (GitHub button blocked only by run-progress doc conflict; local squash used). Feature code tree verified byte-identical to the cumulative SIG-108 tip. Full suite GREEN. **Next: Step 12 /review → Step 13 audit → Step 14 re-verify → Step 15 report. DO NOT merge feature into main.**
+
+### Step 11 verification (actual, on feature branch)
+- typecheck ✓ · format ✓ (fixed e2e/authenticated.spec.ts) · lint ✓ (only errors are in untracked pre-existing `prisma/seed-dev-game.ts`, NOT on branch → CI clean) · prisma validate ✓
+- schema tests 36/36 ✓ · Jest 1061/1061 (86 suites) ✓ · build ✓ (routes: `/model-performance`(+overrides), `/slate/[contractId]`, `/autonomy`+`/activity`+`/settings`, `/api/model-selection`; `/autonomy/dry-run` removed; `dry-run.ts` util kept) · pytest 500/500 ✓
+- e2e: NOT runnable locally (needs live server + seeded Supabase creds); runs on Vercel preview.
+- 7 pitch-specific tests present + green: D4 no-crossing-param (model-eval/read.test.ts), D3 one-obs/latest-pre-kickoff (read.test.ts + python test_post_kickoff_computation_is_never_stored_as_live), D2 hybrid-clock-reset (model-selection.test.ts), both engines graded independently (python test_both_engines_projections_are_graded_independently), D6 never-update-sourceModelVersion (portfolios.test.ts), D7 dry-run-unreachable+fn-callable-not-Preview (paper-bot-invariants.test.ts), D8 withhold-below-30 (track-record.test.ts).
+
+### Ticket PR → squash commit map (all CLOSED)
+#107 SIG-102 → d6a1d8c · #108 SIG-103 → 6c6a58e · #109 SIG-104 → 88cfc89 · #110 SIG-106 → 2755a7e · #111 SIG-105 → ece8ca8 · #112 SIG-107 → 3e7e3b9 · #113 SIG-108 → c87bb3d
+
+### Deferred (for report)
+- Per-confidence & per-probability-bucket comparison RATES on Model Performance Breakdown render honest insufficient-evidence state + link to Advanced (SIG-104 read lacks segmented series). Follow-up.
+- Per-portfolio Resume/Force-override render in banner but act via existing single-campaign routes (SIG-107). Follow-up.
+- Linear `SIG-106 blockedBy SIG-105` edge is cosmetically backwards (build order corrected mid-run). No functional impact.
+
+---
 
 ### SIG-104 status (PME-3)
 
