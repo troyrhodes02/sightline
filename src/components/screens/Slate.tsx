@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
@@ -100,11 +100,16 @@ export function Slate({
   const PAGE_SIZE = 10;
   const [bestPage, setBestPage] = useState(1);
   const [gamesPage, setGamesPage] = useState(1);
+  // Reset both page cursors when the selection/view changes. Done during render
+  // (the "adjust state on prop change" pattern) rather than in an effect, so it
+  // never triggers a second commit.
   const scopeKey = scopeToParams(scope).toString();
-  useEffect(() => {
+  const [prevScopeKey, setPrevScopeKey] = useState(scopeKey);
+  if (scopeKey !== prevScopeKey) {
+    setPrevScopeKey(scopeKey);
     setBestPage(1);
     setGamesPage(1);
-  }, [scopeKey]);
+  }
 
   const bestRows = filtered.bestOpportunities;
   const bestPageCount = Math.max(1, Math.ceil(bestRows.length / PAGE_SIZE));
