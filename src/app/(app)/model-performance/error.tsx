@@ -6,11 +6,12 @@ import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 
 /**
- * A failed accuracy read — the database read itself. A delayed grading cycle
- * is NOT an error: it renders as a freshness disclosure over the last
- * completed results and must never land here.
+ * A failed Model Performance read — the database or ledger read itself. A
+ * delayed grading cycle is NOT an error: it renders as a freshness disclosure
+ * over the last completed results and must never land here. A scope with no
+ * data is a designed no-data state, not an error either.
  */
-export default function AccuracyError({
+export default function ModelPerformanceError({
   reset,
 }: {
   error: Error;
@@ -18,7 +19,7 @@ export default function AccuracyError({
 }) {
   return (
     <Stack spacing={3}>
-      <Typography variant="h1">Accuracy</Typography>
+      <Typography variant="h1">Model Performance</Typography>
       <Alert
         severity="error"
         role="alert"
@@ -28,8 +29,8 @@ export default function AccuracyError({
           </Button>
         }
       >
-        Accuracy is temporarily unavailable — the last completed results could
-        not be read.
+        Model performance is temporarily unavailable — the last completed
+        results could not be read.
       </Alert>
     </Stack>
   );

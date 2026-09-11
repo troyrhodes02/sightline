@@ -94,7 +94,12 @@ describe("authorization", () => {
 
   it("guards every admin route", () => {
     const adminRoutes = [
-      join(SRC, "app", "(app)", "accuracy", "overrides", "page.tsx"),
+      // Model Performance (PME-4/D9), the former Accuracy surface. Every level
+      // and the overrides subroute is admin-guarded server-side; the retired
+      // `/accuracy` and `/accuracy/overrides` are 308 redirects, not guarded
+      // surfaces, so the guards live here now.
+      join(SRC, "app", "(app)", "model-performance", "page.tsx"),
+      join(SRC, "app", "(app)", "model-performance", "overrides", "page.tsx"),
       join(SRC, "app", "(app)", "health", "page.tsx"),
       join(SRC, "app", "(app)", "users", "page.tsx"),
       join(SRC, "app", "api", "users", "[id]", "decision", "route.ts"),

@@ -342,7 +342,8 @@ describe("Accuracy screen — the private layer is absent, not hidden", () => {
       <Accuracy accuracy={dto({ overridesEntry: { decisionCount: 45 } })} />,
     );
     expect(screen.getByText("Overrides")).toBeTruthy();
-    expect(container.innerHTML).toContain("/accuracy/overrides");
+    // The overrides doorway now leads to the Model Performance route (PME-4/D9).
+    expect(container.innerHTML).toContain("/model-performance/overrides");
     expect(container.textContent).toContain("45 decisions");
   });
 });

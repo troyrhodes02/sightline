@@ -16,7 +16,7 @@ describe("navigation sections", () => {
     expect(labels).toEqual([
       "Slate",
       "Prop Research",
-      "Accuracy",
+      "Model Performance",
       "Autonomy",
       "Suggestions",
       "Health",
@@ -35,13 +35,17 @@ describe("navigation sections", () => {
     );
   });
 
-  // Pitch 10: general model accuracy moved behind the admin boundary. It is an
-  // admin-group surface now, no longer a shared viewer read.
-  it("keeps Accuracy admin-only and in the admin group", () => {
-    const accuracy = SECTIONS.find((s) => s.href === "/accuracy");
-    expect(accuracy).toBeDefined();
-    expect(accuracy?.adminOnly).toBe(true);
-    expect(accuracy?.adminGroup).toBe(true);
+  // Pitch 10: general model accuracy moved behind the admin boundary. Pitch 11
+  // (PME-4/D9) renamed it to Model Performance at `/model-performance`. It
+  // remains an admin-group surface, not a shared viewer read.
+  it("keeps Model Performance admin-only and in the admin group", () => {
+    const modelPerformance = SECTIONS.find(
+      (s) => s.href === "/model-performance",
+    );
+    expect(modelPerformance).toBeDefined();
+    expect(modelPerformance?.label).toBe("Model Performance");
+    expect(modelPerformance?.adminOnly).toBe(true);
+    expect(modelPerformance?.adminGroup).toBe(true);
   });
 
   // The viewer-facing product is exactly two primary tabs; the admin's extra
@@ -61,7 +65,7 @@ describe("navigation sections", () => {
   // empty for a viewer so the control itself never renders for them.
   it("gathers admin surfaces for the admin and nothing for a viewer", () => {
     expect(adminSections("admin").map((s) => s.label)).toEqual([
-      "Accuracy",
+      "Model Performance",
       "Autonomy",
       "Suggestions",
       "Health",

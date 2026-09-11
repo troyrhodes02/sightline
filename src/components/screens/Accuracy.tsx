@@ -63,18 +63,35 @@ function scopeQuery(scope: AccuracyScope, record: AccuracyScope["record"]) {
     stat: String(scope.statType),
     season: String(scope.season),
   });
-  return `/accuracy?${params.toString()}`;
+  params.set("level", "advanced");
+  return `/model-performance?${params.toString()}`;
 }
 
-export function Accuracy({ accuracy }: { accuracy: AccuracyDto }) {
+/**
+ * The statistical evidence surface — the Advanced level of Model Performance
+ * (PME-4/D9). Rendered inside the level tabs by the Model Performance screen; it
+ * omits its own page heading (`hideHeading`) when nested so the surface has one
+ * title, not two. Standalone rendering (tests, fixtures) keeps the heading.
+ */
+export function Accuracy({
+  accuracy,
+  hideHeading = false,
+}: {
+  accuracy: AccuracyDto;
+  hideHeading?: boolean;
+}) {
+  // When nested as the Advanced level, every scope change must keep the level
+  // param so the surface does not fall back to Summary.
+  const extraParams = hideHeading ? { level: "advanced" } : undefined;
   return (
     <Stack spacing={2}>
-      <Typography variant="h1">Accuracy</Typography>
+      {hideHeading ? null : <Typography variant="h1">Accuracy</Typography>}
 
       <AccuracyScopeBar
         scope={accuracy.scope}
         availableVersions={accuracy.availableVersions}
         availableSeasons={accuracy.availableSeasons}
+        extraParams={extraParams}
       />
 
       <FreshnessLine accuracy={accuracy} />
