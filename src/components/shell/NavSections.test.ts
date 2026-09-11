@@ -18,7 +18,6 @@ describe("navigation sections", () => {
       "Prop Research",
       "Model Performance",
       "Paper Bot",
-      "Suggestions",
       "Health",
       "Users",
       "Settings",
@@ -67,21 +66,17 @@ describe("navigation sections", () => {
     expect(adminSections("admin").map((s) => s.label)).toEqual([
       "Model Performance",
       "Paper Bot",
-      "Suggestions",
       "Health",
       "Users",
     ]);
     expect(adminSections("viewer")).toEqual([]);
   });
 
-  // Suggestions is no longer a primary destination: pending accept/decline
-  // moved inline onto the Slate. It remains reachable in the admin area.
-  it("keeps Suggestions reachable but out of the primary tabs", () => {
-    const suggestions = SECTIONS.find((s) => s.href === "/suggestions");
-    expect(suggestions?.adminGroup).toBe(true);
-    expect(primaryTabs("admin").some((s) => s.href === "/suggestions")).toBe(
-      false,
-    );
+  // Suggestions was removed from navigation entirely (owner decision): pending
+  // accept/decline already lives inline on the Slate. The `/suggestions` route
+  // and its reads remain intact, but it is no longer a nav destination.
+  it("has no Suggestions nav entry", () => {
+    expect(SECTIONS.some((s) => s.href === "/suggestions")).toBe(false);
   });
 
   it("lists no route that does not exist yet", () => {

@@ -44,15 +44,10 @@ export const SECTIONS: Section[] = [
   // The route base stays `/autonomy` (still an autonomous paper system, not
   // portfolio management), admin-only, three surfaces under one nav item.
   { label: "Paper Bot", href: "/autonomy", adminOnly: true, adminGroup: true },
-  // Adjustment Suggestions: admin-only history and the private reliability
-  // analytics. Pending accept/decline moved inline onto the Slate (Pitch 10),
-  // so this is no longer a primary destination — it lives in the admin area.
-  {
-    label: "Suggestions",
-    href: "/suggestions",
-    adminOnly: true,
-    adminGroup: true,
-  },
+  // Adjustment Suggestions removed from navigation (owner decision): pending
+  // accept/decline already moved inline onto the Slate (Pitch 10), and the
+  // standalone history/reliability page is not needed. The `/suggestions` route
+  // and its reads remain intact (admin-only) but are no longer a nav destination.
   { label: "Health", href: "/health", adminOnly: true, adminGroup: true },
   { label: "Users", href: "/users", adminOnly: true, adminGroup: true },
   { label: "Settings", href: "/settings", adminOnly: false, drawerOnly: true },

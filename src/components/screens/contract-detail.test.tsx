@@ -78,10 +78,26 @@ describe("ContractDetail — resolved", () => {
     renderThemed(
       <ContractDetail detail={detail()} isAdmin isUnresolved={false} />,
     );
-    expect(screen.getByText("61.4%")).toBeInTheDocument();
+    // Figures appear in the headline AND, restated, in the recommendation
+    // callout — so allow more than one match.
+    expect(screen.getAllByText("61.4%").length).toBeGreaterThan(0);
     expect(screen.getByText(/model P\(≥ 74\.5\)/)).toBeInTheDocument();
-    expect(screen.getByText(/▲ \+7\.4/)).toBeInTheDocument();
-    expect(screen.getByText("high")).toBeInTheDocument();
+    expect(screen.getAllByText(/▲ \+7\.4/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("high").length).toBeGreaterThan(0);
+  });
+
+  it("states the actionable recommendation: recommended, side, and price", () => {
+    renderThemed(
+      <ContractDetail
+        detail={detail({ isRecommended: true, side: "no", noAskCents: 47 })}
+        isAdmin
+        isUnresolved={false}
+      />,
+    );
+    expect(screen.getByText("Recommended")).toBeInTheDocument();
+    expect(screen.getByText(/Take NO/)).toBeInTheDocument();
+    // The recommended NO side's probability is P(< threshold) = 1 − 0.614.
+    expect(screen.getByText("38.6%")).toBeInTheDocument();
   });
 
   it("renders drivers verbatim, in order", () => {

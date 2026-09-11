@@ -102,10 +102,7 @@ export function ContractDetail({
         >
           <Typography variant="h1">{detail.playerName}</Typography>
           {detail.isRecommended ? (
-            <StatusChip
-              label={`recommended · ${detail.side ?? ""}`}
-              tone="accent"
-            />
+            <StatusChip label="recommended" tone="accent" />
           ) : null}
           {insufficient ? (
             <StatusChip label="insufficient evidence" tone="caution" icon />
@@ -147,6 +144,10 @@ export function ContractDetail({
           </Stack>
         ) : null}
       </Stack>
+
+      {hasProjection && detail.side !== null && hasPrice ? (
+        <RecommendationCallout detail={detail} statSentence={statSentence} />
+      ) : null}
 
       <Paper sx={{ p: 2.5 }}>
         <Stack direction="row" spacing={4} sx={{ flexWrap: "wrap", rowGap: 2 }}>
@@ -675,6 +676,86 @@ function Section({
         </Typography>
         <Divider />
         {children}
+      </Stack>
+    </Paper>
+  );
+}
+
+/**
+ * The plain-language, actionable recommendation (both roles). Sightline evaluates
+ * BOTH sides of the book and takes the side its probability favours; this states
+ * that side, the price to take it at, and the model's probability FOR THAT SIDE —
+ * so a reader never has to invert `P(≥ threshold)` in their head. When the edge
+ * clears the recommendation threshold it reads "Recommended"; otherwise it is the
+ * best value on the board, marked as below the threshold rather than hidden.
+ */
+function RecommendationCallout({
+  detail,
+  statSentence,
+}: {
+  detail: ContractDetailDto;
+  statSentence: string;
+}) {
+  const side = detail.side;
+  if (side === null) return null;
+  const price = side === "no" ? detail.noAskCents : detail.yesAskCents;
+  // The probability of the side actually being taken: P(< threshold) for NO.
+  const sideProbability =
+    detail.modelProbability === null
+      ? null
+      : side === "no"
+        ? 1 - detail.modelProbability
+        : detail.modelProbability;
+  const outcome =
+    side === "no"
+      ? `${statSentence} under ${detail.threshold}`
+      : `${statSentence} ${detail.threshold} or more`;
+  const recommended = detail.isRecommended;
+  return (
+    <Paper
+      sx={{
+        p: 2.5,
+        borderColor: recommended ? "primary.main" : "border.strong",
+      }}
+    >
+      <Stack spacing={1}>
+        <Typography
+          variant="label"
+          sx={{ color: recommended ? "primary.main" : "text.secondary" }}
+        >
+          {recommended
+            ? "Recommended"
+            : "Best value · below recommendation threshold"}
+        </Typography>
+        <Stack
+          direction="row"
+          spacing={1}
+          sx={{ alignItems: "baseline", flexWrap: "wrap" }}
+        >
+          <Typography variant="h2">Take {side.toUpperCase()}</Typography>
+          <Typography variant="body1" sx={{ color: "text.secondary" }}>
+            — {outcome} — at
+          </Typography>
+          <PriceValue cents={price} size="lg" />
+        </Stack>
+        <Stack
+          direction="row"
+          spacing={0.75}
+          sx={{ alignItems: "baseline", flexWrap: "wrap" }}
+        >
+          <Typography variant="body2" sx={{ color: "text.secondary" }}>
+            model
+          </Typography>
+          <ProbabilityValue value={sideProbability} size="sm" />
+          <Typography variant="body2" sx={{ color: "text.secondary" }}>
+            for this side vs {price ?? "—"}¢ ask · edge
+          </Typography>
+          <EdgeValue points={detail.edgePoints} size="sm" />
+          <Typography variant="body2" sx={{ color: "text.secondary" }}>
+            · confidence
+          </Typography>
+          <ConfidenceValue confidence={detail.confidence} size="sm" />
+        </Stack>
       </Stack>
     </Paper>
   );

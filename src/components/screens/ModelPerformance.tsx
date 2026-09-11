@@ -152,9 +152,13 @@ function OverallLeaderCard({
   backtest: ModelComparisonDto;
 }) {
   // The card carries both records so the reader sees which is thin (D15). The
-  // headline chip reflects the live record; the backtest is shown beneath it,
-  // never blended into one figure.
-  const notEnough =
+  // ACTUAL numbers (each engine's Brier and its observation count) always render,
+  // even below the sample floor — an admin watching performance accumulate wants
+  // to see the figures evolve, not a wall that hides them. Only the LEADER VERDICT
+  // is gated: a leader is declared only once the margin and sample floors are
+  // met; below that the chip says "not enough evidence" while the Brier and obs
+  // count still show.
+  const thin =
     live.leader === "not_enough_evidence" &&
     backtest.leader === "not_enough_evidence";
 
@@ -165,21 +169,17 @@ function OverallLeaderCard({
           Overall leader · contract-like population
         </Typography>
 
-        {notEnough ? (
-          <EmptyState
-            title="Not enough evidence to compare the engines yet."
-            detail={`Live grading is still accumulating — ${live.liveObservations.toLocaleString(
-              "en-US",
-            )} live obs · ${backtest.backtestObservations.toLocaleString(
-              "en-US",
-            )} backtest obs. Both engines keep running; no model change is warranted.`}
-          />
-        ) : (
-          <>
-            <RecordLeaderRow label="Live" comparison={live} />
-            <RecordLeaderRow label="Backtest" comparison={backtest} />
-          </>
-        )}
+        <RecordLeaderRow label="Live" comparison={live} />
+        <RecordLeaderRow label="Backtest" comparison={backtest} />
+
+        {thin ? (
+          <Typography variant="caption" sx={{ color: "text.secondary" }}>
+            A leader is only declared once one engine beats the other by ≥ 0.01
+            Brier over ≥ 50 live (≥ 500 backtest) graded predictions. Until then
+            the figures above show as they accumulate. Both engines keep
+            running; no model change is warranted.
+          </Typography>
+        ) : null}
       </Stack>
     </Paper>
   );
