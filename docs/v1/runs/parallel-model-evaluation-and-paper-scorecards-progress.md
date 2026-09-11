@@ -87,8 +87,10 @@ Status / PRs (base of every ticket PR = feature branch; each ticket branch stack
 
 **BUILD-ORDER CORRECTION:** SIG numbers vs PME numbers were: SIG-105=PME-4 (Model Performance surface), SIG-106=PME-5 (three portfolios). The three-portfolio worker correctly did SIG-106 (not 105). Corrected linear stack: **102→103→104→106→105→107→108**. SIG-105 (Model Performance UI) now branches off SIG-106 so it can consume both the comparison read (104) and scorecards (106). (Linear's `SIG-106 blockedBy SIG-105` edge is now cosmetically backwards — noted for report; work is correct.)
 
-- **SIG-105 (PME-4, Model Performance surface)** ⏳ next — branches off SIG-106's branch.
-- SIG-107 (Paper Bot reorg), SIG-108 (viewer block) pending.
+- **SIG-105 (PME-4, Model Performance surface)** ✅ DONE — PR #111, branch `wtrhodesdev/sig-105-pme-4-model-performance-surface-summarybreakdownadvanced` (off SIG-106). Jest 1037/1037, typecheck/build/format clean; e2e specs updated for the rename (skip-gated locally on E2E creds; run on Vercel preview). `/accuracy`→`/model-performance` (admin), 308 redirects incl overrides; three levels via `?level=`; new components LeaderChip/EvidenceChip/RecommendationCard/PortfolioScorecard/ComparisonBarChart; `readModelPerformance` composes SIG-104 + SIG-106 reads. Recommendation is prose + one nav link, no config write (D12, structurally asserted). Linear → In Progress.
+  - **DEFERRED (for report / follow-up):** per-confidence & per-probability-bucket comparison *rates* on Breakdown render the honest insufficient-evidence state + link to Advanced buckets rather than fabricated rates — SIG-104's read exposes overall/per-stat/financial series but not per-confidence/per-bucket segmented series. D8/D16 preserved (honest state). A segmented read is a follow-up enhancement, not a blocker.
+- **SIG-107 (PME-6, Paper Bot reorg + model selection + readiness reset + Dry Run removal)** ⏳ next — branches off SIG-105's branch. Heaviest UI ticket + D2/D7/D12/D13 invariants.
+- SIG-108 (viewer block) pending.
 
 **Merge-time note:** SIG-104's branch (and possibly others) carry their own edits to THIS progress file (workers wrote status). At Step 10 squash-merge, resolve any progress-file conflict in favour of the feature-branch version (authoritative). Remaining workers (105–108) instructed NOT to touch the progress file.
 
