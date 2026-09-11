@@ -246,9 +246,9 @@ export function AutonomyReview({
                 size="small"
                 variant="text"
                 component={Link}
-                href="/accuracy"
+                href="/model-performance"
               >
-                Accuracy →
+                Model Performance →
               </Button>
             </Stack>
             <NumericText size="sm" sx={{ color: "text.secondary" }}>

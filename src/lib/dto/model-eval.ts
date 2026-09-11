@@ -121,6 +121,53 @@ export type PortfolioScorecardDto = {
 };
 
 /**
+ * The readiness summary strip shown on Model Performance → Summary (D2/D21).
+ * Decision support only, never a control: it never auto-enables live trading.
+ * `state` mirrors the paper readiness headline; the active configuration's
+ * portfolio is named so the two-week clock is read against the right anchor.
+ */
+export type ReadinessSummaryDto = {
+  state: "not_ready" | "paper_evidence_building";
+  weeksComplete: number;
+  weeksRequired: number;
+};
+
+/**
+ * The three levels of the Model Performance surface, deep-linked via `?level=`.
+ * Default is `summary`. `advanced` is the preserved Accuracy surface (D9).
+ */
+export type ModelPerformanceLevel = "summary" | "breakdown" | "advanced";
+
+/**
+ * Everything Model Performance → Summary and → Breakdown read from the
+ * evidence + paper layers, assembled server-side (spec §UI data contracts, D9).
+ *
+ * Live and Backtest overall comparisons are two labelled records (D15) — the
+ * surface shows both without blending. `scorecards` is `null` when no paper
+ * evaluation campaign exists yet (the designed no-campaign state, linking to
+ * Settings), distinct from an empty array. `readiness` is likewise `null`
+ * without a campaign. The Hybrid scorecard is simply absent from the array when
+ * no hybrid portfolio was provisioned (never a zeroed row).
+ */
+export type ModelPerformanceDto = {
+  /** Overall pooled contract-like comparison for each record (D15). */
+  overallLive: ModelComparisonDto;
+  overallBacktest: ModelComparisonDto;
+  /** Recommendation prose over the live record (D12) — decision support only. */
+  recommendation: ModelRecommendationDto;
+  /** Per-stat leaders for the live record. */
+  statLeadersLive: StatLeaderRowDto[];
+  /** Per-stat leaders for the backtest record. */
+  statLeadersBacktest: StatLeaderRowDto[];
+  /** null = no paper evaluation campaign yet (link to Settings). */
+  scorecards: PortfolioScorecardDto[] | null;
+  /** null = no paper evaluation campaign yet. */
+  readiness: ReadinessSummaryDto | null;
+  /** Whether a hybrid selection has been made (Hybrid scorecard present). */
+  hybridSelected: boolean;
+};
+
+/**
  * The period a scorecard read windows over. NONE of these reset the campaign
  * bankroll — they window the opportunity/position aggregates and the P&L is
  * always measured against the campaign's real starting bankroll (D-period).

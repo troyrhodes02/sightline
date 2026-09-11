@@ -80,9 +80,9 @@ export function AutonomyReadiness({ readiness }: { readiness: Readiness }) {
                   size="small"
                   variant="text"
                   component={Link}
-                  href="/accuracy"
+                  href="/model-performance"
                 >
-                  Accuracy →
+                  Model Performance →
                 </Button>
               ) : null}
             </Stack>

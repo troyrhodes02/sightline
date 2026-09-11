@@ -1,30 +1,23 @@
-import { requireAdmin } from "@/lib/auth/session";
-import {
-  decisionSeasons,
-  parseOverridesScope,
-  readOverridePerformance,
-  type OverridesSearchParams,
-} from "@/lib/accuracy/overrides";
-import { Overrides } from "@/components/screens/Overrides";
+import { permanentRedirect } from "next/navigation";
+import type { SearchParams } from "@/lib/accuracy/scope";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Overrides · Sightline" };
 
 /**
- * The overrides surface — admin only, enforced server-side before any shell
- * of this page exists: a viewer deep link renders the 403 in place. The read
- * behind it derives everything from stored decision snapshots, final
- * pre-kickoff snapshots, and settlements; nothing recomputes from current
- * prices or projections in this request path.
+ * `/accuracy/overrides` is retired alongside `/accuracy` (PME-4, D9). A 308
+ * permanent redirect preserves existing deep links to the override-performance
+ * surface, now at `/model-performance/overrides`, forwarding any scope params.
  */
-export default async function OverridesPage({
+export default async function OverridesRedirect({
   searchParams,
 }: {
-  searchParams: Promise<OverridesSearchParams>;
+  searchParams: Promise<SearchParams>;
 }) {
-  await requireAdmin();
-  const seasons = await decisionSeasons();
-  const scope = parseOverridesScope(await searchParams, seasons);
-  const overrides = await readOverridePerformance(scope);
-  return <Overrides overrides={overrides} availableSeasons={seasons} />;
+  const params = await searchParams;
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (typeof value === "string") search.set(key, value);
+  }
+  const query = search.toString();
+  permanentRedirect(`/model-performance/overrides${query ? `?${query}` : ""}`);
 }

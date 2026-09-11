@@ -1,30 +1,36 @@
-import { requireAdmin } from "@/lib/auth/session";
-import { parseAccuracyScope, type SearchParams } from "@/lib/accuracy/scope";
-import { readAccuracy } from "@/lib/accuracy/read";
-import { Accuracy } from "@/components/screens/Accuracy";
+import { permanentRedirect } from "next/navigation";
+import type { SearchParams } from "@/lib/accuracy/scope";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Accuracy · Sightline" };
 
 /**
- * The accuracy surface — admin only as of Pitch 10 (Slate Experience & Prop
- * Research): general model accuracy is the admin's evaluation machinery, not a
- * shared viewer read. A viewer deep link is rejected server-side, in place,
- * before any shell of this page exists. Everything is read from stored results:
- * no backtest, recompute, settlement refresh, or grading runs in this path.
+ * `/accuracy` is retired — the surface is now Model Performance (PME-4, D9). A
+ * 308 permanent redirect preserves every existing deep link.
  *
- * Scope travels in the URL so every view is shareable; unrecognized values
- * fall back to defaults silently. `readAccuracy` keeps its role-aware
- * serializer as defence in depth — the route guard is the boundary, but the
- * admin serializer is the only one this page ever asks for.
+ * A legacy link that carried a statistical scope (a record, version, stat,
+ * population, or season query — the Advanced surface's own vocabulary) lands on
+ * the Advanced level, where those panels live; a bare `/accuracy` link lands on
+ * the default Summary level. Any scope params are forwarded so a shared
+ * Advanced link resolves to exactly the same view.
+ *
+ * `permanentRedirect` throws, so this component never renders.
  */
-export default async function AccuracyPage({
+const STATISTICAL_KEYS = ["record", "version", "population", "stat", "season"];
+
+export default async function AccuracyRedirect({
   searchParams,
 }: {
   searchParams: Promise<SearchParams>;
 }) {
-  await requireAdmin();
-  const scope = parseAccuracyScope(await searchParams);
-  const accuracy = await readAccuracy(scope, "admin");
-  return <Accuracy accuracy={accuracy} />;
+  const params = await searchParams;
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (typeof value === "string") search.set(key, value);
+  }
+
+  const isStatisticalDeepLink = STATISTICAL_KEYS.some((key) => search.has(key));
+  if (isStatisticalDeepLink) search.set("level", "advanced");
+
+  const query = search.toString();
+  permanentRedirect(`/model-performance${query ? `?${query}` : ""}`);
 }
