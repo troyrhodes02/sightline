@@ -1,4 +1,4 @@
-import type { StatType } from "../../../generated/prisma/enums";
+import type { Confidence, StatType } from "../../../generated/prisma/enums";
 
 /**
  * The model-comparison evidence layer's contracts (spec §UI data contracts).
@@ -69,6 +69,49 @@ export type StatLeaderRowDto = {
   sampleSize: number;
   evidence: EvidenceStrength;
   /** Sample under the record's applicable minimum floor. */
+  belowFloor: boolean;
+};
+
+/**
+ * The viewer-facing model track-record block on contract detail (spec §UI data
+ * contracts, D8/D18/D22). The ONLY model-quality surface a viewer sees.
+ *
+ * Deliberately narrow — this is the whole payload, so what is not here cannot
+ * leak. There is no leader, no shadow-model figure, no paper bankroll, no admin
+ * link, and nothing from which a viewer could infer a second engine runs (D22):
+ * the block is a function of the ACTIVE production model's own graded record for
+ * this stat, and names no other model. The admin receives an identical payload
+ * (D18) — the richer comparison lives on Model Performance, never here.
+ *
+ * Contract rules that must survive refactors:
+ *
+ * - `rangeObservedRate === null` (below the 30-obs floor, D8) is a different
+ *   state from a real `0` rate; the component renders the honest
+ *   insufficient-evidence sentence with the running count, never a fabricated
+ *   rate. `rangeSampleSize` is always shown.
+ * - `modelProbability` is a probability (a %); `confidence` is a word — never
+ *   conflated (D16). The DTO keeps them as separate typed fields.
+ * - `trackRecord` may read `limited` even below the floor; the label is a
+ *   qualitative track-record strength, not a rate, and never implies
+ *   profitability.
+ */
+export type ContractTrackRecordDto = {
+  /** The active production model's P(threshold) for this contract. */
+  modelProbability: number;
+  /** A word (low / medium / high), never a percentage (D16). */
+  confidence: Confidence;
+  statType: StatType;
+  /** e.g. "70–80%" — the displayed probability's bucket. */
+  rangeLabel: string;
+  /** Observed frequency in the bucket; null below the 30-obs floor (D8). */
+  rangeObservedRate: number | null;
+  /** Running count of graded observations in the bucket (D8). */
+  rangeSampleSize: number;
+  /** Stat-type track record from pooled graded evidence. */
+  trackRecord: EvidenceStrength;
+  /** Pooled graded observations for the stat — the count behind `trackRecord`. */
+  statObservations: number;
+  /** True when the bucket sample is under the 30-obs display floor (D8). */
   belowFloor: boolean;
 };
 

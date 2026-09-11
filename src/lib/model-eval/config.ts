@@ -27,6 +27,16 @@ export const LIVE_SAMPLE_FLOOR = 50;
 export const BACKTEST_SAMPLE_FLOOR = 500;
 
 /**
+ * The product-wide bucket-display floor (D8). Every surface that shows a rate
+ * for a probability bucket — admin Breakdown/Advanced and the viewer
+ * track-record block — requires this many observations before a numeric rate
+ * renders; below it the surface states plainly there is not enough evidence yet.
+ * Reuses the calibration circuit breaker's minimum (`CALIBRATION_MIN_OBSERVATIONS`
+ * in `src/lib/paper/config.ts`, also 30) rather than introducing a fourth number.
+ */
+export const TRACK_RECORD_BUCKET_FLOOR = 30;
+
+/**
  * Evidence-strength bands (design doc). A sample below its record's floor is
  * always `limited`; `moderate` and `strong` are multiples of the floor so the
  * band scales with the record rather than being a second hard-coded number.

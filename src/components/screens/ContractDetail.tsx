@@ -59,12 +59,20 @@ export function ContractDetail({
   isUnresolved,
   resolveCandidates,
   decisionSlot,
+  trackRecordSlot,
 }: {
   detail: ContractDetailDto;
   isAdmin: boolean;
   isUnresolved: boolean;
   resolveCandidates?: ResolveCandidate[];
   decisionSlot?: React.ReactNode;
+  /**
+   * The viewer-facing model track-record block (Screen 4, D18) — rendered for
+   * BOTH roles on this shared surface. A slot because the read is server-side;
+   * the page passes the built block. Absent when a read failure hid it
+   * (supplementary context — a failure never errors the whole detail view).
+   */
+  trackRecordSlot?: React.ReactNode;
 }) {
   if (isUnresolved) {
     return (
@@ -346,6 +354,10 @@ export function ContractDetail({
             </Typography>
           ) : null}
         </Section>
+      ) : null}
+
+      {trackRecordSlot ? (
+        <Section title="Model track record">{trackRecordSlot}</Section>
       ) : null}
 
       {detail.outcomeBlock ? (
