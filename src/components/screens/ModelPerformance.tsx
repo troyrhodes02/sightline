@@ -388,6 +388,9 @@ function ReadinessStrip({
       <NumericText size="sm" muted>
         {readiness.weeksComplete} of {readiness.weeksRequired} weeks
       </NumericText>
+      {/* Deferred (review-audit): links to Paper Bot Performance, where the
+          criterion detail sits behind a collapsed expander — a follow-up should
+          pass state (e.g. #readiness) so the destination opens it expanded. */}
       <MuiLink component={Link} href="/autonomy" variant="body2">
         View readiness detail →
       </MuiLink>

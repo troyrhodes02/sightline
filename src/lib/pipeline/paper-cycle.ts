@@ -409,6 +409,13 @@ async function evaluateOneGame(args: {
   const executed = await executeCycle({
     campaignId: campaign.id,
     riskConfigId: config.id,
+    // KNOWN LIMITATION (review-audit, deferred): in a Hybrid cycle spanning two
+    // model versions, sizing corrects each candidate under its own fit
+    // (recalibrationByVersion, D4-correct), but the cycle-level recalibrationId
+    // recorded on positions is the primary version's fit. This is a provenance
+    // mis-attribution for non-primary candidates only; scoring is unaffected
+    // because model-eval reads calibration by modelVersion independently. A
+    // per-candidate recalibrationId on the position write is a follow-up.
     recalibrationId: candidates.recalibration?.id ?? null,
     gameId: game.id,
     gameWindowKey: gameWindowKey(game.kickoffAt),
