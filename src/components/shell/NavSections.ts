@@ -21,19 +21,29 @@ export type Section = {
  * itself is still a nav item implying a feature.
  *
  * The viewer-facing product is exactly two destinations — Slate and Prop
- * Research — plus Settings. Everything analytical or operational (Accuracy,
- * Autonomy, Suggestions, Health, Users) is `adminGroup`: server-guarded and
- * gathered under an "Admin" control rather than shown as a peer of the Slate.
- * Accuracy moved into this group in Pitch 10 — general model accuracy is an
- * admin surface now, not a shared viewer read. Suggestions is likewise no
- * longer a primary destination: its pending accept/decline lives inline on the
- * Slate, while its history and reliability analytics stay reachable here.
+ * Research — plus Settings. Everything analytical or operational (Model
+ * Performance, Autonomy, Suggestions, Health, Users) is `adminGroup`:
+ * server-guarded and gathered under an "Admin" control rather than shown as a
+ * peer of the Slate. Model Performance (the former Accuracy surface, renamed in
+ * Pitch 11 — PME-4/D9) is an admin surface: general model quality is the
+ * admin's evaluation machinery, not a shared viewer read. Suggestions is
+ * likewise no longer a primary destination: its pending accept/decline lives
+ * inline on the Slate, while its history and reliability analytics stay
+ * reachable here.
  */
 export const SECTIONS: Section[] = [
   { label: "Slate", href: "/slate", adminOnly: false },
   { label: "Prop Research", href: "/research", adminOnly: false },
-  { label: "Accuracy", href: "/accuracy", adminOnly: true, adminGroup: true },
-  { label: "Autonomy", href: "/autonomy", adminOnly: true, adminGroup: true },
+  {
+    label: "Model Performance",
+    href: "/model-performance",
+    adminOnly: true,
+    adminGroup: true,
+  },
+  // Paper Bot (the former Autonomy surface, renamed in Pitch 11 — PME-6/D10).
+  // The route base stays `/autonomy` (still an autonomous paper system, not
+  // portfolio management), admin-only, three surfaces under one nav item.
+  { label: "Paper Bot", href: "/autonomy", adminOnly: true, adminGroup: true },
   // Adjustment Suggestions: admin-only history and the private reliability
   // analytics. Pending accept/decline moved inline onto the Slate (Pitch 10),
   // so this is no longer a primary destination — it lives in the admin area.

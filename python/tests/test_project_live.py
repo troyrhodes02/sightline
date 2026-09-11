@@ -16,6 +16,8 @@ import pytest
 
 from sightline_model.project_live import (
     _CANDIDATES_SQL,
+    PostKickoffComputation,
+    _assert_pre_kickoff_freeze,
     _parse_cutoff,
     projection_row_id,
     run_project,
@@ -64,6 +66,27 @@ def test_parse_cutoff_requires_a_timezone() -> None:
         _parse_cutoff("2026-11-06T14:00:00")
     parsed = _parse_cutoff("2026-11-06T14:00:00+00:00")
     assert parsed.tzinfo is None  # normalised to naive UTC, the corpus convention
+
+
+# ---------------------------------------------------------------------------
+# Temporal integrity, backfilling form (SIG-103, spec D3)
+# ---------------------------------------------------------------------------
+
+
+def test_kickoff_freeze_guard_blocks_a_post_kickoff_computation() -> None:
+    kickoff = datetime(2025, 11, 9, 18, 0)
+    # Computed after the ball is kicked: not a pre-game prediction, never live.
+    with pytest.raises(PostKickoffComputation):
+        _assert_pre_kickoff_freeze(kickoff + timedelta(minutes=1), kickoff, "g1")
+    # Computed exactly at kickoff is also refused — the freeze is the boundary.
+    with pytest.raises(PostKickoffComputation):
+        _assert_pre_kickoff_freeze(kickoff, kickoff, "g1")
+
+
+def test_kickoff_freeze_guard_allows_a_pre_kickoff_computation() -> None:
+    kickoff = datetime(2025, 11, 9, 18, 0)
+    # A minute before kickoff is live evidence; the guard is silent.
+    _assert_pre_kickoff_freeze(kickoff - timedelta(minutes=1), kickoff, "g1")
 
 
 # ---------------------------------------------------------------------------
@@ -363,6 +386,39 @@ def test_empty_candidate_set_is_a_success(connect, clean_db, monkeypatch) -> Non
     assert totals["projected"] == 0
     (run,) = _run_rows(connect)
     assert run["status"] == "succeeded", "no-new-data success is a valid success"
+
+
+@pytest.mark.db
+def test_post_kickoff_computation_is_never_stored_as_live(
+    connect, clean_db, monkeypatch
+) -> None:
+    """A recompute whose wall clock is at/after kickoff cannot honestly produce a
+    live projection for that game: the game is skipped and nothing is stored, so
+    the comparison read (SIG-104) can rely on computed_at < kickoff freeze for
+    every stored live projection. Cutoff stays pre-kickoff so ONLY the
+    computation-time guard is under test, not the cutoff skip."""
+    _seed(connect)
+    monkeypatch.setattr("sightline_model.project_live.connect", connect)
+
+    # A cutoff before kickoff (honest information horizon) but a `now` past
+    # kickoff — the exact shape of a backfill recomputing after the game. The
+    # candidate query excludes a game whose kickoff has passed (`kickoff_at >
+    # now`), and the per-game computed_at guard is the second, independent line
+    # of defence (unit-tested directly). Either way the invariant that matters
+    # holds: NOTHING is stored as a live projection for a passed kickoff.
+    post_kickoff_now = KICKOFF_UPCOMING + timedelta(hours=1)
+    totals = run_project(CUTOFF, now=post_kickoff_now, invocation_id="gh-postkick")
+
+    assert totals["projected"] == 0
+    assert _projection_rows(connect) == [], (
+        "a post-kickoff computation was stored as a live projection"
+    )
+    # A pre-kickoff computation of the SAME slate DOES store the projection —
+    # proving the gate is the kickoff freeze, not some unrelated exclusion.
+    run_project(CUTOFF, now=NOW, invocation_id="gh-postkick-pre")
+    assert len(_projection_rows(connect)) == 1, (
+        "a pre-kickoff computation should store the live projection"
+    )
 
 
 @pytest.mark.db

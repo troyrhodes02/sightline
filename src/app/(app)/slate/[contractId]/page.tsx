@@ -4,8 +4,11 @@ import { requireSession } from "@/lib/auth/session";
 import { readContractDetail } from "@/lib/slate/read";
 import { normalizeName } from "@/lib/kalshi/parse";
 import { ContractDetail } from "@/components/screens/ContractDetail";
+import { ModelTrackRecordBlock } from "@/components/model-performance/ModelTrackRecordBlock";
+import { readContractTrackRecord } from "@/lib/model-eval";
 import { DecisionControl } from "@/components/slate/DecisionControl";
 import type { ResolveCandidate } from "@/components/slate/ResolveControl";
+import type { ContractTrackRecordDto } from "@/lib/dto/model-eval";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Contract · Sightline" };
@@ -45,12 +48,47 @@ export default async function ContractDetailPage({
     resolveCandidates = await candidatesFor(contract?.kalshiPlayerName ?? null);
   }
 
+  // The shared viewer track-record block (Screen 4, D18). Rendered for both
+  // roles once the contract has an active-model projection — a resolved contract
+  // with a probability to interpret. A read failure hides the block, never the
+  // whole detail view: it is supplementary context, not the contract itself.
+  const hasProjection =
+    !isUnresolved &&
+    detail.projectionState !== "insufficient_evidence" &&
+    detail.modelProbability !== null;
+
+  let trackRecordSlot: React.ReactNode = undefined;
+  if (hasProjection) {
+    let trackRecord: ContractTrackRecordDto | null = null;
+    let trackRecordFailed = false;
+    try {
+      trackRecord = await readContractTrackRecord(
+        {
+          statType: detail.statType,
+          modelVersion: detail.modelVersion,
+          modelProbability: detail.modelProbability,
+          confidence: detail.confidence,
+        },
+        session.user.role,
+      );
+    } catch {
+      // Supplementary context: a failed read hides the block, not the detail.
+      trackRecordFailed = true;
+    }
+    if (!trackRecordFailed) {
+      trackRecordSlot = (
+        <ModelTrackRecordBlock dto={trackRecord} statType={detail.statType} />
+      );
+    }
+  }
+
   return (
     <ContractDetail
       detail={detail}
       isAdmin={isAdmin}
       isUnresolved={Boolean(isUnresolved)}
       resolveCandidates={resolveCandidates}
+      trackRecordSlot={trackRecordSlot}
       decisionSlot={
         isAdmin && !isUnresolved ? (
           <DecisionControl

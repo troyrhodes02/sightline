@@ -233,11 +233,11 @@ export function AutonomyCycleDetail({ detail }: { detail: CycleDetailDto }) {
       <Box>
         <Typography
           component={Link}
-          href="/autonomy/cycles"
+          href="/autonomy/activity?view=cycles"
           variant="body2"
           sx={{ color: "primary.main", textDecoration: "none" }}
         >
-          ← Cycles
+          ← Activity
         </Typography>
       </Box>
       <AutonomyHeading

@@ -257,7 +257,6 @@ model Game {
   projections      Projection[]
   pipelineRunGames PipelineRunGame[]
   paperCycles      PaperCycle[]
-  paperDryRuns     PaperDryRun[]
 
   projectionDeclines ProjectionDecline[]
   gameSimulations    GameSimulation[]
@@ -716,7 +715,6 @@ model User {
   paperRiskConfigs   PaperRiskConfig[]
   paperControlEvents PaperControlEvent[]
   paperBreaches      PaperBreach[]
-  paperDryRuns       PaperDryRun[]
   paperReplays       PaperReplay[]
 
   adjustmentSuggestionsDecided AdjustmentSuggestion[]
@@ -1283,6 +1281,15 @@ enum RiskMode {
   custom
 }
 
+/// Discriminates the three portfolios of one PaperEvaluationCampaign. Baseline
+/// and Simulation run the respective engines; Hybrid follows the per-stat
+/// ModelSelection. Hybrid exists only when a hybrid selection exists.
+enum PaperPortfolio {
+  baseline
+  simulation
+  hybrid
+}
+
 enum BreachCondition {
   drawdown_warning // does NOT halt; the only condition with that property
   drawdown_halt
@@ -1353,12 +1360,46 @@ enum PaperLedgerEntryKind {
 /// The single paper account. Operational switches and the high-water mark live
 /// here; every configurable NUMBER lives on PaperRiskConfig, so a cycle can name
 /// the exact configuration it ran under.
+/// The parent of one continuous paper-evaluation campaign. Shared configuration
+/// and campaign-wide switches live here; each PaperCampaign child is one portfolio
+/// (baseline / simulation / hybrid) with its own bankroll, ledger, and history.
+model PaperEvaluationCampaign {
+  id                          String  @id @default(uuid())
+  label                       String?
+  startingBankrollCents       Int     @map("starting_bankroll_cents")
+  withdrawalCeilingMultiple   Decimal @map("withdrawal_ceiling_multiple") @db.Decimal(4, 2)
+  continuousEvaluationEnabled Boolean @default(false) @map("continuous_evaluation_enabled")
+
+  // Campaign-wide human halt. A breach halts a single portfolio; the kill switch
+  // stops new positions across all portfolios.
+  killSwitchEngaged Boolean @default(false) @map("kill_switch_engaged")
+
+  campaignStartedAt     DateTime  @map("campaign_started_at")
+  // Set whenever the active per-stat model selection changes. Reads the readiness
+  // clock off the affected portfolio's portfolioStartedAt (D2), not off this field
+  // directly; kept for audit and display of "configuration last changed".
+  activeConfigChangedAt DateTime? @map("active_config_changed_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  portfolios PaperCampaign[]
+
+  @@map("paper_evaluation_campaigns")
+}
+
 model PaperCampaign {
   id                    String  @id @default(uuid())
   label                 String? // operator label, e.g. "2026 week 9 onward"
   startingBankrollCents Int     @map("starting_bankroll_cents")
   autonomyEnabled       Boolean @default(false) @map("autonomy_enabled")
-  killSwitchEngaged     Boolean @default(false) @map("kill_switch_engaged")
+
+  evaluationCampaignId String         @map("evaluation_campaign_id")
+  portfolio            PaperPortfolio
+
+  // The readiness clock anchor for THIS portfolio. Set at portfolio creation and
+  // RESET whenever this portfolio becomes the newly-active configuration (D2).
+  portfolioStartedAt DateTime @map("portfolio_started_at")
 
   // Greatest mark-to-market value observed. Monotone EXCEPT at a simulated
   // withdrawal, which resets it to the post-withdrawal active bankroll so
@@ -1373,6 +1414,8 @@ model PaperCampaign {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
+  evaluationCampaign PaperEvaluationCampaign @relation(fields: [evaluationCampaignId], references: [id])
+
   riskConfigs   PaperRiskConfig[]
   ledgerEntries PaperLedgerEntry[]
   cycles        PaperCycle[]
@@ -1380,9 +1423,10 @@ model PaperCampaign {
   breaches      PaperBreach[]
   controlEvents PaperControlEvent[]
   desired       PaperDesiredExposure[]
-  dryRuns       PaperDryRun[]
   replays       PaperReplay[]
 
+  @@unique([evaluationCampaignId, portfolio])
+  @@index([evaluationCampaignId])
   @@map("paper_campaigns")
 }
 
@@ -1416,7 +1460,6 @@ model PaperRiskConfig {
   cycles    PaperCycle[]
   breaches  PaperBreach[]
   positions PaperPosition[]
-  dryRuns   PaperDryRun[]
 
   @@index([campaignId, effectiveFrom(sort: Desc)])
   @@map("paper_risk_configs")
@@ -1493,7 +1536,6 @@ model RecalibrationFit {
   backtestRun BacktestRun           @relation(fields: [backtestRunId], references: [id])
   candidates  PaperCycleCandidate[]
   cycles      PaperCycle[]
-  dryRuns     PaperDryRun[]
 
   @@index([modelVersion, fittedAt(sort: Desc)])
   @@map("recalibration_fits")
@@ -1602,8 +1644,13 @@ model PaperCycleCandidate {
   boundBy       BindingConstraint
   boundByDetail String?           @map("bound_by_detail") // e.g. the breach condition name
 
-  positionId String?  @map("position_id")
-  createdAt  DateTime @default(now()) @map("created_at")
+  positionId String? @map("position_id")
+
+  // Denormalised for the hybrid audit trail so a later selection change cannot alter
+  // how a historical candidate reads. Equals projection.modelVersion at cycle time.
+  sourceModelVersion String? @map("source_model_version")
+
+  createdAt DateTime @default(now()) @map("created_at")
 
   cycle            PaperCycle        @relation(fields: [cycleId], references: [id], onDelete: Cascade)
   contract         Contract          @relation(fields: [contractId], references: [id])
@@ -1631,6 +1678,12 @@ model PaperPosition {
   costBasisCents     Int        @map("cost_basis_cents") // price only
   feesPaidCents      Int        @map("fees_paid_cents")
   intendedStakeCents Int        @map("intended_stake_cents")
+
+  // The model version that produced the driving probability for THIS position.
+  // Set at open time and never rewritten. For baseline/simulation portfolios this
+  // equals the portfolio's engine; for the hybrid portfolio it records which engine
+  // was selected for the stat at decision time (D6).
+  sourceModelVersion String @map("source_model_version")
 
   status           PaperPositionStatus @default(open)
   settlementResult OutcomeResult?      @map("settlement_result")
@@ -1733,36 +1786,6 @@ model PaperBreach {
 
   @@index([campaignId, trippedAt(sort: Desc)])
   @@map("paper_breaches")
-}
-
-/// Inspection only. Writes no position and no ledger entry, and is structurally
-/// unreachable from every bankroll, review, and readiness read.
-model PaperDryRun {
-  id              String  @id @default(uuid())
-  campaignId      String  @map("campaign_id")
-  riskConfigId    String  @map("risk_config_id")
-  recalibrationId String? @map("recalibration_id")
-  gameId          String  @map("game_id")
-  actorUserId     String  @map("actor_user_id")
-
-  wouldExecute      Boolean @map("would_execute")
-  blockedByBreaches Json?   @map("blocked_by_breaches") // condition names active at run time
-
-  /// The full plan, in the same shape CandidateDto renders. Not rows: this is
-  /// not ledger data and must not look like it.
-  plan Json
-
-  ranAt     DateTime @map("ran_at")
-  createdAt DateTime @default(now()) @map("created_at")
-
-  campaign      PaperCampaign     @relation(fields: [campaignId], references: [id])
-  riskConfig    PaperRiskConfig   @relation(fields: [riskConfigId], references: [id])
-  recalibration RecalibrationFit? @relation(fields: [recalibrationId], references: [id])
-  game          Game              @relation(fields: [gameId], references: [id])
-  actor         User              @relation(fields: [actorUserId], references: [id])
-
-  @@index([campaignId, ranAt(sort: Desc)])
-  @@map("paper_dry_runs")
 }
 
 /// Counterfactual risk-mode replay over a completed period. Separate tables, for

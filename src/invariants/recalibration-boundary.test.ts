@@ -193,7 +193,13 @@ describe("the correction is the only component that adapts to measured accuracy"
         relative.startsWith("/app/api/autonomy/") ||
         relative.startsWith("/lib/paper/execute") ||
         relative.startsWith("/lib/paper/settlement") ||
-        relative.startsWith("/lib/paper/controls")
+        relative.startsWith("/lib/paper/controls") ||
+        // PME-6/D2: the confirmed, admin-only model-selection writes
+        // `paperCampaign.update` to reset the newly-active portfolio's
+        // readiness clock (`portfolioStartedAt`). It never touches a risk
+        // config and never adapts to P&L — it is a human production-config
+        // action, sanctioned exactly like the configuration route.
+        relative.startsWith("/lib/paper/model-selection")
       );
     });
 

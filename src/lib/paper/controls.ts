@@ -45,18 +45,23 @@ export class ControlStateError extends Error {
 
 /** The campaign, or null when autonomous paper trading was never set up. */
 export async function activeCampaign() {
-  return prisma.paperCampaign.findFirst({
+  const campaign = await prisma.paperCampaign.findFirst({
     orderBy: { startedAt: "asc" },
     select: {
       id: true,
+      evaluationCampaignId: true,
       startingBankrollCents: true,
       autonomyEnabled: true,
-      killSwitchEngaged: true,
       highWaterMarkCents: true,
       highWaterMarkAt: true,
       startedAt: true,
+      // The kill switch is campaign-wide and lives on the parent (PME-1).
+      evaluationCampaign: { select: { killSwitchEngaged: true } },
     },
   });
+  if (!campaign) return null;
+  const { evaluationCampaign, ...rest } = campaign;
+  return { ...rest, killSwitchEngaged: evaluationCampaign.killSwitchEngaged };
 }
 
 export async function activeRiskConfig(campaignId: string) {
@@ -86,14 +91,19 @@ export async function engageKillSwitch(
   now: Date,
 ): Promise<void> {
   await prisma.$transaction(async (tx) => {
+    // The kill switch is campaign-wide (PME-1): it lives on the parent
+    // evaluation campaign, not on the individual portfolio.
     const campaign = await tx.paperCampaign.findUniqueOrThrow({
       where: { id: campaignId },
-      select: { killSwitchEngaged: true },
+      select: {
+        evaluationCampaignId: true,
+        evaluationCampaign: { select: { killSwitchEngaged: true } },
+      },
     });
-    if (campaign.killSwitchEngaged) return;
+    if (campaign.evaluationCampaign.killSwitchEngaged) return;
 
-    await tx.paperCampaign.update({
-      where: { id: campaignId },
+    await tx.paperEvaluationCampaign.update({
+      where: { id: campaign.evaluationCampaignId },
       data: { killSwitchEngaged: true },
     });
     await tx.paperControlEvent.create({
@@ -121,8 +131,12 @@ export async function releaseKillSwitch(
   now: Date,
 ): Promise<void> {
   await prisma.$transaction(async (tx) => {
-    await tx.paperCampaign.update({
+    const campaign = await tx.paperCampaign.findUniqueOrThrow({
       where: { id: campaignId },
+      select: { evaluationCampaignId: true },
+    });
+    await tx.paperEvaluationCampaign.update({
+      where: { id: campaign.evaluationCampaignId },
       data: { killSwitchEngaged: false },
     });
     await tx.paperControlEvent.create({
@@ -212,9 +226,9 @@ export async function forceOverride(
   await prisma.$transaction(async (tx) => {
     const campaign = await tx.paperCampaign.findUniqueOrThrow({
       where: { id: campaignId },
-      select: { killSwitchEngaged: true },
+      select: { evaluationCampaign: { select: { killSwitchEngaged: true } } },
     });
-    if (campaign.killSwitchEngaged) {
+    if (campaign.evaluationCampaign.killSwitchEngaged) {
       throw new ControlStateError(
         "the kill switch is engaged; disengage it before resuming",
       );
@@ -315,6 +329,10 @@ export const configurationInputSchema = z
     startingBankrollCents: z.number().int().positive().optional(),
     withdrawalCeilingMultiple: z.number().min(1).max(100),
     autonomyEnabled: z.boolean(),
+    // Continuous paper evaluation (PME-6 Settings). Optional so every existing
+    // caller stays valid; when present it is persisted on the parent evaluation
+    // campaign, which is where the campaign-wide flag lives.
+    continuousEvaluationEnabled: z.boolean().optional(),
   })
   .strict();
 
@@ -396,14 +414,31 @@ export async function saveConfiguration(
     if (!campaign) {
       const startingBankrollCents =
         input.startingBankrollCents ?? DEFAULT_STARTING_BANKROLL_CENTS;
+      // The first campaign is the active-config portfolio (baseline) within a new
+      // parent evaluation campaign (PME-1). Sibling portfolios and Hybrid are
+      // introduced by later Pitch 11 tickets; here the parent exists so the
+      // campaign-wide kill switch and shared config have a home.
+      const parent = await tx.paperEvaluationCampaign.create({
+        data: {
+          startingBankrollCents,
+          withdrawalCeilingMultiple:
+            input.withdrawalCeilingMultiple ??
+            DEFAULT_WITHDRAWAL_CEILING_MULTIPLE,
+          killSwitchEngaged: false,
+          campaignStartedAt: now,
+        },
+        select: { id: true },
+      });
       const created = await tx.paperCampaign.create({
         data: {
           startingBankrollCents,
           autonomyEnabled: false,
-          killSwitchEngaged: false,
           highWaterMarkCents: startingBankrollCents,
           highWaterMarkAt: now,
           startedAt: now,
+          evaluationCampaignId: parent.id,
+          portfolio: "baseline",
+          portfolioStartedAt: now,
         },
         select: { id: true, startingBankrollCents: true },
       });
@@ -466,6 +501,27 @@ export async function saveConfiguration(
     await tx.paperCampaign.update({
       where: { id: campaign.id },
       data: { autonomyEnabled: input.autonomyEnabled },
+    });
+
+    // Campaign-wide config lives on the parent evaluation campaign (PME-1): the
+    // withdrawal ceiling and the continuous-evaluation flag apply to every
+    // portfolio, so they are persisted once, not per portfolio. This is shared
+    // campaign config — never production-config in the D12 sense (only model
+    // selection is that), so it flows through the ordinary configuration save.
+    const parent = await tx.paperCampaign.findUniqueOrThrow({
+      where: { id: campaign.id },
+      select: { evaluationCampaignId: true },
+    });
+    await tx.paperEvaluationCampaign.update({
+      where: { id: parent.evaluationCampaignId },
+      data: {
+        withdrawalCeilingMultiple:
+          input.withdrawalCeilingMultiple ??
+          DEFAULT_WITHDRAWAL_CEILING_MULTIPLE,
+        ...(input.continuousEvaluationEnabled !== undefined
+          ? { continuousEvaluationEnabled: input.continuousEvaluationEnabled }
+          : {}),
+      },
     });
 
     const config = await tx.paperRiskConfig.create({

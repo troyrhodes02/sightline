@@ -37,6 +37,10 @@ import {
   acceptedShadowProjectionIds,
   blockedSuggestionKeys,
 } from "@/lib/suggestions/active-projection";
+import {
+  resolvePortfolios,
+  type PortfolioTarget,
+} from "@/lib/paper/portfolios";
 
 /**
  * The scheduled autonomous paper cycle.
@@ -87,19 +91,21 @@ export async function runPaperCycle(
     degraded: false,
   });
 
-  const campaign = await prisma.paperCampaign.findFirst({
-    orderBy: { startedAt: "asc" },
-    select: {
-      id: true,
-      startingBankrollCents: true,
-      autonomyEnabled: true,
-      killSwitchEngaged: true,
-      highWaterMarkCents: true,
-    },
+  // One evaluation campaign owns up to three portfolios (PME-5). The kill
+  // switch and starting bankroll live on the parent; per-portfolio bankroll,
+  // ledger, and history live on each `PaperCampaign` child.
+  const evaluationCampaign = await prisma.paperEvaluationCampaign.findFirst({
+    orderBy: { campaignStartedAt: "asc" },
+    select: { id: true, killSwitchEngaged: true },
   });
   // Never set up is dormancy, not failure, and writes no run row — the same
   // posture as an offseason price refresh.
-  if (!campaign) return empty("not_expected");
+  if (!evaluationCampaign) return empty("not_expected");
+
+  // Baseline + simulation always; hybrid only when the selection is mixed.
+  // Provisioned idempotently here so a portfolio added mid-season begins
+  // accumulating on the next tick without a manual step.
+  const portfolios = await resolvePortfolios(evaluationCampaign.id);
 
   const windowOpensAt = new Date(
     now.getTime() + EXECUTION_WINDOW_HOURS * 60 * 60 * 1000,
@@ -127,22 +133,19 @@ export async function runPaperCycle(
   const runId = await startRun(input.invocationId, now);
   if (runId === null) return empty("coalesced");
 
-  if (campaign.killSwitchEngaged) {
+  // The kill switch is campaign-wide (parent flag): it stops NEW positions
+  // across every portfolio. A per-portfolio breach halts one portfolio only and
+  // is handled inside the plan via halting breaches, not here.
+  if (evaluationCampaign.killSwitchEngaged) {
     await finishRun(runId, "succeeded", null);
     return { ...empty("killed"), windowsEvaluated: games.length };
   }
-  if (!campaign.autonomyEnabled) {
+  // Autonomy is per portfolio. When no portfolio is enabled the whole campaign
+  // is dormant; a subset being enabled is normal (a newly-provisioned sibling
+  // defaults off until the operator turns it on).
+  if (!portfolios.some((p) => p.autonomyEnabled)) {
     await finishRun(runId, "succeeded", null);
     return { ...empty("disabled"), windowsEvaluated: games.length };
-  }
-
-  const config = await prisma.paperRiskConfig.findFirst({
-    where: { campaignId: campaign.id },
-    orderBy: { effectiveFrom: "desc" },
-  });
-  if (!config) {
-    await finishRun(runId, "succeeded", null);
-    return { ...empty("not_expected"), windowsEvaluated: games.length };
   }
 
   const result: PipelinePaperCycleResult = {
@@ -167,51 +170,80 @@ export async function runPaperCycle(
   // Games later in the list go unevaluated, which the ten-minute cadence
   // recovers from on the next tick.
   try {
-    for (const game of games) {
-      const lastCycle = await prisma.paperCycle.findFirst({
-        where: { campaignId: campaign.id, gameId: game.id },
-        orderBy: { startedAt: "desc" },
-        select: { startedAt: true },
-      });
-      const action = decidePaperCycleAction({
-        kickoffAt: game.kickoffAt,
-        lastCycleStartedAt: lastCycle?.startedAt ?? null,
-        now,
-      });
-      if (action === "not_in_window" || action === "coalesced") continue;
+    // Every portfolio evaluates every eligible window independently. A portfolio
+    // that is disabled, or has no risk config yet, is skipped without stopping
+    // its siblings — the three ledgers never merge and never depend on one
+    // another. The invocationId is namespaced per portfolio so each portfolio's
+    // idempotency key is distinct on the (campaignId, gameId, invocationId)
+    // unique index, and a coalesce on one portfolio never suppresses another.
+    // The risk config is authored once (the configuration route is the only
+    // writer) and SHARED by every portfolio of the campaign, so all portfolios
+    // size under identical assumptions (D5/D11). Resolve it once, scoped to the
+    // evaluation campaign; a portfolio is skipped only when the campaign was
+    // never configured — never because a sibling lacks its own copy. Making this
+    // per-portfolio is what silently left Simulation and Hybrid untraded.
+    const config = await prisma.paperRiskConfig.findFirst({
+      where: { campaign: { evaluationCampaignId: evaluationCampaign.id } },
+      orderBy: { effectiveFrom: "desc" },
+    });
 
-      result.windowsEvaluated += 1;
-      const startedAt = new Date();
+    for (const portfolio of portfolios) {
+      if (!portfolio.autonomyEnabled) continue;
+      if (!config) continue;
 
-      try {
-        const cycle = await evaluateOneGame({
-          campaign,
-          config,
-          game,
+      const portfolioInvocationId = `${input.invocationId}:${portfolio.portfolio}`;
+
+      for (const game of games) {
+        const lastCycle = await prisma.paperCycle.findFirst({
+          where: { campaignId: portfolio.campaignId, gameId: game.id },
+          orderBy: { startedAt: "desc" },
+          select: { startedAt: true },
+        });
+        const action = decidePaperCycleAction({
+          kickoffAt: game.kickoffAt,
+          lastCycleStartedAt: lastCycle?.startedAt ?? null,
           now,
-          invocationId: input.invocationId,
-          pipelineRunId: runId,
-          startedAt,
         });
-        result.cycles.push(cycle);
-        if (cycle.outcome === "failed") failed = true;
-      } catch (error) {
-        const degraded =
-          error instanceof KalshiUnavailableError ||
-          error instanceof KalshiRateLimitError;
-        if (!degraded) throw error;
-        result.degraded = true;
-        failed = true;
-        result.cycles.push({
-          cycleId: null,
-          gameId: game.id,
-          outcome: "failed",
-          // The client's message is already sanitized: no URL, no header, no key.
-          skipReason: (error as Error).message,
-          candidatesEvaluated: 0,
-          candidatesFilled: 0,
-          stakedCents: 0,
-        });
+        if (action === "not_in_window" || action === "coalesced") continue;
+
+        result.windowsEvaluated += 1;
+        const startedAt = new Date();
+
+        try {
+          const cycle = await evaluateOneGame({
+            campaign: {
+              id: portfolio.campaignId,
+              startingBankrollCents: portfolio.startingBankrollCents,
+              highWaterMarkCents: portfolio.highWaterMarkCents,
+            },
+            portfolio,
+            config,
+            game,
+            now,
+            invocationId: portfolioInvocationId,
+            pipelineRunId: runId,
+            startedAt,
+          });
+          result.cycles.push(cycle);
+          if (cycle.outcome === "failed") failed = true;
+        } catch (error) {
+          const degraded =
+            error instanceof KalshiUnavailableError ||
+            error instanceof KalshiRateLimitError;
+          if (!degraded) throw error;
+          result.degraded = true;
+          failed = true;
+          result.cycles.push({
+            cycleId: null,
+            gameId: game.id,
+            outcome: "failed",
+            // The client's message is already sanitized: no URL, no header, no key.
+            skipReason: (error as Error).message,
+            candidatesEvaluated: 0,
+            candidatesFilled: 0,
+            stakedCents: 0,
+          });
+        }
       }
     }
   } catch (error) {
@@ -237,6 +269,8 @@ async function evaluateOneGame(args: {
     startingBankrollCents: number;
     highWaterMarkCents: number;
   };
+  /** Which portfolio this cycle belongs to; supplies the per-stat model choice. */
+  portfolio: PortfolioTarget;
   config: {
     id: string;
     mode: "conservative" | "moderate" | "aggressive" | "custom";
@@ -259,7 +293,7 @@ async function evaluateOneGame(args: {
   pipelineRunId: string;
   startedAt: Date;
 }): Promise<PipelinePaperCycleResult["cycles"][number]> {
-  const { campaign, config, game, now } = args;
+  const { campaign, portfolio, config, game, now } = args;
 
   // --- Bankroll and exposure, as they are right now -----------------------
 
@@ -343,7 +377,7 @@ async function evaluateOneGame(args: {
 
   // --- Candidates ----------------------------------------------------------
 
-  const candidates = await buildCandidates(game, now);
+  const candidates = await buildCandidates(game, now, portfolio);
 
   const plan = planCycle({
     now,
@@ -356,6 +390,7 @@ async function evaluateOneGame(args: {
       probabilityCeiling: Number(config.probabilityCeiling),
     },
     recalibration: candidates.recalibration,
+    recalibrationByVersion: candidates.recalibrationByVersion,
     activeBankrollCents,
     availableBankrollCents: settledBalanceCents,
     slateExposureCents,
@@ -374,6 +409,13 @@ async function evaluateOneGame(args: {
   const executed = await executeCycle({
     campaignId: campaign.id,
     riskConfigId: config.id,
+    // KNOWN LIMITATION (review-audit, deferred): in a Hybrid cycle spanning two
+    // model versions, sizing corrects each candidate under its own fit
+    // (recalibrationByVersion, D4-correct), but the cycle-level recalibrationId
+    // recorded on positions is the primary version's fit. This is a provenance
+    // mis-attribution for non-primary candidates only; scoring is unaffected
+    // because model-eval reads calibration by modelVersion independently. A
+    // per-candidate recalibrationId on the position write is a follow-up.
     recalibrationId: candidates.recalibration?.id ?? null,
     gameId: game.id,
     gameWindowKey: gameWindowKey(game.kickoffAt),
@@ -417,10 +459,20 @@ async function buildCandidates(
     kickoffAt: Date;
   },
   now: Date,
+  portfolio: PortfolioTarget,
 ): Promise<{
   rows: CandidateInput[];
   recalibration: Awaited<ReturnType<typeof activeRecalibration>>;
+  recalibrationByVersion: ReadonlyMap<
+    string,
+    NonNullable<Awaited<ReturnType<typeof activeRecalibration>>>
+  >;
 }> {
+  const empty = {
+    rows: [] as CandidateInput[],
+    recalibration: null,
+    recalibrationByVersion: new Map(),
+  };
   const contracts = await prisma.contract.findMany({
     where: {
       gameId: game.id,
@@ -438,7 +490,7 @@ async function buildCandidates(
       threshold: true,
     },
   });
-  if (contracts.length === 0) return { rows: [], recalibration: null };
+  if (contracts.length === 0) return empty;
 
   const projectionSelect = {
     id: true,
@@ -452,6 +504,11 @@ async function buildCandidates(
     informationCutoff: true,
   } as const;
 
+  // A portfolio prices each stat from ITS model (PME-5): baseline / simulation
+  // from their fixed engine, hybrid from the currently-selected model per stat.
+  // Only projections whose model version matches the portfolio's choice for
+  // that stat are considered — the other engine's projection is a different
+  // portfolio's evidence, never this one's.
   const projections = await prisma.projection.findMany({
     where: {
       gameId: game.id,
@@ -465,29 +522,45 @@ async function buildCandidates(
   });
   const freshest = new Map<string, (typeof projections)[number]>();
   for (const projection of projections) {
+    const target = portfolio.modelVersionForStat(
+      projection.statType as StatType,
+    );
+    if (target === null || projection.modelVersion !== target) continue;
     const key = `${projection.playerId}:${projection.statType}`;
     if (!freshest.has(key)) freshest.set(key, projection);
   }
 
   // An accepted suggestion's shadow IS the active projection for its key — the
-  // bot trades the adjustment William approved, not the obsolete base.
-  const keys = contracts.map((c) => ({
-    playerId: c.playerId as string,
-    gameId: game.id,
-    statType: c.statType as StatType,
-  }));
-  const acceptedShadowIds = await acceptedShadowProjectionIds(keys);
-  if (acceptedShadowIds.size > 0) {
-    const shadows = await prisma.projection.findMany({
-      where: { id: { in: [...acceptedShadowIds.values()] } },
-      select: projectionSelect,
-    });
-    const shadowById = new Map(shadows.map((s) => [s.id, s]));
-    for (const [key, shadowId] of acceptedShadowIds) {
-      // key is player:game:stat; the cycle map is player:stat within one game.
-      const [playerId, , statType] = key.split(":");
-      const shadow = shadowById.get(shadowId);
-      if (shadow) freshest.set(`${playerId}:${statType}`, shadow);
+  // bot trades the adjustment William approved, not the obsolete base. This is
+  // a property of the ACTIVE production selection, so it applies to the Hybrid
+  // portfolio (which mirrors that selection); the fixed-engine baseline and
+  // simulation portfolios are pure shadow evaluations of their own engine and
+  // do not inherit a suggestion accepted against a different model.
+  if (portfolio.portfolio === "hybrid") {
+    const keys = contracts.map((c) => ({
+      playerId: c.playerId as string,
+      gameId: game.id,
+      statType: c.statType as StatType,
+    }));
+    const acceptedShadowIds = await acceptedShadowProjectionIds(keys);
+    if (acceptedShadowIds.size > 0) {
+      const shadows = await prisma.projection.findMany({
+        where: { id: { in: [...acceptedShadowIds.values()] } },
+        select: projectionSelect,
+      });
+      const shadowById = new Map(shadows.map((s) => [s.id, s]));
+      for (const [key, shadowId] of acceptedShadowIds) {
+        // key is player:game:stat; the cycle map is player:stat within one game.
+        const [playerId, , statType] = key.split(":");
+        const shadow = shadowById.get(shadowId);
+        // The shadow only overlays when it matches the selected model for the
+        // stat — an accepted adjustment against the non-selected engine is not
+        // this portfolio's projection.
+        const target = portfolio.modelVersionForStat(statType as StatType);
+        if (shadow && shadow.modelVersion === target) {
+          freshest.set(`${playerId}:${statType}`, shadow);
+        }
+      }
     }
   }
 
@@ -508,13 +581,28 @@ async function buildCandidates(
   const factKnownAt = await latestFactKnownAtByGame([game], now);
   const lead = inactivesLeadMinutes();
 
-  // The active fit is chosen from the model version the freshest projections
-  // actually carry. A projection from a version with no fit is refused by the
-  // planner rather than corrected by a neighbour's map.
-  const modelVersion = [...freshest.values()][0]?.modelVersion ?? null;
-  const recalibration = modelVersion
-    ? await activeRecalibration(modelVersion)
-    : null;
+  // A fit per model version present among the freshest projections. Baseline
+  // and simulation portfolios name exactly one version; hybrid may name two.
+  // Each fit is keyed to its own model version, so the planner corrects every
+  // candidate under ITS model's fit and crossing stays structurally impossible.
+  const presentVersions = [
+    ...new Set([...freshest.values()].map((p) => p.modelVersion)),
+  ];
+  const fits = await Promise.all(
+    presentVersions.map((version) => activeRecalibration(version)),
+  );
+  const recalibrationByVersion = new Map<
+    string,
+    NonNullable<Awaited<ReturnType<typeof activeRecalibration>>>
+  >();
+  for (const fit of fits) {
+    if (fit) recalibrationByVersion.set(fit.modelVersion, fit);
+  }
+  // The cycle's recorded fit is the primary one — the single version for a
+  // fixed-engine portfolio, or the first present version for hybrid. Purely for
+  // the stored `recalibrationId` on the cycle row; per-candidate correction
+  // uses the map above.
+  const recalibration = recalibrationByVersion.get(presentVersions[0]) ?? null;
 
   const rows: CandidateInput[] = [];
   for (const contract of contracts) {
@@ -565,7 +653,7 @@ async function buildCandidates(
     });
   }
 
-  return { rows, recalibration };
+  return { rows, recalibration, recalibrationByVersion };
 }
 
 async function startRun(

@@ -9,6 +9,11 @@ import {
 } from "./config";
 import { calibrationSample } from "./calibration-window";
 import { readCampaignState } from "./state";
+import {
+  resolveActiveConfigurationPortfolio,
+  type ActiveConfigurationPortfolio,
+} from "./model-selection";
+import type { PaperPortfolio } from "../../../generated/prisma/enums";
 
 /**
  * Live readiness.
@@ -52,6 +57,12 @@ export type Readiness = {
   disclaimer: string;
   weeksComplete: number;
   weeksRequired: number;
+  /**
+   * The active configuration's own portfolio the clock is evaluated against
+   * (D2). Named so the summary can say "Evaluating the active configuration:
+   * Hybrid" and make the reset-on-switch rule legible.
+   */
+  activeConfigurationPortfolio: PaperPortfolio;
 };
 
 const DISCLAIMER =
@@ -79,10 +90,20 @@ function unevaluable(
 export async function readReadiness(
   now: Date = new Date(),
 ): Promise<Readiness> {
-  const state = await readCampaignState();
+  // D2: readiness always evaluates the active configuration's OWN portfolio.
+  // The two-week clock counts from that portfolio's `portfolioStartedAt`, and a
+  // configuration switch resets it — prior weeks never transfer. Every criterion
+  // below reads that portfolio's campaign, so safety and operational evidence
+  // are the active configuration's too.
+  const active = await resolveActiveConfigurationPortfolio();
+  const activePortfolio: PaperPortfolio = active?.portfolio ?? "baseline";
+  const state = active?.campaignId
+    ? await readCampaignState(active.campaignId)
+    : null;
   const criteria: ReadinessCriterion[] = [];
 
-  const weeks = state ? await completeWeeks(state.campaignId) : [];
+  const weeks =
+    state && active ? await completeWeeks(state.campaignId, active) : [];
   const weeksComplete = weeks.length;
 
   // --- Paper evidence ------------------------------------------------------
@@ -307,6 +328,7 @@ export async function readReadiness(
     disclaimer: allMet ? DISCLAIMER_ELIGIBLE : DISCLAIMER,
     weeksComplete,
     weeksRequired: REQUIRED_PAPER_WEEKS,
+    activeConfigurationPortfolio: activePortfolio,
   };
 }
 
@@ -320,9 +342,22 @@ export async function readReadiness(
  */
 async function completeWeeks(
   campaignId: string,
+  active: ActiveConfigurationPortfolio,
 ): Promise<Array<{ season: number; week: number; pnlCents: number }>> {
   const positions = await prisma.paperPosition.findMany({
-    where: { campaignId },
+    where: {
+      campaignId,
+      // D2: only weeks whose games kicked off after this portfolio's clock was
+      // (re)started count. A configuration switch resets `portfolioStartedAt`,
+      // so weeks accumulated under a prior configuration do not transfer.
+      ...(active.portfolioStartedAt
+        ? {
+            contract: {
+              game: { kickoffAt: { gte: active.portfolioStartedAt } },
+            },
+          }
+        : {}),
+    },
     select: {
       status: true,
       realizedPnlCents: true,

@@ -1,29 +1,16 @@
-import { requireAdmin } from "@/lib/auth/session";
-import { readCycles } from "@/lib/paper/read";
-import { AutonomyCycles } from "@/components/screens/AutonomyCycles";
+import { permanentRedirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Autonomy cycles · Sightline" };
 
-export default async function AutonomyCyclesPage({
-  searchParams,
-}: {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}) {
-  await requireAdmin();
-  const params = await searchParams;
-
-  // The URL is user-editable input, not a form: an unparseable value falls
-  // back to the default rather than erroring, matching the accuracy surface.
-  const season = numeric(params.season);
-  const week = numeric(params.week);
-  const scope = await readCycles({ season, week });
-
-  return <AutonomyCycles {...scope} />;
-}
-
-function numeric(value: string | string[] | undefined): number | undefined {
-  const first = Array.isArray(value) ? value[0] : value;
-  if (!first || !/^\d+$/.test(first)) return undefined;
-  return Number(first);
+/**
+ * `/autonomy/cycles` is retired — Cycles are absorbed into Paper Bot → Activity
+ * (PME-6, D10). A 308 permanent redirect preserves existing bookmarks; the
+ * cycle diagnostics live at `/autonomy/activity?view=cycles`.
+ *
+ * `permanentRedirect` throws, so this component never renders — and the target
+ * carries the admin guard, so this redirect must NOT itself be guarded (that
+ * would 403 a viewer instead of forwarding the link).
+ */
+export default function CyclesRedirect() {
+  permanentRedirect("/autonomy/activity?view=cycles");
 }

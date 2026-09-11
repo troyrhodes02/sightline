@@ -63,20 +63,27 @@ export async function runPaperSettlement(
     degraded: false,
   };
 
-  const campaign = await prisma.paperCampaign.findFirst({
-    orderBy: { startedAt: "asc" },
-    select: { id: true, highWaterMarkCents: true },
+  // One evaluation campaign owns up to three portfolios (PME-5); each settles
+  // independently. Settlement is already scoped by campaignId, so the pass is
+  // per-portfolio simply by iterating the children — the three ledgers never
+  // merge.
+  const evaluationCampaign = await prisma.paperEvaluationCampaign.findFirst({
+    orderBy: { campaignStartedAt: "asc" },
+    select: { id: true, portfolios: { select: { id: true } } },
   });
-  if (!campaign) return { ...empty, skipped: "not_expected" };
+  if (!evaluationCampaign || evaluationCampaign.portfolios.length === 0) {
+    return { ...empty, skipped: "not_expected" };
+  }
+  const campaignIds = evaluationCampaign.portfolios.map((p) => p.id);
 
-  // Nothing open and nothing to re-check is dormancy, derived from stored
-  // state. No run row: an hourly no-op through a five-month offseason would be
-  // noise, not history.
+  // Nothing open and nothing to re-check across ALL portfolios is dormancy,
+  // derived from stored state. No run row: an hourly no-op through a five-month
+  // offseason would be noise, not history.
   const openCount = await prisma.paperPosition.count({
-    where: { campaignId: campaign.id, status: "open" },
+    where: { campaignId: { in: campaignIds }, status: "open" },
   });
   const activeBreachCount = await prisma.paperBreach.count({
-    where: { campaignId: campaign.id, resolution: "active" },
+    where: { campaignId: { in: campaignIds }, resolution: "active" },
   });
   if (openCount === 0 && activeBreachCount === 0) {
     return { ...empty, skipped: "not_expected" };
@@ -107,15 +114,24 @@ export async function runPaperSettlement(
   }
 
   try {
-    const settled = await settleCampaign(campaign.id, now);
-    const breachesOpened = await reevaluateBreakers(campaign.id, now);
+    const totals = { ...empty };
+    for (const campaignId of campaignIds) {
+      const settled = await settleCampaign(campaignId, now);
+      const breachesOpened = await reevaluateBreakers(campaignId, now);
+      totals.positionsSettled += settled.positionsSettled;
+      totals.positionsVoided += settled.positionsVoided;
+      totals.settlementsSuperseded += settled.settlementsSuperseded;
+      totals.withdrawalsMade += settled.withdrawalsMade;
+      totals.withdrawnCents += settled.withdrawnCents;
+      totals.breachesOpened += breachesOpened;
+    }
 
     await prisma.pipelineRun.update({
       where: { id: runId },
       data: { status: "succeeded", finishedAt: new Date() },
     });
 
-    return { ...empty, ...settled, breachesOpened };
+    return totals;
   } catch (error) {
     await prisma.pipelineRun.update({
       where: { id: runId },
@@ -145,7 +161,7 @@ async function reevaluateBreakers(
 ): Promise<number> {
   const campaign = await prisma.paperCampaign.findUniqueOrThrow({
     where: { id: campaignId },
-    select: { highWaterMarkCents: true, killSwitchEngaged: true },
+    select: { highWaterMarkCents: true },
   });
   const config = await prisma.paperRiskConfig.findFirst({
     where: { campaignId },

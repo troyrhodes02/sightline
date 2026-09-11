@@ -192,14 +192,34 @@ def test_out_claim_raises_a_shadow_and_pending_suggestion(env, models_dir) -> No
     assert shadows[0]["adjustment_suggestion_id"] is not None
 
     # The base projection is preserved, untouched, and separately queryable.
+    # Parallel evaluation (SIG-103) stores BOTH engines' base projections for
+    # the stat. The suggestion adjusts the ACTIVE model's projection (the one the
+    # slate shows) — here receiving_yards is active on the simulation engine —
+    # so the link targets the simulation base projection, not the baseline shadow.
     base = _rows(
         env,
         "select id, provenance::text as provenance from projections"
         " where player_id = %s and stat_type = %s::\"StatType\""
+        " and provenance = 'base'::\"ProjectionProvenance\""
+        " and model_version = %s",
+        (_player_id(_TEAMMATE), _SIM_STAT, SIMULATION_MODEL_VERSION),
+    )
+    assert base, "active-model base projection must remain queryable after a shadow exists"
+    assert len(base) == 1, "one active-model base projection per (player, game, stat)"
+
+    # The baseline shadow base projection also exists (both engines run), but it
+    # is NOT what the suggestion adjusts.
+    all_base = _rows(
+        env,
+        "select model_version from projections"
+        " where player_id = %s and stat_type = %s::\"StatType\""
         " and provenance = 'base'::\"ProjectionProvenance\"",
         (_player_id(_TEAMMATE), _SIM_STAT),
     )
-    assert base, "base projection must remain queryable after a shadow exists"
+    assert {r["model_version"] for r in all_base} == {
+        SIMULATION_MODEL_VERSION,
+        "baseline-zil-0.1.0",
+    }, "both engines' base projections must be stored"
 
     # A pending suggestion links base and shadow with a human-readable reason.
     sug = _rows(

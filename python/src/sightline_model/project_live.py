@@ -14,9 +14,22 @@ Boundaries this module is built around:
   recommendation-snapshot tables: contract identity says WHO to project, and
   a price could only ever say WHAT to predict, which is the second invariant
   broken. The import-graph test enforces this structurally.
+* **Both engines run in parallel** (Parallel Model Evaluation, SIG-103). For
+  every eligible game/stat the baseline runs for every stat (it supports all
+  of them) and the simulation engine runs for every stat it supports —
+  regardless of which engine ``ModelSelection`` names active. The active model
+  per stat still drives the slate's active projection (the TypeScript read
+  filters to the active ``model_version``); the other engine's projection is a
+  SHADOW: stored, graded, and comparable, but never the slate's active
+  projection. The two engines run in SEPARATE per-game transactions so a
+  failure in one never rolls back or relabels the other's stored projection.
 * **Every model-facing read goes through the as-of layer** with one explicit
   cutoff for the whole run. ``information_cutoff`` and ``computed_at`` are
-  different timestamps and both are stored.
+  different timestamps and both are stored. A projection counts as live
+  evidence only if its ``computed_at`` precedes the game's kickoff-freeze
+  boundary (spec D3); this module never inserts a post-kickoff computation as a
+  live projection (temporal integrity, backfilling form), guarded before every
+  persist.
 * **Idempotence**: ids are uuid5 of the natural key and the insert is
   ``ON CONFLICT DO NOTHING`` on ``(player, game, stat, model_version,
   information_cutoff)`` — re-running with the same cutoff writes nothing and
@@ -57,6 +70,20 @@ from .simulation import live
 from .stat_types import spec
 
 _NS = uuid.UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8")  # RFC 4122 URL namespace
+
+
+class PostKickoffComputation(Exception):
+    """A live projection was computed at or after its game's kickoff freeze.
+
+    Temporal integrity, backfilling form (spec D3): a projection is live
+    evidence only if its ``computed_at`` precedes the game's kickoff-freeze
+    boundary — a projection produced after the ball is kicked (or after the
+    final score is known) is not a pre-game prediction and must never be stored
+    as one. The information cutoff already gates what a projection could SEE;
+    this gates WHEN it was produced, so a backfill that recomputes a past game
+    cannot masquerade as live. Raised before any persist, so the offending
+    write never lands.
+    """
 
 # Identity columns only. Adding a price column to this query is the second
 # invariant broken — see the module docstring and test_import_graph.
@@ -247,12 +274,12 @@ def _project_all(
         corpus = AsOfCorpus(connect, cutoff)
         prior_cache: dict[tuple[int, str, str], Prior | None] = {}
 
-        # The active model per stat type is a data fact (spec §Per-game
-        # production lifecycle, RD-SIM-2). Read once for the whole run; six rows,
-        # so a plain fetch is correct. A stat type absent from the registry
-        # defaults to the baseline — the seed ships every stat on the baseline,
-        # so an absent row can only mean a stat type not yet registered, which is
-        # exactly the baseline's job.
+        # Parallel model evaluation (SIG-103): both engines run for every
+        # eligible game/stat. ``ModelSelection`` no longer gates which engine
+        # RUNS — it only names which engine's projection the slate treats as
+        # active (that filter lives in the TypeScript slate read). It is still
+        # read here so the promotion tooling and any active-routing consumer see
+        # a consistent registry, and to keep the run self-describing.
         selections = live.load_model_selections(conn)
 
         by_game: dict[str, dict[str, list[str]]] = {}
@@ -262,9 +289,11 @@ def _project_all(
             ).append(t["player_id"])
 
         # Fitted simulation models are loaded lazily, and only if some stat type
-        # in this run actually routes to the simulation engine — a run that
-        # touches only baseline-routed stats never reaches for the artefacts.
-        sim_models = _load_sim_models_if_needed(selections, by_game)
+        # in this run is SUPPORTED by the simulation engine — a run whose stats
+        # the engine cannot produce never reaches for the artefacts. Support, not
+        # active-routing, is the gate now: the shadow engine runs whether or not
+        # it is the active model for the stat.
+        sim_models = _load_sim_models_if_needed(by_game)
 
         failed_games = 0
         for game_id in sorted(by_game):
@@ -287,34 +316,67 @@ def _project_all(
                 )
                 continue
 
-            game_stats = by_game[game_id]
-            sim_stats = live.simulation_stats(selections, set(game_stats))
-            sim_stat_set = set(sim_stats)
+            # Backfilling-form temporal guard (spec D3): a projection computed
+            # at/after kickoff is never live evidence. The information cutoff is
+            # gated above; this gates the computation time. Checked once per game
+            # before either engine writes, so a post-kickoff computation is
+            # skipped loudly rather than stored as a live projection.
+            if now >= kickoff:
+                print(f"skip {game_id}: computed_at at or after kickoff (not live)")
+                totals["skipped_games"] += 1
+                record_pipeline_run_game(
+                    connect,
+                    run_id,
+                    game_id,
+                    status=GAME_SKIPPED,
+                    error_message="computed_at at or after kickoff",
+                )
+                continue
 
+            game_stats = by_game[game_id]
+            sim_stats = live.supported_simulation_stats(set(game_stats))
+
+            # Each engine gets its OWN per-game transaction. A failure in one
+            # engine fails the game (the cycle records it and continues) but can
+            # never roll back or relabel the other engine's already-committed
+            # projections — the two are independent stored records that happen to
+            # cover the same game/stat (spec: "a failure of one engine must never
+            # relabel the other's stored projection").
             game_projected = 0
+            game_failed = False
+            engine_errors: list[str] = []
+
+            # --- Baseline: runs for every stat (it supports all of them) ------
             try:
                 with conn.transaction():
-                    # Baseline-routed stats: the unchanged per-player path.
+                    baseline_projected = 0
                     for stat_name in sorted(game_stats):
-                        if stat_name in sim_stat_set:
-                            continue
-                        player_ids = game_stats[stat_name]
-                        game_projected += _project_game_stat(
+                        baseline_projected += _project_game_stat(
                             conn,
                             corpus,
                             prior_cache,
                             game=game,
                             game_id=game_id,
                             stat_name=stat_name,
-                            player_ids=player_ids,
+                            player_ids=game_stats[stat_name],
                             seasons_by_game=seasons_by_game,
                             cutoff=cutoff,
                             now=now,
                             totals=totals,
                         )
-                    # Simulation-routed stats: one joint per-game run for all of
-                    # them at once (the engine is inherently per-game/joint).
-                    if sim_stats:
+                game_projected += baseline_projected
+            except Exception as exc:  # noqa: BLE001 - one engine; the other still runs
+                game_failed = True
+                message = sanitize_error(exc)
+                engine_errors.append(f"baseline: {message}")
+                print(f"game {game_id} baseline failed: {message}", file=sys.stderr)
+
+            # --- Simulation: runs for every stat it SUPPORTS (shadow or active)
+            # Skipped for the whole run when the fitted models are unavailable
+            # (degraded to baseline-only above); baseline still stands.
+            if sim_stats and sim_models is not None:
+                try:
+                    with conn.transaction():
                         game_projected += _project_game_simulation(
                             conn,
                             corpus,
@@ -328,12 +390,23 @@ def _project_all(
                             models=sim_models,
                             totals=totals,
                         )
-            except Exception as exc:  # noqa: BLE001 - recorded per game; cycle continues
+                except Exception as exc:  # noqa: BLE001 - one engine; baseline stands
+                    game_failed = True
+                    message = sanitize_error(exc)
+                    engine_errors.append(f"simulation: {message}")
+                    print(
+                        f"game {game_id} simulation failed: {message}",
+                        file=sys.stderr,
+                    )
+
+            if game_failed:
                 failed_games += 1
-                message = sanitize_error(exc)
-                print(f"game {game_id} failed: {message}", file=sys.stderr)
                 record_pipeline_run_game(
-                    connect, run_id, game_id, status=GAME_FAILED, error_message=message
+                    connect,
+                    run_id,
+                    game_id,
+                    status=GAME_FAILED,
+                    error_message="; ".join(engine_errors),
                 )
                 continue
 
@@ -401,6 +474,11 @@ def _project_game_stat(
             print(f"unprojectable {player_id} {stat_name}: {result.reason}")
             continue
 
+        # Defence in depth (D3): never persist a post-kickoff computation as a
+        # live baseline projection. The per-game loop already skips when
+        # ``now >= kickoff``, but the guard lives at the persist boundary too so
+        # no future caller can slip a backfilled computation past it.
+        _assert_pre_kickoff_freeze(now, game["kickoff_at"], game_id)
         _persist(conn, result, cutoff=cutoff, computed_at=now)
         totals["projected"] += 1
         projected += 1
@@ -408,19 +486,34 @@ def _project_game_stat(
 
 
 def _load_sim_models_if_needed(
-    selections: dict[str, str], by_game: dict[str, dict[str, list[str]]]
+    by_game: dict[str, dict[str, list[str]]]
 ) -> live.SimulationModels | None:
-    """Load the fitted simulation models iff any stat in the run routes to them.
+    """Load the fitted simulation models iff any stat in the run is SUPPORTED.
 
-    A run that touches only baseline-routed stats must never reach for the
-    simulation artefacts (and never fail on their absence). If a simulation route
-    exists but the artefacts are missing, the load raises — an unfitted-model
-    condition is an explicit failure, not a silent skip.
+    Parallel evaluation (SIG-103) runs the simulation engine for every stat it
+    supports, so support — not active-routing — is the gate: a run whose stats
+    the engine cannot produce never reaches for the artefacts.
+
+    If a supported stat exists but the artefacts cannot be loaded (not fitted,
+    not staged), the run DEGRADES to baseline-only rather than aborting: the
+    baseline is the permanent engine and a missing shadow engine must never stop
+    it (spec §Testing Priority 3 — "missing Simulation support for a stat does
+    not block Baseline"; CLAUDE.md — one engine failing never blocks the other).
+    The condition is surfaced loudly on stderr rather than swallowed silently
+    (never a silent gap); the caller records the run as degraded.
     """
     all_stats = {stat for stats in by_game.values() for stat in stats}
-    if not live.simulation_stats(selections, all_stats):
+    if not live.supported_simulation_stats(all_stats):
         return None
-    return live.load_simulation_models()
+    try:
+        return live.load_simulation_models()
+    except Exception as exc:  # noqa: BLE001 - degrade to baseline-only, never abort
+        print(
+            "project: simulation models unavailable "
+            f"({sanitize_error(exc)}); running baseline-only this cycle",
+            file=sys.stderr,
+        )
+        return None
 
 
 def _project_game_simulation(
@@ -446,7 +539,12 @@ def _project_game_simulation(
     counts as a candidate, resolving to projected or unprojectable.
     """
     if models is None:  # pragma: no cover - guarded by _load_sim_models_if_needed
-        raise RuntimeError("simulation-routed stats present but no models loaded")
+        raise RuntimeError("simulation-supported stats present but no models loaded")
+
+    # Defence in depth (D3): never persist a post-kickoff computation as a live
+    # simulation projection, mirroring the baseline guard. The per-game loop
+    # already skips when ``now >= kickoff``.
+    _assert_pre_kickoff_freeze(now, game["kickoff_at"], game_id)
 
     player_ids_by_stat = {stat: game_stats[stat] for stat in sim_stats}
     # Each requested (player, stat) is a candidate, exactly as the baseline path
@@ -536,6 +634,25 @@ def _persist(conn, result: ProjectionResult, *, cutoff: datetime, computed_at: d
                     "text": text,
                 },
             )
+
+
+def _assert_pre_kickoff_freeze(computed_at: datetime, kickoff: datetime, game_id: str) -> None:
+    """Guard: a live projection's ``computed_at`` must precede kickoff (D3).
+
+    Both timestamps are UTC-naive by the corpus convention. The information
+    cutoff is checked separately (a cutoff at/after kickoff skips the game
+    loudly); this guards the *computation time* so the pipeline can never insert
+    a post-kickoff computation as a live projection, and so the comparison read
+    (SIG-104) can rely on ``computed_at < kickoff freeze`` for every stored live
+    projection. A backfill computing a completed game trips this rather than
+    silently accruing look-ahead evidence.
+    """
+    if computed_at >= kickoff:
+        raise PostKickoffComputation(
+            f"refusing to store a live projection for game {game_id}: "
+            f"computed_at {computed_at.isoformat()} is at or after kickoff "
+            f"{kickoff.isoformat()} (post-game computations are never live)"
+        )
 
 
 def _naive_utc(value: datetime) -> datetime:

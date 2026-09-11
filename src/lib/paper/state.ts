@@ -52,18 +52,34 @@ export type CampaignState = {
   currentBreaches: EvaluatedBreach[];
 };
 
-export async function readCampaignState(): Promise<CampaignState | null> {
-  const campaign = await prisma.paperCampaign.findFirst({
+/**
+ * The current bankroll and safety state of ONE portfolio.
+ *
+ * By default this resolves the earliest-started portfolio, which is the paper
+ * campaign's landing state. A caller that must evaluate a specific portfolio —
+ * the readiness gate against the active configuration's own portfolio (D2) —
+ * passes its `campaignId`.
+ */
+export async function readCampaignState(
+  campaignId?: string,
+): Promise<CampaignState | null> {
+  const campaignRow = await prisma.paperCampaign.findFirst({
+    where: campaignId ? { id: campaignId } : undefined,
     orderBy: { startedAt: "asc" },
     select: {
       id: true,
       startingBankrollCents: true,
       autonomyEnabled: true,
-      killSwitchEngaged: true,
       highWaterMarkCents: true,
+      // Kill switch is campaign-wide, held on the parent (PME-1).
+      evaluationCampaign: { select: { killSwitchEngaged: true } },
     },
   });
-  if (!campaign) return null;
+  if (!campaignRow) return null;
+  const campaign = {
+    ...campaignRow,
+    killSwitchEngaged: campaignRow.evaluationCampaign.killSwitchEngaged,
+  };
 
   const configRow = await prisma.paperRiskConfig.findFirst({
     where: { campaignId: campaign.id },

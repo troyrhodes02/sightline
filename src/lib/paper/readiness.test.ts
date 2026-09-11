@@ -10,6 +10,10 @@ jest.mock("@/lib/prisma", () => ({
     paperBreach: { findMany: jest.fn() },
     paperCycle: { count: jest.fn(), findMany: jest.fn() },
     backtestRun: { findFirst: jest.fn() },
+    // PME-6: readiness resolves the active configuration's own portfolio (D2).
+    paperEvaluationCampaign: { findFirst: jest.fn() },
+    modelSelection: { findMany: jest.fn() },
+    paperCampaign: { findUnique: jest.fn() },
   },
 }));
 jest.mock("./state", () => ({ readCampaignState: jest.fn() }));
@@ -20,6 +24,9 @@ const mockPrisma = prisma as unknown as {
   paperBreach: { findMany: jest.Mock };
   paperCycle: { count: jest.Mock; findMany: jest.Mock };
   backtestRun: { findFirst: jest.Mock };
+  paperEvaluationCampaign: { findFirst: jest.Mock };
+  modelSelection: { findMany: jest.Mock };
+  paperCampaign: { findUnique: jest.Mock };
 };
 const mockState = state as unknown as { readCampaignState: jest.Mock };
 const mockCalibration = calibration as unknown as {
@@ -73,6 +80,20 @@ function healthyCampaign() {
   mockPrisma.paperBreach.findMany.mockResolvedValue([]);
   mockPrisma.paperCycle.count.mockResolvedValue(0);
   mockPrisma.paperCycle.findMany.mockResolvedValue([]);
+
+  // The active-configuration portfolio the readiness clock is evaluated against
+  // (D2): here a baseline-only selection resolves to the baseline portfolio,
+  // whose PaperCampaign id matches the mocked campaign state ("c1"). A null
+  // portfolioStartedAt keeps the week query unfiltered, matching the pre-PME-6
+  // behaviour these tests were written against.
+  mockPrisma.paperEvaluationCampaign.findFirst.mockResolvedValue({ id: "ec1" });
+  mockPrisma.modelSelection.findMany.mockResolvedValue([
+    { statType: "receiving_yards", modelVersion: "baseline-zil-0.1.0" },
+  ]);
+  mockPrisma.paperCampaign.findUnique.mockResolvedValue({
+    id: "c1",
+    portfolioStartedAt: null,
+  });
 }
 
 /** `count` settled positions across `weeks` distinct NFL weeks. */

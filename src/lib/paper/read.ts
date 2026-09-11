@@ -19,6 +19,8 @@ import { MONEY_UNAVAILABLE, money } from "@/lib/dto/autonomy";
 import { REQUIRED_PAPER_WEEKS, EXECUTION_WINDOW_HOURS } from "./config";
 import { halts } from "./breakers";
 import { readCampaignState } from "./state";
+import { resolveActiveConfigurationPortfolio } from "./model-selection";
+import type { PaperPortfolio } from "../../../generated/prisma/enums";
 
 /**
  * Reads for the Autonomy surfaces.
@@ -600,6 +602,8 @@ export async function readConfiguration(): Promise<ConfigurationDto> {
       startingBankrollCents: 0,
       startingBankrollEditable: true,
       hasActiveHaltingBreach: false,
+      withdrawalCeilingMultiple: 1.5,
+      continuousEvaluationEnabled: false,
     };
   }
 
@@ -609,19 +613,45 @@ export async function readConfiguration(): Promise<ConfigurationDto> {
     select: { condition: true },
   });
 
+  // Withdrawal ceiling and the continuous-evaluation flag live on the parent
+  // evaluation campaign (PME-1). The risk config's own ceiling mirrors it, but
+  // the parent is the source of truth for the shared campaign config.
+  const parent = await prisma.paperCampaign.findUnique({
+    where: { id: state.campaignId },
+    select: {
+      evaluationCampaign: {
+        select: {
+          withdrawalCeilingMultiple: true,
+          continuousEvaluationEnabled: true,
+        },
+      },
+    },
+  });
+
   return {
     mode: state.riskConfig ? toRiskModeDto({ ...state.riskConfig }) : null,
     autonomyEnabled: state.autonomyEnabled,
     startingBankrollCents: state.startingBankrollCents,
     startingBankrollEditable: fills === 0,
     hasActiveHaltingBreach: stored.some((breach) => halts(breach.condition)),
+    withdrawalCeilingMultiple: Number(
+      parent?.evaluationCampaign.withdrawalCeilingMultiple ??
+        state.riskConfig?.withdrawalCeilingMultiple ??
+        1.5,
+    ),
+    continuousEvaluationEnabled:
+      parent?.evaluationCampaign.continuousEvaluationEnabled ?? false,
   };
 }
 
 export async function readActiveBreaches(): Promise<ActiveBreachesDto> {
   const campaign = await prisma.paperCampaign.findFirst({
     orderBy: { startedAt: "asc" },
-    select: { id: true, killSwitchEngaged: true },
+    select: {
+      id: true,
+      // Kill switch is campaign-wide, held on the parent (PME-1).
+      evaluationCampaign: { select: { killSwitchEngaged: true } },
+    },
   });
   if (!campaign) {
     return { campaignExists: false, killSwitchEngaged: false, breaches: [] };
@@ -635,7 +665,7 @@ export async function readActiveBreaches(): Promise<ActiveBreachesDto> {
 
   return {
     campaignExists: true,
-    killSwitchEngaged: campaign.killSwitchEngaged,
+    killSwitchEngaged: campaign.evaluationCampaign.killSwitchEngaged,
     breaches: stored.map(toBreachDto).filter((breach) => breach.halts),
   };
 }
@@ -643,17 +673,47 @@ export async function readActiveBreaches(): Promise<ActiveBreachesDto> {
 /**
  * The readiness headline the overview shows.
  *
- * A "complete" week is one where every scheduled game has kicked off AND every
- * position opened in it has settled or voided. A week still resolving is not
- * evidence yet, and counting it would be the shortcut the pitch names.
+ * D2: always evaluated against the **active configuration's own portfolio**, not
+ * whatever campaign the caller happened to resolve. The `campaignId` argument is
+ * ignored beyond signalling that a campaign exists; the summary resolves the
+ * active-config portfolio itself so a configuration switch immediately re-anchors
+ * the fraction (and the reset clock is reflected without the caller knowing the
+ * rule). A "complete" week is one where every scheduled game has kicked off AND
+ * every position opened in it has settled or voided, and only weeks whose games
+ * kicked off after the portfolio's clock (re)started count.
  */
-export async function readReadinessSummary(campaignId: string): Promise<{
+export async function readReadinessSummary(_campaignId: string): Promise<{
   state: AutonomyOverviewDto["readiness"]["state"];
   weeksComplete: number;
   weeksRequired: number;
+  activeConfigurationPortfolio: PaperPortfolio;
 }> {
+  void _campaignId;
+  const active = await resolveActiveConfigurationPortfolio();
+  const activePortfolio: PaperPortfolio = active?.portfolio ?? "baseline";
+
+  if (!active?.campaignId) {
+    return {
+      state: "not_ready",
+      weeksComplete: 0,
+      weeksRequired: REQUIRED_PAPER_WEEKS,
+      activeConfigurationPortfolio: activePortfolio,
+    };
+  }
+
   const fills = await prisma.paperFill.findMany({
-    where: { position: { campaignId } },
+    where: {
+      position: {
+        campaignId: active.campaignId,
+        ...(active.portfolioStartedAt
+          ? {
+              contract: {
+                game: { kickoffAt: { gte: active.portfolioStartedAt } },
+              },
+            }
+          : {}),
+      },
+    },
     select: {
       position: {
         select: {
@@ -690,5 +750,6 @@ export async function readReadinessSummary(campaignId: string): Promise<{
     state: weeksComplete === 0 ? "not_ready" : "paper_evidence_building",
     weeksComplete,
     weeksRequired: REQUIRED_PAPER_WEEKS,
+    activeConfigurationPortfolio: activePortfolio,
   };
 }

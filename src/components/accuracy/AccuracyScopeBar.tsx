@@ -49,10 +49,17 @@ export function AccuracyScopeBar({
   scope,
   availableVersions,
   availableSeasons,
+  /**
+   * Query params preserved across every scope change — the Advanced level
+   * carries `level=advanced` here so rewriting the scope does not drop back to
+   * the Summary level.
+   */
+  extraParams,
 }: {
   scope: AccuracyScope;
   availableVersions: string[];
   availableSeasons: number[];
+  extraParams?: Record<string, string>;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -71,6 +78,7 @@ export function AccuracyScopeBar({
       ...("season" in patch ? { season: patch.season } : {}),
     };
     const params = new URLSearchParams({
+      ...extraParams,
       record: next.record as string,
       version: next.version as string,
       population: next.population as string,

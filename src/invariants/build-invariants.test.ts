@@ -94,23 +94,36 @@ describe("authorization", () => {
 
   it("guards every admin route", () => {
     const adminRoutes = [
-      join(SRC, "app", "(app)", "accuracy", "overrides", "page.tsx"),
+      // Model Performance (PME-4/D9), the former Accuracy surface. Every level
+      // and the overrides subroute is admin-guarded server-side; the retired
+      // `/accuracy` and `/accuracy/overrides` are 308 redirects, not guarded
+      // surfaces, so the guards live here now.
+      join(SRC, "app", "(app)", "model-performance", "page.tsx"),
+      join(SRC, "app", "(app)", "model-performance", "overrides", "page.tsx"),
       join(SRC, "app", "(app)", "health", "page.tsx"),
       join(SRC, "app", "(app)", "users", "page.tsx"),
       join(SRC, "app", "api", "users", "[id]", "decision", "route.ts"),
-      // Autonomy (SIG-64). Every surface in this section is private: a viewer
-      // must not be able to infer that a bankroll, a position, or a bot
-      // exists. The nav hides them, but the nav is a courtesy — these guards
-      // are the boundary.
+      // Paper Bot (SIG-64, reorganised in PME-6/D10). Every surface in this
+      // section is private: a viewer must not be able to infer that a bankroll,
+      // a position, or a bot exists. The nav hides them, but the nav is a
+      // courtesy — these guards are the boundary. The section collapsed to three
+      // surfaces (Performance / Activity / Settings) plus the override route; the
+      // legacy cycles/positions/review/readiness/configuration routes are now
+      // 308 redirects (guarded on their targets, not themselves) and Dry Run was
+      // retired entirely.
       join(SRC, "app", "(app)", "autonomy", "page.tsx"),
-      join(SRC, "app", "(app)", "autonomy", "cycles", "page.tsx"),
-      join(SRC, "app", "(app)", "autonomy", "cycles", "[cycleId]", "page.tsx"),
-      join(SRC, "app", "(app)", "autonomy", "positions", "page.tsx"),
-      join(SRC, "app", "(app)", "autonomy", "configuration", "page.tsx"),
+      join(SRC, "app", "(app)", "autonomy", "activity", "page.tsx"),
+      join(
+        SRC,
+        "app",
+        "(app)",
+        "autonomy",
+        "activity",
+        "[cycleId]",
+        "page.tsx",
+      ),
+      join(SRC, "app", "(app)", "autonomy", "settings", "page.tsx"),
       join(SRC, "app", "(app)", "autonomy", "override", "page.tsx"),
-      join(SRC, "app", "(app)", "autonomy", "dry-run", "page.tsx"),
-      join(SRC, "app", "(app)", "autonomy", "review", "page.tsx"),
-      join(SRC, "app", "(app)", "autonomy", "readiness", "page.tsx"),
     ];
 
     for (const route of adminRoutes) {

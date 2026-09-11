@@ -53,20 +53,21 @@ test.describe("role enforcement", () => {
     await signIn(page, VIEWER_EMAIL!, VIEWER_PASSWORD!);
 
     // The shell itself must not advertise the admin layer. Pitch 10 moved
-    // Accuracy, Autonomy, and Suggestions behind the admin boundary, so none
-    // of their routes may appear in a viewer's markup.
+    // Accuracy, Autonomy, and Suggestions behind the admin boundary; Pitch 11
+    // (PME-4) renamed Accuracy to Model Performance. None of their routes may
+    // appear in a viewer's markup.
     const shell = (await page.content()) ?? "";
     expect(shell).not.toContain("/health");
     expect(shell).not.toContain("/users");
-    expect(shell).not.toContain("/accuracy");
+    expect(shell).not.toContain("/model-performance");
     expect(shell).not.toContain("/autonomy");
     expect(shell).not.toContain("/suggestions");
 
     for (const route of [
       "/health",
       "/users",
-      "/accuracy",
-      "/accuracy/overrides",
+      "/model-performance",
+      "/model-performance/overrides",
       "/autonomy",
       "/suggestions",
     ]) {
@@ -228,7 +229,7 @@ test.describe("health honesty", () => {
   });
 });
 
-test.describe("accuracy surface", () => {
+test.describe("model performance surface", () => {
   // 320px, matching `responsive.spec.ts` — the width the responsive criteria
   // are stated at, not a device preset.
   const NARROW = { width: 320, height: 720 };
@@ -240,43 +241,84 @@ test.describe("accuracy surface", () => {
     });
   }
 
-  test("renders for the admin with the overrides doorway", async ({ page }) => {
+  test("renders the three levels for the admin (PME-4/D9)", async ({
+    page,
+  }) => {
     await signIn(page, ADMIN_EMAIL!, ADMIN_PASSWORD!);
-    await page.goto("/accuracy");
+    await page.goto("/model-performance");
 
-    await expect(page.getByRole("heading", { name: "Accuracy" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Model Performance" }),
+    ).toBeVisible();
+    // The secondary level tabs — Summary is the default.
+    await expect(page.getByRole("tab", { name: "Summary" })).toBeVisible();
+    await expect(page.getByRole("tab", { name: "Breakdown" })).toBeVisible();
+    await expect(page.getByRole("tab", { name: "Advanced" })).toBeVisible();
+  });
+
+  test("the admin reaches the overrides doorway on Advanced", async ({
+    page,
+  }) => {
+    await signIn(page, ADMIN_EMAIL!, ADMIN_PASSWORD!);
+    await page.goto("/model-performance?level=advanced");
     // The admin's doorway to the private overrides surface.
     await expect(page.getByText("Overrides", { exact: true })).toBeVisible();
   });
 
-  test("is denied to a viewer in place, with no accuracy data in the markup", async ({
+  test("`/accuracy` 308-redirects to /model-performance for the admin (D9)", async ({
     page,
   }) => {
-    // Pitch 10 moved general model accuracy behind the admin boundary. A viewer
-    // deep link is rejected server-side, in place — not redirected, not a
-    // partial shell — exactly like every other admin route.
-    await signIn(page, VIEWER_EMAIL!, VIEWER_PASSWORD!);
-    const response = await page.goto("/accuracy");
-
-    expect(response?.status()).toBe(403);
-    expect(new URL(page.url()).pathname).toBe("/accuracy");
-
-    // No accuracy heading, no overrides doorway, no calibration machinery.
-    const html = await page.content();
-    expect(html).not.toContain("Overrides");
-    expect(html).not.toContain("/accuracy/overrides");
-    const body = (await page.textContent("body")) ?? "";
-    expect(body).toMatch(/You do not have access to this page\./);
-    expect(body).not.toMatch(/brier|calibration|reliability/i);
+    await signIn(page, ADMIN_EMAIL!, ADMIN_PASSWORD!);
+    // A legacy statistical deep link lands on the Advanced level.
+    await page.goto("/accuracy?record=live&stat=passing_yards");
+    await expect(
+      page.getByRole("heading", { name: "Model Performance" }),
+    ).toBeVisible();
+    const url = new URL(page.url());
+    expect(url.pathname).toBe("/model-performance");
+    expect(url.searchParams.get("level")).toBe("advanced");
   });
 
-  test("accuracy and overrides do not scroll horizontally at 320px for the admin", async ({
+  test("is denied to a viewer in place at every level, with no data in the markup", async ({
+    page,
+  }) => {
+    // Model Performance (all levels) and its overrides subroute reject a viewer
+    // server-side, in place — not redirected, not a partial shell — exactly
+    // like every other admin route.
+    await signIn(page, VIEWER_EMAIL!, VIEWER_PASSWORD!);
+
+    for (const route of [
+      "/model-performance",
+      "/model-performance?level=summary",
+      "/model-performance?level=breakdown",
+      "/model-performance?level=advanced",
+      "/model-performance/overrides",
+    ]) {
+      const response = await page.goto(route);
+      expect(response?.status()).toBe(403);
+      // Denied IN PLACE: the path is unchanged.
+      expect(new URL(page.url()).pathname).toBe(route.split("?")[0]);
+
+      const html = await page.content();
+      expect(html).not.toContain("Review selection");
+      const body = (await page.textContent("body")) ?? "";
+      expect(body).toMatch(/You do not have access to this page\./);
+      expect(body).not.toMatch(/brier|calibration|reliability/i);
+    }
+  });
+
+  test("the surface does not scroll horizontally at 320px for the admin", async ({
     page,
   }) => {
     await signIn(page, ADMIN_EMAIL!, ADMIN_PASSWORD!);
     await page.setViewportSize(NARROW);
 
-    for (const route of ["/accuracy", "/accuracy/overrides"]) {
+    for (const route of [
+      "/model-performance?level=summary",
+      "/model-performance?level=breakdown",
+      "/model-performance?level=advanced",
+      "/model-performance/overrides",
+    ]) {
       await page.goto(route);
       expect(await overflows(page), `${route} overflows at 320px`).toBe(false);
     }

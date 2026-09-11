@@ -16,12 +16,19 @@ import { NumericText } from "@/components/primitives/NumericText";
  * mounted, never disabled, never placeholdered: the private layer is absent,
  * not hidden.
  */
-export function OverridesEntry({ decisionCount }: { decisionCount: number }) {
+export function OverridesEntry({
+  decisionCount,
+  href = "/model-performance/overrides",
+}: {
+  decisionCount: number;
+  /** Where the doorway leads. Defaults to the Model Performance overrides route. */
+  href?: string;
+}) {
   return (
     <Paper>
       <ButtonBase
         component={Link}
-        href="/accuracy/overrides"
+        href={href}
         sx={{
           width: "100%",
           justifyContent: "space-between",
