@@ -85,6 +85,11 @@ export function PropResearch({
   const [players, setPlayers] = useState<ResearchPlayerDto[]>(initialPlayers);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchInput, setSearchInput] = useState("");
+  // The threshold is LOCAL client state, not the URL param: typing it must be
+  // instant and freely clearable to an empty field. Driving it through the URL
+  // meant a navigation per keystroke and a prefill effect that snapped a
+  // cleared field back to the median. Seeded once from a deep link.
+  const [thresholdInput, setThresholdInput] = useState(thresholdParam);
 
   const selectedPlayer = useMemo(
     () => players.find((player) => player.playerId === playerId) ?? null,
@@ -174,20 +179,27 @@ export function PropResearch({
     // refetches (RD-1 / spec §9 — recompute is local arithmetic).
   }, [selectionComplete, playerId, gameId, statType]);
 
-  // Prefill the threshold with the projected median once a distribution loads,
-  // so a first result appears immediately (design doc §Behavior).
+  // Prefill the threshold with the projected median when a distribution loads
+  // AND the field is empty (a fresh selection, or first paint without a deep
+  // link) — so a first result appears immediately (design doc §Behavior). It
+  // keys on `projection` only, so a value the user typed or cleared is never
+  // clobbered: clearing the field stays cleared.
   useEffect(() => {
     if (
       projection?.available === true &&
-      thresholdParam === "" &&
       Number.isFinite(projection.projectedMedian)
     ) {
-      patch({ threshold: String(projection.projectedMedian) });
+      setThresholdInput((prev) =>
+        prev.trim() === "" ? String(projection.projectedMedian) : prev,
+      );
     }
-  }, [projection, thresholdParam, patch]);
+  }, [projection]);
 
   // --- Selection handlers -------------------------------------------------
+  // Each selection change clears the threshold so the prefill effect re-seeds
+  // the new distribution's median.
   function onPlayerChange(player: ResearchPlayerDto | null) {
+    setThresholdInput("");
     if (!player) {
       patch({ player: null, game: null, stat: null, threshold: null });
       return;
@@ -204,12 +216,14 @@ export function PropResearch({
   }
 
   function onGameChange(nextGameId: string) {
+    setThresholdInput("");
     const game = selectedPlayer?.games.find((g) => g.gameId === nextGameId);
     const firstStat = game?.statTypes[0] ?? null;
     patch({ game: nextGameId, stat: firstStat ?? null, threshold: null });
   }
 
   function onStatChange(nextStat: string) {
+    setThresholdInput("");
     patch({ stat: nextStat, threshold: null });
   }
 
@@ -321,9 +335,9 @@ export function PropResearch({
           <TextField
             label="Threshold"
             size="small"
-            value={thresholdParam}
+            value={thresholdInput}
             disabled={projection?.available !== true}
-            onChange={(event) => patch({ threshold: event.target.value })}
+            onChange={(event) => setThresholdInput(event.target.value)}
             sx={{ width: { xs: "100%", md: 120 } }}
             slotProps={{
               htmlInput: {
@@ -344,7 +358,7 @@ export function PropResearch({
       ) : projectionLoading ? (
         <ResultSkeleton />
       ) : projection?.available === true ? (
-        <ResultCard projection={projection} threshold={thresholdParam} />
+        <ResultCard projection={projection} threshold={thresholdInput} />
       ) : projection?.available === false ? (
         <UnavailableCard
           reason={projection.reason}
