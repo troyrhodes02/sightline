@@ -40,7 +40,10 @@ export const SECTIONS: Section[] = [
     adminOnly: true,
     adminGroup: true,
   },
-  { label: "Autonomy", href: "/autonomy", adminOnly: true, adminGroup: true },
+  // Paper Bot (the former Autonomy surface, renamed in Pitch 11 — PME-6/D10).
+  // The route base stays `/autonomy` (still an autonomous paper system, not
+  // portfolio management), admin-only, three surfaces under one nav item.
+  { label: "Paper Bot", href: "/autonomy", adminOnly: true, adminGroup: true },
   // Adjustment Suggestions: admin-only history and the private reliability
   // analytics. Pending accept/decline moved inline onto the Slate (Pitch 10),
   // so this is no longer a primary destination — it lives in the admin area.

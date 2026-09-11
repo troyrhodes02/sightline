@@ -1,21 +1,20 @@
-import { notFound } from "next/navigation";
-
-import { requireAdmin } from "@/lib/auth/session";
-import { readCycleDetail } from "@/lib/paper/read";
-import { AutonomyCycleDetail } from "@/components/screens/AutonomyCycles";
+import { permanentRedirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Cycle · Sightline" };
 
-export default async function AutonomyCycleDetailPage({
+/**
+ * `/autonomy/cycles/[cycleId]` is retired — cycle detail moved under Paper Bot →
+ * Activity (PME-6, D10). A 308 permanent redirect preserves existing deep links
+ * to a specific cycle's audit.
+ *
+ * `permanentRedirect` throws, so this component never renders; the admin guard
+ * lives on the target.
+ */
+export default async function CycleDetailRedirect({
   params,
 }: {
   params: Promise<{ cycleId: string }>;
 }) {
-  await requireAdmin();
   const { cycleId } = await params;
-  const detail = await readCycleDetail(cycleId);
-  if (!detail) notFound();
-
-  return <AutonomyCycleDetail detail={detail} />;
+  permanentRedirect(`/autonomy/activity/${cycleId}`);
 }

@@ -33,3 +33,38 @@ export const BACKTEST_SAMPLE_FLOOR = 500;
  */
 export const EVIDENCE_MODERATE_MULTIPLE = 2;
 export const EVIDENCE_STRONG_MULTIPLE = 4;
+
+/**
+ * Which stat types the Simulation Engine (`simulation-mc-0.1.0`) prices (PME-6,
+ * D13). The design doc's Settings table marks touchdowns `Sim n/a`; the yardage
+ * and reception stats are the ones the simulation model produces a distribution
+ * for. This is the single source of truth for two decisions that must agree:
+ * the Settings `ModelSelectionTable` disables the Simulation radio where a stat
+ * is unsupported, and `POST /api/model-selection` rejects a Simulation selection
+ * for an unsupported stat (`invalid_model_for_stat`). Baseline supports every
+ * stat, so no baseline list is needed.
+ *
+ * Kept here beside the model versions rather than data-derived: "does Simulation
+ * price this stat" is a property of the engine, not of whatever rows happen to
+ * exist in `ModelSelection` today.
+ */
+export const SIMULATION_SUPPORTED_STATS = [
+  "passing_yards",
+  "rushing_yards",
+  "receiving_yards",
+  "receptions",
+] as const;
+
+/**
+ * Whether the Simulation Engine supports `statType`. Baseline supports all
+ * stats; Simulation supports only `SIMULATION_SUPPORTED_STATS`.
+ */
+export function modelSupportsStat(
+  modelVersion: string,
+  statType: string,
+): boolean {
+  if (modelVersion === SIMULATION_VERSION) {
+    return (SIMULATION_SUPPORTED_STATS as readonly string[]).includes(statType);
+  }
+  return true;
+}

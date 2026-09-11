@@ -24,6 +24,8 @@ export {
   LEADER_BRIER_MARGIN,
   LIVE_SAMPLE_FLOOR,
   BACKTEST_SAMPLE_FLOOR,
+  SIMULATION_SUPPORTED_STATS,
+  modelSupportsStat,
 } from "./config";
 export type {
   LeaderState,

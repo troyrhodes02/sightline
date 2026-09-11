@@ -4,31 +4,30 @@ import Box from "@mui/material/Box";
 import Link from "next/link";
 
 /**
- * The secondary navigation inside the Autonomy section.
+ * The secondary navigation inside the Paper Bot section (PME-6, D10).
  *
- * Seven surfaces under ONE top-level nav item rather than seven nav entries:
- * the shell's tab bar names the parts of the product a person moves between,
- * and autonomy is one of them. Its internals are a section, not seven peers of
- * the slate.
+ * Three surfaces under ONE top-level nav item, collapsed from the former seven:
+ * Performance (the landing), Activity (positions + cycle diagnostics), and
+ * Settings (bankroll, risk, withdrawal, model selection). Cycles, Positions,
+ * Review, Readiness and Configuration are absorbed into these three; Dry Run is
+ * retired entirely (D7). The shell's tab bar names the parts of the product a
+ * person moves between, and Paper Bot is one of them; its internals are a
+ * section, not seven peers of the slate.
  *
  * A client component only because it passes `component={Link}`-style hrefs and
  * marks the current tab; it holds no state and fetches nothing.
  */
 const TABS = [
-  { label: "Overview", href: "/autonomy" },
-  { label: "Cycles", href: "/autonomy/cycles" },
-  { label: "Positions", href: "/autonomy/positions" },
-  { label: "Review", href: "/autonomy/review" },
-  { label: "Readiness", href: "/autonomy/readiness" },
-  { label: "Dry Run", href: "/autonomy/dry-run" },
-  { label: "Configuration", href: "/autonomy/configuration" },
+  { label: "Performance", href: "/autonomy" },
+  { label: "Activity", href: "/autonomy/activity" },
+  { label: "Settings", href: "/autonomy/settings" },
 ] as const;
 
 export function AutonomyTabs({ current }: { current: string }) {
   return (
     <Box
       component="nav"
-      aria-label="Autonomy sections"
+      aria-label="Paper Bot sections"
       sx={{
         display: "flex",
         gap: 0.25,
