@@ -81,8 +81,11 @@ Linear team `Sightline` (prefix SIG-). Linear chain (each branches off the previ
 
 Status / PRs (base of every ticket PR = feature branch; each ticket branch stacked off the previous):
 - **SIG-102** ✅ DONE — PR #107, branch `wtrhodesdev/sig-102-pme-1-data-model-...`. Verification all green (prisma validate/format, typecheck, test 957/957, test:schema 36/36, format, build). Migration+backfill exercised end-to-end. Linear → In Progress (no "In Review" state in this workflow).
-- **SIG-103** ⏳ next — branches off SIG-102's branch.
-- SIG-104..108 pending.
+- **SIG-103** ✅ DONE — PR #108, branch `wtrhodesdev/sig-103-pme-2-parallel-live-shadow-projections-dual-grading` (stacked on SIG-102). Python 500 passed, TS 957 passed, build success, format clean. Both engines run live per window; kickoff-freeze reused (`computed_at < kickoff` guard added, D3); per-engine transactions isolate failures; grading already dual (`_ELIGIBLE_SQL` groups by model_version); `freshest_base_projection` pinned to active model to keep Adjustment Suggestions correct. Linear → In Progress.
+- **SIG-104** ⏳ next — branches off SIG-103's branch.
+- SIG-105..108 pending.
+
+Standing note: only lint issue across tickets is 4 pre-existing `no-console` errors in the untracked out-of-scope `prisma/seed-dev-game.ts` — NOT introduced by this run; ignore.
 
 **Note:** Linear workflow has no "In Review" state (Backlog/Todo/In Progress/Done/Canceled/Duplicate). Tickets handed off in "In Progress" with PR attached.
 
