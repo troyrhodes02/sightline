@@ -1,0 +1,37 @@
+/**
+ * The model-comparison evidence layer (Parallel Model Evaluation, PME-3).
+ *
+ * Public surface for SIG-105's Model Performance surface and the contract-detail
+ * track-record block. The read functions resolve each model's own fit (D4); the
+ * leader / recommendation functions are pure and side-effect-free (D1/D12).
+ */
+export {
+  readComparison,
+  readStatLeaders,
+  readRecommendation,
+} from "./comparison";
+export { readModelSeries } from "./read";
+export {
+  determineLeader,
+  recommendation,
+  evidenceStrength,
+  belowFloor,
+  sampleFloor,
+} from "./leader";
+export {
+  BASELINE_VERSION,
+  SIMULATION_VERSION,
+  LEADER_BRIER_MARGIN,
+  LIVE_SAMPLE_FLOOR,
+  BACKTEST_SAMPLE_FLOOR,
+} from "./config";
+export type {
+  LeaderState,
+  EvidenceStrength,
+  EvidenceRecord,
+  ComparisonPopulation,
+  ModelSeriesDto,
+  ModelComparisonDto,
+  StatLeaderRowDto,
+  ModelRecommendationDto,
+} from "@/lib/dto/model-eval";

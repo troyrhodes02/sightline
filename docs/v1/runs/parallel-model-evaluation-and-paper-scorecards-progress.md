@@ -7,7 +7,16 @@
 
 ## Current step
 
-Steps 1–5 complete (pitch, design doc, UI preview, spec, Resolved Decisions D1–D22 recorded in spec + open-question flags). Starting Step 6: milestone + Linear issues.
+Implementation. SIG-102 (branch), SIG-103 (branch) committed+pushed. **SIG-104 IN PROGRESS** — model-comparison evidence layer.
+
+### SIG-104 status (PME-3)
+
+- Branch `wtrhodesdev/sig-104-pme-3-model-comparison-read-leaderrecommendation-engine`, off SIG-103's branch.
+- New lib `src/lib/model-eval/`: `config.ts`, `leader.ts` (pure D1/D14/D12), `read.ts` (`readModelSeries` — resolves each model's OWN fit; live dedup D3; backtest bins), `comparison.ts` (assembles two independent series → overall + per-stat + recommendation), `index.ts` barrel. DTOs in `src/lib/dto/model-eval.ts` (`ModelComparisonDto`, `StatLeaderRowDto`, `ModelSeriesDto`, `ModelRecommendationDto`).
+- Tests: `leader.test.ts` (27 total across suite) — margin/floor boundaries, evidence strength, recommendation no-side-effect; `read.test.ts` — D4 structural fairness (signature has no fit param; `activeRecalibration(modelVersion)` internal), D3 dedup SQL predicates, backtest bin Brier; `comparison.test.ts` — overall pooling vs per-stat independence (D1), live/backtest never blended (D15), no-config-write structural assertion.
+- **D4 read API:** `readModelSeries(modelVersion, record, population, statType?)`. The ONLY model-identifying input is `modelVersion`; the fit is resolved from it via `activeRecalibration(modelVersion)`. No fit/knots/correction/second-version parameter exists → crossing is not expressible. Comparison composes two independent calls.
+- **Verification:** model-eval jest 27/27; full jest 984/984; typecheck clean; build clean; format clean; model-eval + dto lint clean. (`npm run lint` shows 4 pre-existing `no-console` errors in the untracked `prisma/seed-dev-game.ts`, unrelated to this ticket.)
+- PR base = `feature/parallel-model-evaluation-and-paper-scorecards`; stacked over SIG-102/103 until they merge.
 
 Note: spec fork hallucinated completion once (0 tool uses); spec was authored directly in main thread instead. All good.
 
