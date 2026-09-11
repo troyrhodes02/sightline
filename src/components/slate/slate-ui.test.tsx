@@ -574,23 +574,23 @@ describe("Slate screen states (grouped)", () => {
     expect(screen.getByText("All games")).toBeInTheDocument();
   });
 
-  it("unresolved contracts are retained, collapsed behind a labelled toggle", async () => {
+  const withUnresolved = () =>
+    grouped({
+      unresolved: [
+        {
+          contractId: "u1",
+          title: "J. Smith-Njigba receiving yards above 74.5",
+          kalshiTicker: "KXNFLRECYDS-26FEB08SEANE-JSN-74.5",
+          yesAskCents: 50,
+          priceObservedAt: "2026-11-08T16:42:00Z",
+        },
+      ],
+    });
+
+  it("unresolved contracts are retained (admin), collapsed behind a labelled toggle", async () => {
     const user = userEvent.setup();
     renderThemed(
-      <Slate
-        slate={grouped({
-          unresolved: [
-            {
-              contractId: "u1",
-              title: "J. Smith-Njigba receiving yards above 74.5",
-              kalshiTicker: "KXNFLRECYDS-26FEB08SEANE-JSN-74.5",
-              yesAskCents: 50,
-              priceObservedAt: "2026-11-08T16:42:00Z",
-            },
-          ],
-        })}
-        refreshIntervalSeconds={60}
-      />,
+      <Slate slate={withUnresolved()} refreshIntervalSeconds={60} isAdmin />,
     );
     // The header is visible; the diagnostic list is collapsed by default.
     expect(screen.getByText(/Unresolved contracts \(1\)/)).toBeInTheDocument();
@@ -600,6 +600,22 @@ describe("Slate screen states (grouped)", () => {
       screen.getByRole("button", { name: /Unresolved contracts/ }),
     );
     expect(await screen.findByText("unresolved")).toBeInTheDocument();
+  });
+
+  it("a viewer never sees the unresolved-contracts diagnostic at all", () => {
+    renderThemed(
+      <Slate
+        slate={withUnresolved()}
+        refreshIntervalSeconds={60}
+        isAdmin={false}
+      />,
+    );
+    expect(screen.queryByText(/Unresolved contracts/)).toBeNull();
+    expect(screen.queryByText("unresolved")).toBeNull();
+    // The rest of the slate still renders for the viewer.
+    expect(
+      screen.getByRole("heading", { name: "Best opportunities" }),
+    ).toBeInTheDocument();
   });
 });
 
