@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
+import Collapse from "@mui/material/Collapse";
 import Pagination from "@mui/material/Pagination";
 import Paper from "@mui/material/Paper";
 import Stack from "@mui/material/Stack";
@@ -40,8 +41,9 @@ import type { SlateGroupedDto } from "@/lib/dto/slate";
  *
  * Search and filters (SIG-97) are client-side SELECTION over the already-loaded
  * grouped DTO: they hide and re-order the SAME computed rows and never change a
- * probability or edge. The scope lives in the URL (`?view=&game=&team=&…`) via a
- * shallow `router.replace`, so a filtered slate is shareable and returnable.
+ * probability or edge. Scope is client state (seeded from the URL once); the URL
+ * is kept in sync with `history.replaceState` so a filtered slate is shareable
+ * and returnable WITHOUT a navigation that would refetch the whole slate.
  *
  * Three empty states: (a) an over-narrow filter/search resolves to
  * "No players match — clear filters"; (b) a valid slate with nothing
@@ -62,37 +64,40 @@ export function Slate({
   /** Manual refresh is an admin diagnostic; viewers never see the control. */
   isAdmin?: boolean;
 }) {
-  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  const scope = useMemo(
-    () => parseScope(new URLSearchParams(searchParams.toString())),
-    [searchParams],
+  // Scope is CLIENT STATE, seeded once from the URL. Filters, search, and the
+  // view toggle are then instant re-renders — never a navigation. On this
+  // force-dynamic page a router navigation re-runs the server read (a full slate
+  // DB query) on every change, which made the search field unusable (a fetch per
+  // keystroke) and the view flip slow. The URL is kept shareable with
+  // history.replaceState, which updates the address bar WITHOUT a refetch.
+  const [scope, setScope] = useState<SlateScope>(() =>
+    parseScope(new URLSearchParams(searchParams.toString())),
   );
 
   const onScopeChange = useCallback(
     (next: SlateScope) => {
+      setScope(next);
       const query = scopeToParams(next).toString();
-      // Shallow URL update — no server round-trip, no refetch. The scope is the
-      // only thing that changes; the delivered slate is untouched.
-      router.replace(query ? `${pathname}?${query}` : pathname, {
-        scroll: false,
-      });
+      window.history.replaceState(
+        null,
+        "",
+        query ? `${pathname}?${query}` : pathname,
+      );
     },
-    [router, pathname],
+    [pathname],
   );
 
   // Selection over the ALREADY-DELIVERED slate. `filtered` is a subset of the
   // same rows; no probability, price, or edge is recomputed.
   const filtered = useMemo(() => applyScope(slate, scope), [slate, scope]);
 
-  // Pagination (25 per page) keeps the DOM small: a full Sunday slate is
-  // hundreds of player cards, and rendering them all is what makes the view
-  // toggle and scroll slow. Two independent page cursors — the cross-game
-  // "best" list and the by-game card list — both reset to page 1 whenever the
-  // selection or view changes.
-  const PAGE_SIZE = 25;
+  // Pagination (10 per page) keeps the DOM small. Best opportunities paginate by
+  // row; the game list paginates by GAME (10 games/page), and games start
+  // collapsed. Both cursors reset to page 1 whenever the selection/view changes.
+  const PAGE_SIZE = 10;
   const [bestPage, setBestPage] = useState(1);
   const [gamesPage, setGamesPage] = useState(1);
   const scopeKey = scopeToParams(scope).toString();
@@ -110,31 +115,21 @@ export function Slate({
     [bestRows, bestCurrent],
   );
 
-  // Paginate player cards ACROSS games, then re-group the windowed cards under
-  // their game headers so a game that straddles a page boundary still shows its
-  // header on each page.
-  const gamesPaged = useMemo(() => {
-    const flat: Array<{
-      game: (typeof filtered.games)[number];
-      card: (typeof filtered.games)[number]["players"][number];
-    }> = [];
-    for (const game of filtered.games) {
-      for (const card of game.players) flat.push({ game, card });
-    }
-    const pageCount = Math.max(1, Math.ceil(flat.length / PAGE_SIZE));
-    const current = Math.min(gamesPage, pageCount);
-    const windowed = flat.slice((current - 1) * PAGE_SIZE, current * PAGE_SIZE);
-    const games: typeof filtered.games = [];
-    for (const { game, card } of windowed) {
-      const last = games[games.length - 1];
-      if (!last || last.gameId !== game.gameId) {
-        games.push({ ...game, players: [card] });
-      } else {
-        last.players.push(card);
-      }
-    }
-    return { games, pageCount, current };
-  }, [filtered.games, gamesPage]);
+  const gamesPageCount = Math.max(
+    1,
+    Math.ceil(filtered.games.length / PAGE_SIZE),
+  );
+  const gamesCurrent = Math.min(gamesPage, gamesPageCount);
+  const gamesWindow = useMemo(
+    () =>
+      filtered.games.slice(
+        (gamesCurrent - 1) * PAGE_SIZE,
+        gamesCurrent * PAGE_SIZE,
+      ),
+    [filtered.games, gamesCurrent],
+  );
+
+  const [unresolvedOpen, setUnresolvedOpen] = useState(false);
 
   const view = scope.view;
   const hasGames = slate.games.length > 0;
@@ -233,7 +228,7 @@ export function Slate({
           ) : (
             <>
               {/* Best-opportunities block (best view): the cross-game strongest
-                  slice, paginated 25 per page. */}
+                  slice, paginated 10 per page. */}
               {view === "best" ? (
                 <Stack spacing={1.5}>
                   <Typography variant="h2">Best opportunities</Typography>
@@ -256,20 +251,20 @@ export function Slate({
                 <Stack spacing={1.5}>
                   <Typography variant="h2">All games</Typography>
                   <Box>
-                    {gamesPaged.games.map((game) => (
+                    {gamesWindow.map((game) => (
                       <GameGroup
                         key={game.gameId}
                         game={game}
                         isAdmin={isAdmin}
-                        defaultExpanded={view === "game"}
+                        defaultExpanded={false}
                       />
                     ))}
                   </Box>
-                  {gamesPaged.pageCount > 1 ? (
+                  {gamesPageCount > 1 ? (
                     <Stack sx={{ alignItems: "center", pt: 0.5 }}>
                       <Pagination
-                        count={gamesPaged.pageCount}
-                        page={gamesPaged.current}
+                        count={gamesPageCount}
+                        page={gamesCurrent}
                         onChange={(_, p) => setGamesPage(p)}
                         siblingCount={0}
                         size="small"
@@ -283,19 +278,58 @@ export function Slate({
 
           {hasUnresolved ? (
             <Stack spacing={1}>
-              <Typography variant="h2">
-                Unresolved contracts ({slate.unresolved.length})
-              </Typography>
-              {!hasGames ? (
-                <Alert severity="warning">
-                  No listed contract could be matched to a player yet.
-                </Alert>
-              ) : null}
-              <Paper sx={{ overflow: "hidden" }}>
-                {slate.unresolved.map((row) => (
-                  <UnresolvedRow key={row.contractId} row={row} />
-                ))}
-              </Paper>
+              {/* Kalshi contracts Sightline could not automatically match to a
+                  player (an unusual name, a suffix, a mid-week relisting). Kept
+                  so a mapping can be corrected rather than silently dropped, but
+                  collapsed by default — it is diagnostic, not part of browsing. */}
+              <Box
+                component="button"
+                type="button"
+                aria-expanded={unresolvedOpen}
+                onClick={() => setUnresolvedOpen((prior) => !prior)}
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 1,
+                  width: "100%",
+                  textAlign: "left",
+                  border: "1px solid",
+                  borderColor: "divider",
+                  borderRadius: 1,
+                  bgcolor: "background.paper",
+                  cursor: "pointer",
+                  font: "inherit",
+                  color: "inherit",
+                  px: 2,
+                  py: 1.25,
+                  "&:hover": { bgcolor: "action.hover" },
+                }}
+              >
+                <Typography variant="h2" component="span">
+                  Unresolved contracts ({slate.unresolved.length})
+                </Typography>
+                <Box sx={{ flex: 1 }} />
+                <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                  {unresolvedOpen ? "Hide" : "Show"}
+                </Typography>
+              </Box>
+              <Collapse in={unresolvedOpen} unmountOnExit>
+                <Stack spacing={1}>
+                  <Typography
+                    variant="caption"
+                    sx={{ color: "text.secondary", px: 0.5 }}
+                  >
+                    Kalshi contracts Sightline couldn&apos;t match to a player
+                    yet. They are held here for mapping, not scored — you can
+                    ignore them for normal browsing.
+                  </Typography>
+                  <Paper sx={{ overflow: "hidden" }}>
+                    {slate.unresolved.map((row) => (
+                      <UnresolvedRow key={row.contractId} row={row} />
+                    ))}
+                  </Paper>
+                </Stack>
+              </Collapse>
             </Stack>
           ) : null}
         </>
