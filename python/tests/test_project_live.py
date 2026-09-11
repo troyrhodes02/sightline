@@ -23,6 +23,26 @@ from sightline_model.project_live import (
     run_project,
 )
 
+
+@pytest.fixture(autouse=True)
+def _isolate_simulation_models(monkeypatch, tmp_path):
+    """Keep these baseline-focused tests independent of staged simulation models.
+
+    ``run_project`` runs the simulation engine in shadow for every stat it
+    supports (SIG-103), loading artefacts from ``default_models_dir`` — a real,
+    process-wide path. When those artefacts happen to be fitted and staged on
+    disk (e.g. after a human-run fit), the shadow engine adds a second
+    projection per candidate and these baseline-count assertions break through
+    no fault of the code under test. Pointing ``SIGHTLINE_SIM_MODELS_DIR`` at an
+    empty directory makes the live path degrade to baseline-only, exactly as it
+    does in a clean environment, so the tests are deterministic either way.
+    Tests that specifically exercise the simulation shadow live elsewhere and
+    stage their own models.
+    """
+    empty = tmp_path / "no-simulation-models"
+    empty.mkdir()
+    monkeypatch.setenv("SIGHTLINE_SIM_MODELS_DIR", str(empty))
+
 # ---------------------------------------------------------------------------
 # Structural: identity columns only (spec RD-15)
 # ---------------------------------------------------------------------------

@@ -22,7 +22,12 @@ dist-ssr
 
 # Backtest artefacts — millions of per-prediction Parquet rows on local disk,
 # never committed. Only BacktestRun aggregates and CalibrationBin rows persist.
-/python/artifacts/
+# (`/*` so a specific subdir can be re-included below; `backtests/` stays ignored.)
+/python/artifacts/*
+# Exception: the fitted Simulation-Engine component models ARE committed — they
+# are the staged artifacts the live pipeline loads (`default_models_dir()`), and
+# a few small joblib files are the deliberate staging mechanism (not a data dump).
+!/python/artifacts/simulation-models/
 
 # Local Supabase dev config/state (from `supabase start`), not source.
 /supabase/
@@ -60,3 +65,5 @@ next-env.d.ts
 
 # Perf harness runtime artifact (SIG-91) — captured per run, never committed
 docs/v1/perf/slate-lcp-latest.json
+.vercel
+.env*

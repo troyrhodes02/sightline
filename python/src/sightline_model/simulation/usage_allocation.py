@@ -226,6 +226,14 @@ def assemble_usage_features(
             if pid in grouped:
                 grouped[pid].append(row)
 
+    # The most-recently-known injury designation per player, in ONE round trip.
+    # A per-player ``latest_injury_designation`` in the loop is a query per player
+    # (an N+1 that dominates a full-universe fit); the batched context read is the
+    # SAME cutoff-bounded rows, and taking the last row per player (the SQL orders
+    # by ``player_id, known_at`` ascending) is byte-identical to the per-player
+    # "latest known as of the cutoff" the single-row method returns.
+    designations = _latest_injury_designations(corpus, player_ids, game_id)
+
     out: dict[str, PlayerUsageFeatures] = {}
     for pid in player_ids:
         rows = grouped[pid]
@@ -234,7 +242,7 @@ def assemble_usage_features(
         # history has no as-of team and is left off the team's allocation.
         as_of_team = rows[-1]["team_abbr_at_game"] if rows else None
         target_share, carry_share, snap_proxy = _player_usage_summary(rows)
-        designation = corpus.latest_injury_designation(player_id=pid, game_id=game_id)
+        designation = designations.get(pid)
         is_available = designation not in UNAVAILABLE_DESIGNATIONS
         out[pid] = PlayerUsageFeatures(
             player_id=pid,
@@ -245,6 +253,33 @@ def assemble_usage_features(
             trailing_carry_share=carry_share,
             trailing_snap_proxy=snap_proxy,
         )
+    return out
+
+
+def _latest_injury_designations(
+    corpus: AsOfCorpus, player_ids: list[str], game_id: str
+) -> dict[str, str | None]:
+    """``{player_id: latest injury designation known as of the cutoff}``.
+
+    A batched equivalent of :meth:`AsOfCorpus.latest_injury_designation` called
+    once per player: ``player_context_batch`` returns the same cutoff-bounded
+    ``injury_designation`` rows ordered by ``(player_id, known_at)`` ascending,
+    so the LAST row per player is the most-recently-known designation — exactly
+    what the single-row method returns. A player with no known designation is
+    absent from the frame and maps to ``None`` (available), identical to the
+    single-row method returning ``None``. This is a query-count optimisation
+    with byte-identical results, not a behaviour change.
+    """
+    frame = corpus.player_context_batch(
+        player_ids=list(player_ids),
+        game_id=game_id,
+        context_type="injury_designation",
+    )
+    out: dict[str, str | None] = {}
+    if frame.height:
+        # Ascending known_at per player -> the last row seen wins (latest known).
+        for row in frame.sort("player_id", "known_at").to_dicts():
+            out[row["player_id"]] = row.get("text_value")
     return out
 
 
