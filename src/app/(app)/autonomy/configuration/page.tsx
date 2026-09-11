@@ -1,13 +1,15 @@
-import { requireAdmin } from "@/lib/auth/session";
-import { readConfiguration } from "@/lib/paper/read";
-import { AutonomyConfiguration } from "@/components/screens/AutonomyConfiguration";
+import { permanentRedirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Autonomy configuration · Sightline" };
 
-export default async function AutonomyConfigurationPage() {
-  await requireAdmin();
-  const config = await readConfiguration();
-
-  return <AutonomyConfiguration config={config} />;
+/**
+ * `/autonomy/configuration` is retired — configuration moves to Paper Bot →
+ * Settings alongside model selection (PME-6, D10/D13). A 308 permanent redirect
+ * preserves existing bookmarks.
+ *
+ * `permanentRedirect` throws, so this component never renders; the admin guard
+ * lives on the target.
+ */
+export default function ConfigurationRedirect() {
+  permanentRedirect("/autonomy/settings");
 }

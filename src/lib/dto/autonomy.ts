@@ -6,10 +6,12 @@ import type {
   Confidence,
   MarketSide,
   PaperCycleOutcome,
+  PaperPortfolio,
   PaperPositionStatus,
   RiskMode,
   StatType,
 } from "../../../generated/prisma/enums";
+import type { PortfolioScorecardDto } from "@/lib/dto/model-eval";
 
 /**
  * The DTOs the Autonomy surfaces consume.
@@ -85,6 +87,11 @@ export type CycleRowDto = {
   candidatesSized: number | null;
   candidatesFilled: number | null;
   stakedCents: number | null;
+  /**
+   * The portfolio this cycle belongs to (PME-6, Activity). Present so an `All`
+   * view stays legible; a single-portfolio filter still carries it.
+   */
+  portfolio?: PaperPortfolio;
 };
 
 export type CandidateDto = {
@@ -158,6 +165,37 @@ export type PositionRowDto = {
   realizedPnlCents: number | null;
   openedAt: string;
   settledAt: string | null;
+  /**
+   * The portfolio holding this position (PME-6, Activity). Present so an `All`
+   * view names each row's portfolio.
+   */
+  portfolio?: PaperPortfolio;
+  /**
+   * The model version that produced the driving probability (PME-6, D6). Fixed
+   * at open time and never rewritten — for a Hybrid position it names the engine
+   * selected for the stat at decision time, and a later selection change never
+   * relabels it.
+   */
+  sourceModelVersion?: string;
+};
+
+/**
+ * Everything Paper Bot → Activity renders (PME-6, D10). Positions and cycles
+ * across the campaign's portfolios; the portfolio and view filters window which
+ * of each is shown, deep-linked. Records are never deleted — a failed cycle is a
+ * row with a reason, not an absence.
+ */
+export type ActivityDto = {
+  view: "positions" | "cycles";
+  portfolio: PaperPortfolio | "all";
+  /** The status GROUPING the UI filters on, not the raw enum. */
+  status: "open" | "settled" | "all";
+  positions: PositionRowDto[];
+  cycles: CycleRowDto[];
+  openCount: number;
+  settledCount: number;
+  /** True when a paper evaluation campaign exists at all. */
+  campaignExists: boolean;
 };
 
 export type ReadinessState =
@@ -207,6 +245,95 @@ export type ConfigurationDto = {
   /** False once any fill exists: the starting bankroll defines the record. */
   startingBankrollEditable: boolean;
   hasActiveHaltingBreach: boolean;
+  /** The withdrawal ceiling multiple (PME-6 Settings), on the parent campaign. */
+  withdrawalCeilingMultiple: number;
+  /** Continuous paper evaluation flag (PME-6 Settings), on the parent campaign. */
+  continuousEvaluationEnabled: boolean;
+};
+
+/** One portfolio's breach state on the Performance banner (PME-6, per portfolio). */
+export type PortfolioBreachDto = {
+  portfolio: PaperPortfolio;
+  breaches: BreachDto[];
+  /** Whether any breach on THIS portfolio halts it. */
+  halted: boolean;
+};
+
+/** A per-portfolio bankroll history series for the 3-series chart (PME-6). */
+export type PortfolioBankrollSeriesDto = {
+  portfolio: PaperPortfolio;
+  points: Array<{ at: string; settledCents: number }>;
+  highWaterMarkCents: number;
+  haltThresholdCents: number | null;
+};
+
+/**
+ * Everything Paper Bot → Performance renders (PME-6, D10/D11/D19/D21). Three
+ * portfolio scorecards under identical assumptions, per-portfolio breach state,
+ * a 3-series bankroll chart, and the readiness summary with its criterion detail
+ * one click away. Nothing here writes configuration; readiness never enables
+ * live trading.
+ */
+export type PaperBotPerformanceDto = {
+  campaignExists: boolean;
+  killSwitchEngaged: boolean;
+  startingBankrollCents: number;
+  riskModeName: RiskMode | null;
+  /** The campaign start, for the "began Wk N" caption. */
+  campaignStartedAt: string | null;
+  scorecards: PortfolioScorecardDto[];
+  portfolioBreaches: PortfolioBreachDto[];
+  bankrollSeries: PortfolioBankrollSeriesDto[];
+  /** The full readiness evaluation (summary state + criterion detail — D21). */
+  readiness: ReadinessDetailDto;
+  period: "current_week" | "previous_week" | "two_week" | "campaign";
+  emptyReason: "no_campaign" | null;
+};
+
+/** The readiness evaluation for Performance, summary + expandable detail (D21). */
+export type ReadinessDetailDto = {
+  state: ReadinessState;
+  weeksComplete: number;
+  weeksRequired: number;
+  activeConfigurationPortfolio: PaperPortfolio;
+  paperResultPositive: boolean;
+  modelQualityHealthy: boolean;
+  operationalHealthy: boolean;
+  disclaimer: string;
+  criteria: Array<{
+    key: string;
+    category: "paper_evidence" | "model_quality" | "safety_operations";
+    label: string;
+    met: boolean;
+    evidence: string;
+    unevaluable: boolean;
+  }>;
+};
+
+/** Model selection row for Settings (PME-6, D13). */
+export type ModelSelectionRowDto = {
+  statType: StatType;
+  /** The currently-active model version for this stat. */
+  activeModelVersion: string;
+  /** Whether Simulation supports this stat (radio enabled/disabled). */
+  simulationSupported: boolean;
+  /**
+   * The advisory recommendation glyph (★) target for this stat, derived from the
+   * live per-stat leader (D13). One of the two model versions, or null when the
+   * leader is too_close_to_call / not_enough_evidence. Advisory only — never a
+   * control (D12).
+   */
+  recommendedModelVersion: string | null;
+  /** Plain-language evidence label, e.g. "Simulation (moderate)". */
+  evidenceLabel: string;
+};
+
+/** Everything Paper Bot → Settings renders (PME-6, D13). */
+export type PaperBotSettingsDto = {
+  config: ConfigurationDto;
+  modelSelections: ModelSelectionRowDto[];
+  baselineModelVersion: string;
+  simulationModelVersion: string;
 };
 
 export type ActiveBreachesDto = {

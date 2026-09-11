@@ -1,17 +1,15 @@
-import { requireAdmin } from "@/lib/auth/session";
-import { readReadiness } from "@/lib/paper/readiness";
-import { AutonomyReadiness } from "@/components/screens/AutonomyReadiness";
+import { permanentRedirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Live readiness · Sightline" };
 
 /**
- * Readiness is re-evaluated on every request. It reports and cannot act: the
- * module it reads from exports no mutation, and no route handler imports it.
+ * `/autonomy/readiness` is retired — readiness is now a summary on Paper Bot →
+ * Performance with its criterion detail one click away (PME-6, D10/D21). A 308
+ * permanent redirect preserves existing bookmarks.
+ *
+ * `permanentRedirect` throws, so this component never renders; the admin guard
+ * lives on the target.
  */
-export default async function AutonomyReadinessPage() {
-  await requireAdmin();
-  const readiness = await readReadiness();
-
-  return <AutonomyReadiness readiness={readiness} />;
+export default function ReadinessRedirect() {
+  permanentRedirect("/autonomy");
 }

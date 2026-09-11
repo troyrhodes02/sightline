@@ -1,21 +1,17 @@
 /**
  * @jest-environment jsdom
  */
-import { render, screen, within } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 
-import { AutonomyOverview } from "./AutonomyOverview";
 import { AutonomyCycleDetail, AutonomyCycles } from "./AutonomyCycles";
-import { AutonomyPositions } from "./AutonomyPositions";
 import { AutonomyOverride } from "./AutonomyOverride";
 import { ThemeProvider } from "@mui/material/styles";
 import { theme } from "@/theme";
 import type {
   ActiveBreachesDto,
-  AutonomyOverviewDto,
   BreachDto,
   CandidateDto,
   CycleDetailDto,
-  PositionRowDto,
 } from "@/lib/dto/autonomy";
 
 jest.mock("next/navigation", () => ({
@@ -53,171 +49,6 @@ function breach(over: Partial<BreachDto> = {}): BreachDto {
     ...over,
   };
 }
-
-function overview(
-  over: Partial<AutonomyOverviewDto> = {},
-): AutonomyOverviewDto {
-  return {
-    status: "active",
-    killSwitchEngaged: false,
-    autonomyEnabled: true,
-    mode: MODE,
-    figures: {
-      startingBankrollCents: 100_000,
-      settledBalanceCents: 87_410,
-      openExposureCents: 3_830,
-      activeBankroll: { cents: 91_240 },
-      cumulativeWithdrawalsCents: 15_000,
-      totalPaperWealth: { cents: 106_240 },
-      netPaperPnl: { cents: -8_760 },
-      maxDrawdownBps: 1_124,
-      highWaterMarkCents: 102_790,
-      markToMarketAvailable: true,
-      priceLastFetchedAt: "2026-10-26T17:32:00.000Z",
-    },
-    exposure: {
-      slate: {
-        key: "slate",
-        label: "Slate",
-        usedCents: 3_830,
-        capCents: 13_686,
-        capPct: 15,
-      },
-      games: [],
-    },
-    history: [
-      {
-        at: "2026-10-05T12:00:00.000Z",
-        settledCents: 100_000,
-        markCents: null,
-      },
-      { at: "2026-10-26T12:00:00.000Z", settledCents: 87_410, markCents: null },
-    ],
-    breaches: [],
-    recentCycles: [],
-    readiness: {
-      state: "paper_evidence_building",
-      weeksComplete: 1,
-      weeksRequired: 2,
-    },
-    emptyReason: null,
-    nextWindowOpensAt: "2026-11-02T12:00:00.000Z",
-    lastCycleAt: null,
-    ...over,
-  };
-}
-
-describe("Autonomy overview", () => {
-  it("discloses paper mode on the surface itself", () => {
-    // A permanent label, not a temporary one pending live mode.
-    draw(<AutonomyOverview overview={overview()} />);
-    expect(
-      screen.getByText(/Paper mode · all figures simulated/i),
-    ).toBeInTheDocument();
-  });
-
-  it("decomposes the active bankroll rather than only totalling it", () => {
-    draw(<AutonomyOverview overview={overview()} />);
-    expect(screen.getByText("$912.40")).toBeInTheDocument();
-    expect(
-      screen.getByText(/settled \$874.10 \+ open \$38.30/),
-    ).toBeInTheDocument();
-  });
-
-  it("prints the sign on a negative P&L, not only the colour", () => {
-    // The encoding has to survive greyscale and colourblindness.
-    draw(<AutonomyOverview overview={overview()} />);
-    expect(screen.getByText("−$87.60")).toBeInTheDocument();
-  });
-
-  it("renders drawdown as unavailable — never zero — when the mark cannot be computed", () => {
-    draw(
-      <AutonomyOverview
-        overview={overview({
-          figures: {
-            ...overview().figures,
-            markToMarketAvailable: false,
-            maxDrawdownBps: null,
-            activeBankroll: { unavailable: true },
-            totalPaperWealth: { unavailable: true },
-            netPaperPnl: { unavailable: true },
-          },
-        })}
-      />,
-    );
-    expect(screen.getAllByText("unavailable").length).toBeGreaterThanOrEqual(3);
-    expect(screen.queryByText("0.0%")).not.toBeInTheDocument();
-    expect(
-      screen.getByText(
-        /Mark-to-market, and therefore drawdown, cannot be computed/i,
-      ),
-    ).toBeInTheDocument();
-  });
-
-  it("states the ceiling is independent of risk mode, in words", () => {
-    draw(<AutonomyOverview overview={overview()} />);
-    expect(screen.getByText(/independent of risk mode/i)).toBeInTheDocument();
-  });
-
-  it("shows every simultaneous breach, and disables Resume while any halts", () => {
-    draw(
-      <AutonomyOverview
-        overview={overview({
-          status: "halted",
-          breaches: [
-            breach(),
-            breach({
-              id: "b2",
-              condition: "calibration",
-              label: "calibration",
-            }),
-          ],
-        })}
-      />,
-    );
-    expect(
-      screen.getByText(/drawdown halt — measured 11.2%/),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/calibration — measured/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Resume" })).toBeDisabled();
-    expect(
-      screen.getByRole("link", { name: /Force override/ }),
-    ).toHaveAttribute("href", "/autonomy/override");
-  });
-
-  it("renders the readiness chip with no adjacent action", () => {
-    // Eligibility is a report, not a call to action.
-    draw(<AutonomyOverview overview={overview()} />);
-    expect(screen.getByText("paper evidence building")).toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: /activate|go live|enable live/i }),
-    ).not.toBeInTheDocument();
-  });
-
-  it("renders the not-enabled empty state without a zeroed dashboard", () => {
-    draw(
-      <AutonomyOverview
-        overview={overview({
-          autonomyEnabled: false,
-          emptyReason: "not_enabled",
-        })}
-      />,
-    );
-    expect(
-      screen.getByText(/Autonomous paper trading is not enabled/),
-    ).toBeInTheDocument();
-    expect(screen.queryByText("Bankroll history")).not.toBeInTheDocument();
-  });
-
-  it("keeps the kill switch present when there is no campaign at all", () => {
-    // The control that stops the bot must never be missing because a read
-    // returned nothing.
-    draw(<AutonomyOverview overview={null} />);
-    expect(
-      screen.getByText(/Autonomous paper trading is not set up/),
-    ).toBeInTheDocument();
-  });
-});
 
 describe("Cycles", () => {
   it("shows a skipped cycle as a row with its reason, not an error", () => {
@@ -387,112 +218,6 @@ describe("Cycle detail", () => {
     draw(<AutonomyCycleDetail detail={cycleDetail([])} />);
     expect(
       screen.getByText("No resolvable contracts in this game window."),
-    ).toBeInTheDocument();
-  });
-});
-
-function position(over: Partial<PositionRowDto> = {}): PositionRowDto {
-  return {
-    positionId: "p1",
-    contractId: "k1",
-    playerName: "Ja'Marr Chase",
-    statType: "receiving_yards",
-    threshold: 74.5,
-    side: "yes",
-    contracts: 32,
-    costBasisCents: 1_728,
-    feesPaidCents: 32,
-    intendedStakeCents: 1_775,
-    unfilledStakeCents: 0,
-    markCents: 1_920,
-    status: "open",
-    settlementResult: null,
-    realizedPnlCents: null,
-    openedAt: "2026-10-26T16:20:00.000Z",
-    settledAt: null,
-    ...over,
-  };
-}
-
-describe("Positions", () => {
-  it("renders P&L as `—` while a position is open", () => {
-    // Unrealised value never enters the realised-P&L column.
-    draw(
-      <AutonomyPositions
-        rows={[position()]}
-        status="open"
-        openCount={1}
-        settledCount={0}
-      />,
-    );
-    const row = screen.getByText(/Ja'Marr Chase/).closest("tr");
-    expect(within(row as HTMLElement).getAllByText("—").length).toBeGreaterThan(
-      0,
-    );
-  });
-
-  it("keeps the intended stake beside the fill, permanently", () => {
-    draw(
-      <AutonomyPositions
-        rows={[position({ unfilledStakeCents: 625 })]}
-        status="open"
-        openCount={1}
-        settledCount={0}
-      />,
-    );
-    expect(screen.getByText(/intended \$17.75/)).toBeInTheDocument();
-    expect(screen.getByText(/partial — \$6.25 unfilled/)).toBeInTheDocument();
-  });
-
-  it("renders a voided market distinctly from a loss", () => {
-    draw(
-      <AutonomyPositions
-        rows={[
-          position({
-            status: "voided",
-            settlementResult: "voided",
-            realizedPnlCents: 0,
-            markCents: null,
-            settledAt: "2026-10-27T12:00:00.000Z",
-          }),
-        ]}
-        status="settled"
-        openCount={0}
-        settledCount={1}
-      />,
-    );
-    expect(screen.getByText("voided")).toBeInTheDocument();
-    expect(
-      screen.getByText(/cost basis and fees returned/),
-    ).toBeInTheDocument();
-    expect(screen.getByText("$0.00")).toBeInTheDocument();
-  });
-
-  it("renders an unavailable mark as text, not as zero", () => {
-    draw(
-      <AutonomyPositions
-        rows={[position({ markCents: null })]}
-        status="open"
-        openCount={1}
-        settledCount={0}
-      />,
-    );
-    expect(screen.getByText("unavailable")).toBeInTheDocument();
-  });
-
-  it("states the settlement-source rule on the surface", () => {
-    draw(
-      <AutonomyPositions
-        rows={[]}
-        status="open"
-        openCount={0}
-        settledCount={0}
-      />,
-    );
-    expect(
-      screen.getByText(
-        /the position follows Kalshi and the model's grade follows the official/i,
-      ),
     ).toBeInTheDocument();
   });
 });

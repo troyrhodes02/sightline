@@ -329,6 +329,10 @@ export const configurationInputSchema = z
     startingBankrollCents: z.number().int().positive().optional(),
     withdrawalCeilingMultiple: z.number().min(1).max(100),
     autonomyEnabled: z.boolean(),
+    // Continuous paper evaluation (PME-6 Settings). Optional so every existing
+    // caller stays valid; when present it is persisted on the parent evaluation
+    // campaign, which is where the campaign-wide flag lives.
+    continuousEvaluationEnabled: z.boolean().optional(),
   })
   .strict();
 
@@ -497,6 +501,27 @@ export async function saveConfiguration(
     await tx.paperCampaign.update({
       where: { id: campaign.id },
       data: { autonomyEnabled: input.autonomyEnabled },
+    });
+
+    // Campaign-wide config lives on the parent evaluation campaign (PME-1): the
+    // withdrawal ceiling and the continuous-evaluation flag apply to every
+    // portfolio, so they are persisted once, not per portfolio. This is shared
+    // campaign config — never production-config in the D12 sense (only model
+    // selection is that), so it flows through the ordinary configuration save.
+    const parent = await tx.paperCampaign.findUniqueOrThrow({
+      where: { id: campaign.id },
+      select: { evaluationCampaignId: true },
+    });
+    await tx.paperEvaluationCampaign.update({
+      where: { id: parent.evaluationCampaignId },
+      data: {
+        withdrawalCeilingMultiple:
+          input.withdrawalCeilingMultiple ??
+          DEFAULT_WITHDRAWAL_CEILING_MULTIPLE,
+        ...(input.continuousEvaluationEnabled !== undefined
+          ? { continuousEvaluationEnabled: input.continuousEvaluationEnabled }
+          : {}),
+      },
     });
 
     const config = await tx.paperRiskConfig.create({

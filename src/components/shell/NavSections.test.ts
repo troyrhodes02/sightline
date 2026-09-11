@@ -17,7 +17,7 @@ describe("navigation sections", () => {
       "Slate",
       "Prop Research",
       "Model Performance",
-      "Autonomy",
+      "Paper Bot",
       "Suggestions",
       "Health",
       "Users",
@@ -66,7 +66,7 @@ describe("navigation sections", () => {
   it("gathers admin surfaces for the admin and nothing for a viewer", () => {
     expect(adminSections("admin").map((s) => s.label)).toEqual([
       "Model Performance",
-      "Autonomy",
+      "Paper Bot",
       "Suggestions",
       "Health",
       "Users",
