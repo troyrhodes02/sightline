@@ -7,7 +7,14 @@
 
 ## Current step
 
-**Steps 8–11 complete.** All 7 tickets squash-merged into the feature branch in order (102→103→104→106→105→107→108). Ticket PRs #107–#113 CLOSED with squash-merge notes (GitHub button blocked only by run-progress doc conflict; local squash used). Feature code tree verified byte-identical to the cumulative SIG-108 tip. Full suite GREEN. **Next: Step 12 /review → Step 13 audit → Step 14 re-verify → Step 15 report. DO NOT merge feature into main.**
+**RUN COMPLETE (Steps 1–15). STOPPED at the do-not-merge point.** Feature PR #106 open, verified, reviewed, audited, GREEN, awaiting human review. NOT merged into main.
+
+- Steps 8–11: all 7 tickets squash-merged into feature in order (102→103→104→106→105→107→108); ticket PRs #107–#113 CLOSED with squash-merge notes; feature code tree verified byte-identical to cumulative tip.
+- Step 12 /review: 8-angle finder review posted on PR #106; 6 of 7 stop-condition invariants confirmed structurally enforced; 8 findings.
+- Step 13/14 audit: implemented 6 (incl. CRITICAL hollow-sibling-portfolios fix via shared risk config + opening-balance entries), deferred 2 (in-code comments). Re-verified GREEN: typecheck, Jest 1062/1062, format, lint, build, pytest 500/500. Audit summary posted on PR #106.
+- Step 15: run report at `docs/v1/runs/parallel-model-evaluation-and-paper-scorecards-report.md`.
+
+Final HEAD commits on feature: audit fixes b3bf19d + deferred-comment commit. Runbook at `docs/v1/runbooks/...-runbook.md`.
 
 ### Step 11 verification (actual, on feature branch)
 - typecheck ✓ · format ✓ (fixed e2e/authenticated.spec.ts) · lint ✓ (only errors are in untracked pre-existing `prisma/seed-dev-game.ts`, NOT on branch → CI clean) · prisma validate ✓
