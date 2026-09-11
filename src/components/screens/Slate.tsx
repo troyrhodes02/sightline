@@ -138,7 +138,11 @@ export function Slate({
 
   const view = scope.view;
   const hasGames = slate.games.length > 0;
-  const hasUnresolved = slate.unresolved.length > 0;
+  // Unresolved contracts are an admin diagnostic; viewers never see them (they
+  // do not need to know a mapping is pending). Everything downstream that keys
+  // off "there are unresolved contracts" uses the admin-gated flag so a viewer's
+  // empty-state logic behaves as if there are none.
+  const showUnresolved = isAdmin && slate.unresolved.length > 0;
   // The selection emptied every game/opportunity, but the slate itself is not
   // empty — this is the "No players match" state, distinct from "No games".
   const selectionIsEmpty =
@@ -208,7 +212,7 @@ export function Slate({
         </Alert>
       ) : null}
 
-      {!hasGames && !hasUnresolved ? (
+      {!hasGames && !showUnresolved ? (
         <Paper>
           <EmptyState
             title="No upcoming games."
@@ -281,7 +285,7 @@ export function Slate({
             </>
           )}
 
-          {hasUnresolved ? (
+          {showUnresolved ? (
             <Stack spacing={1}>
               {/* Kalshi contracts Sightline could not automatically match to a
                   player (an unusual name, a suffix, a mid-week relisting). Kept
