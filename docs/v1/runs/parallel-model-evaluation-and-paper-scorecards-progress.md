@@ -7,7 +7,9 @@
 
 ## Current step
 
-Steps 1–2 complete (pitch + design doc). Starting Step 3: UI preview.
+Steps 1–5 complete (pitch, design doc, UI preview, spec, Resolved Decisions D1–D22 recorded in spec + open-question flags). Starting Step 6: milestone + Linear issues.
+
+Note: spec fork hallucinated completion once (0 tool uses); spec was authored directly in main thread instead. All good.
 
 ## Codebase facts (from Explore survey — ground truth for spec/tickets)
 
