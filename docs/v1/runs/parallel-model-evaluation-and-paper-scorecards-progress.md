@@ -79,8 +79,16 @@ Linear team `Sightline` (prefix SIG-). Linear chain (each branches off the previ
 6. **SIG-107** PME-6: Paper Bot reorg + model selection + readiness reset + Dry Run removal — blockedBy 106
 7. **SIG-108** PME-7: Viewer track-record block on contract detail (D8/D18) — blockedBy 107
 
-Status: created (Backlog). Feature branch: `feature/parallel-model-evaluation-and-paper-scorecards`.
-Ticket PR status: (none opened yet)
+Status / PRs (base of every ticket PR = feature branch; each ticket branch stacked off the previous):
+- **SIG-102** ✅ DONE — PR #107, branch `wtrhodesdev/sig-102-pme-1-data-model-...`. Verification all green (prisma validate/format, typecheck, test 957/957, test:schema 36/36, format, build). Migration+backfill exercised end-to-end. Linear → In Progress (no "In Review" state in this workflow).
+- **SIG-103** ⏳ next — branches off SIG-102's branch.
+- SIG-104..108 pending.
+
+**Note:** Linear workflow has no "In Review" state (Backlog/Todo/In Progress/Done/Canceled/Duplicate). Tickets handed off in "In Progress" with PR attached.
+
+**Feature PR:** #106 (https://github.com/troyrhodes02/sightline/pull/106) — base main, DO NOT MERGE.
+
+**Ticket-worker git flow:** each ticket branch is stacked off the previous; each ticket PR has base = feature branch. At Step 10 they squash-merge into feature in order. Runbook is drafted and staged at scratchpad `runbook-staged.md` (kept out of the tree during ticket work; restore to docs/v1/runbooks/ before final verification).
 
 ## Resolved Decisions
 
