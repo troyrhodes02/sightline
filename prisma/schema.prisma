@@ -1390,9 +1390,15 @@ model PaperEvaluationCampaign {
 
 model PaperCampaign {
   id                    String  @id @default(uuid())
-  label                 String? // operator label, e.g. "2026 week 9 onward"
+  label                 String? // bot NAME (Paper Bot Lab); operator label pre-Lab, e.g. "2026 week 9 onward"
   startingBankrollCents Int     @map("starting_bankroll_cents")
   autonomyEnabled       Boolean @default(false) @map("autonomy_enabled")
+
+  // A comparison bot is one of the three canonical Baseline/Simulation/Hybrid
+  // portfolios that power Model Performance's engine comparison; a custom bot
+  // (Paper Bot Lab) is `false`. Model Performance reads only isComparison=true so
+  // its 3-way comparison stays apples-to-apples while the cycle runs every bot.
+  isComparison Boolean @default(false) @map("is_comparison")
 
   evaluationCampaignId String         @map("evaluation_campaign_id")
   portfolio            PaperPortfolio
@@ -1425,8 +1431,12 @@ model PaperCampaign {
   desired       PaperDesiredExposure[]
   replays       PaperReplay[]
 
-  @@unique([evaluationCampaignId, portfolio])
+  // Many bots may share an engine (Paper Bot Lab), so the old one-per-portfolio
+  // uniqueness is gone. The 3 comparison bots stay unique-by-portfolio via a
+  // partial unique index in the migration (WHERE is_comparison), which the Prisma
+  // schema cannot express; here we index the read path the cycle and reads use.
   @@index([evaluationCampaignId])
+  @@index([evaluationCampaignId, isComparison])
   @@map("paper_campaigns")
 }
 

@@ -58,17 +58,18 @@ function transaction(options: {
         findMany: jest.fn().mockResolvedValue(options.selectionAfter),
       },
       paperCampaign: {
-        findUnique: jest.fn().mockImplementation(async (args: never) => {
+        // Paper Bot Lab dropped the compound unique, so the resolver is now a
+        // findFirst by (evaluationCampaignId, portfolio, isComparison). The
+        // sibling-autonomy lookup is a findFirst WITHOUT a portfolio filter.
+        findFirst: jest.fn().mockImplementation(async (args: never) => {
           const call = args as {
-            where: { evaluationCampaignId_portfolio: { portfolio: string } };
+            where: { portfolio?: string };
           };
-          return (
-            options.existingPortfolios[
-              call.where.evaluationCampaignId_portfolio.portfolio
-            ] ?? null
-          );
+          if (call.where.portfolio) {
+            return options.existingPortfolios[call.where.portfolio] ?? null;
+          }
+          return { autonomyEnabled: false };
         }),
-        findFirst: jest.fn().mockResolvedValue({ autonomyEnabled: false }),
         update: jest.fn().mockImplementation(async (args: never) => {
           const call = args as {
             where: { id: string };

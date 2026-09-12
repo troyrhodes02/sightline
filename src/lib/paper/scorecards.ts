@@ -65,6 +65,106 @@ function periodWindowEnd(period: ScorecardPeriod, now: Date): Date | null {
 
 const RISK_MODE_FALLBACK: PortfolioScorecardDto["riskMode"] = "custom";
 
+/**
+ * The financial figures for ONE paper campaign (bot), assembled server-side from
+ * the append-only ledger, its open positions marked to market, and its latest
+ * risk config. Shared by the per-portfolio scorecard (Model Performance) and the
+ * Paper Bot Lab reads so a bot's numbers mean exactly the same on both surfaces.
+ *
+ * Mark-dependent figures are null (not 0) when any open position lacks a usable
+ * bid — a degraded read is a distinct state from a real zero.
+ */
+export async function campaignFinancials(campaign: {
+  id: string;
+  startingBankrollCents: number;
+  highWaterMarkCents: number;
+}): Promise<{
+  activeBankrollCents: number | null;
+  withdrawnCents: number;
+  netPnlCents: number | null;
+  returnPct: number | null;
+  maxDrawdownBps: number | null;
+  positionCount: number;
+  riskMode: PortfolioScorecardDto["riskMode"];
+}> {
+  const [lastEntry, openPositions] = await Promise.all([
+    prisma.paperLedgerEntry.findFirst({
+      where: { campaignId: campaign.id },
+      orderBy: [{ occurredAt: "desc" }, { id: "desc" }],
+      select: { balanceAfterCents: true },
+    }),
+    prisma.paperPosition.findMany({
+      where: { campaignId: campaign.id, status: "open" },
+      select: {
+        id: true,
+        contractId: true,
+        side: true,
+        contracts: true,
+        costBasisCents: true,
+        feesPaidCents: true,
+      },
+    }),
+  ]);
+  const settledBalanceCents = lastEntry?.balanceAfterCents ?? 0;
+  const observations = await prisma.priceObservation.findMany({
+    where: { contractId: { in: openPositions.map((p) => p.contractId) } },
+    orderBy: { observedAt: "desc" },
+    distinct: ["contractId"],
+    select: { contractId: true, yesBidCents: true, noBidCents: true },
+  });
+  const byContract = new Map(observations.map((o) => [o.contractId, o]));
+
+  const marks: OpenPositionMark[] = openPositions.map((position) => ({
+    positionId: position.id,
+    side: position.side,
+    contracts: position.contracts,
+    costBasisCents: position.costBasisCents,
+    feesPaidCents: position.feesPaidCents,
+    bidCentsOnHeldSide: bidOnHeldSide(
+      position.side,
+      byContract.get(position.contractId) ?? null,
+    ),
+  }));
+  const mark = markToMarket(settledBalanceCents, marks);
+
+  const [withdrawals, positionCount, config] = await Promise.all([
+    prisma.paperLedgerEntry.aggregate({
+      where: { campaignId: campaign.id, kind: "withdrawal" },
+      _sum: { amountCents: true },
+    }),
+    prisma.paperPosition.count({ where: { campaignId: campaign.id } }),
+    prisma.paperRiskConfig.findFirst({
+      where: { campaignId: campaign.id },
+      orderBy: { effectiveFrom: "desc" },
+      select: { mode: true },
+    }),
+  ]);
+  const withdrawnCents = Math.abs(withdrawals._sum.amountCents ?? 0);
+
+  const activeBankrollCents = mark.available ? mark.markCents : null;
+  const totalValueCents =
+    activeBankrollCents === null ? null : activeBankrollCents + withdrawnCents;
+  const netPnlCents =
+    totalValueCents === null
+      ? null
+      : totalValueCents - campaign.startingBankrollCents;
+  const returnPct =
+    netPnlCents === null || campaign.startingBankrollCents <= 0
+      ? null
+      : (netPnlCents / campaign.startingBankrollCents) * 100;
+  const maxDrawdownBps = drawdownBps(campaign.highWaterMarkCents, mark);
+
+  return {
+    activeBankrollCents,
+    withdrawnCents,
+    netPnlCents,
+    returnPct,
+    maxDrawdownBps,
+    positionCount,
+    riskMode: config?.mode ?? RISK_MODE_FALLBACK,
+  };
+}
+
 async function scorecardForPortfolio(
   campaign: {
     id: string;
@@ -213,7 +313,11 @@ export async function readPortfolioScorecards(
   now: Date = new Date(),
 ): Promise<PortfolioScorecardDto[]> {
   const portfolios = await prisma.paperCampaign.findMany({
-    where: { evaluationCampaignId },
+    // Only the three canonical COMPARISON bots power Model Performance's engine
+    // comparison (Paper Bot Lab). A custom Lab bot sharing an engine must never
+    // appear here or the surface would show more than three columns and could
+    // pair a custom bankroll with an engine's name.
+    where: { evaluationCampaignId, isComparison: true },
     select: {
       id: true,
       portfolio: true,

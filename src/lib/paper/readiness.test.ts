@@ -13,7 +13,7 @@ jest.mock("@/lib/prisma", () => ({
     // PME-6: readiness resolves the active configuration's own portfolio (D2).
     paperEvaluationCampaign: { findFirst: jest.fn() },
     modelSelection: { findMany: jest.fn() },
-    paperCampaign: { findUnique: jest.fn() },
+    paperCampaign: { findFirst: jest.fn() },
   },
 }));
 jest.mock("./state", () => ({ readCampaignState: jest.fn() }));
@@ -26,7 +26,7 @@ const mockPrisma = prisma as unknown as {
   backtestRun: { findFirst: jest.Mock };
   paperEvaluationCampaign: { findFirst: jest.Mock };
   modelSelection: { findMany: jest.Mock };
-  paperCampaign: { findUnique: jest.Mock };
+  paperCampaign: { findFirst: jest.Mock };
 };
 const mockState = state as unknown as { readCampaignState: jest.Mock };
 const mockCalibration = calibration as unknown as {
@@ -90,7 +90,7 @@ function healthyCampaign() {
   mockPrisma.modelSelection.findMany.mockResolvedValue([
     { statType: "receiving_yards", modelVersion: "baseline-zil-0.1.0" },
   ]);
-  mockPrisma.paperCampaign.findUnique.mockResolvedValue({
+  mockPrisma.paperCampaign.findFirst.mockResolvedValue({
     id: "c1",
     portfolioStartedAt: null,
   });

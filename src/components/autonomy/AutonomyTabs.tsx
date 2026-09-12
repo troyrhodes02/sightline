@@ -19,6 +19,7 @@ import Link from "next/link";
  */
 const TABS = [
   { label: "Performance", href: "/autonomy" },
+  { label: "Bots", href: "/autonomy/bots" },
   { label: "Activity", href: "/autonomy/activity" },
   { label: "Settings", href: "/autonomy/settings" },
 ] as const;

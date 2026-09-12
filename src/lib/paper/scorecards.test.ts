@@ -228,6 +228,18 @@ describe("readPortfolioScorecards", () => {
     expect(base(twoWeek).netPnlCents).toBe(5_000);
   });
 
+  it("reads ONLY the comparison bots so Model Performance stays a 3-way comparison", async () => {
+    // Paper Bot Lab: custom bots share the campaign but must never appear on Model
+    // Performance. The scorecard read filters isComparison=true.
+    threePortfolios();
+    await readPortfolioScorecards("ec1", "campaign", NOW);
+    expect(mockPrisma.paperCampaign.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { evaluationCampaignId: "ec1", isComparison: true },
+      }),
+    );
+  });
+
   it("omits Hybrid when only two portfolios exist (no hybrid selection, D11)", async () => {
     mockPrisma.paperCampaign.findMany.mockResolvedValue([
       {
