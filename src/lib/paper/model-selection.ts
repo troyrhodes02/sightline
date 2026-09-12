@@ -150,12 +150,14 @@ export async function resolveActiveConfigurationPortfolio(): Promise<ActiveConfi
   const selection = await selectionMap(prisma);
   const portfolioKind = activeConfigurationPortfolio(selection);
 
-  const portfolio = await prisma.paperCampaign.findUnique({
+  // The readiness clock is anchored on the canonical COMPARISON bot of this
+  // engine, never a custom Lab bot that happens to share the engine (Paper Bot
+  // Lab dropped the one-per-portfolio unique, so this resolves by isComparison).
+  const portfolio = await prisma.paperCampaign.findFirst({
     where: {
-      evaluationCampaignId_portfolio: {
-        evaluationCampaignId: campaign.id,
-        portfolio: portfolioKind,
-      },
+      evaluationCampaignId: campaign.id,
+      portfolio: portfolioKind,
+      isComparison: true,
     },
     select: { id: true, portfolioStartedAt: true },
   });
@@ -242,12 +244,13 @@ export async function applyModelSelection(input: {
     // portfolio's evidence transfers (D2). The portfolio may not exist yet if a
     // switch first creates a hybrid configuration — provision it so the clock
     // has an anchor. Baseline/simulation always exist for a live campaign.
-    let portfolio = await tx.paperCampaign.findUnique({
+    // The newly-active configuration's OWN comparison bot (Paper Bot Lab: resolve
+    // by isComparison, since the engine is no longer unique per campaign).
+    let portfolio = await tx.paperCampaign.findFirst({
       where: {
-        evaluationCampaignId_portfolio: {
-          evaluationCampaignId: campaign.id,
-          portfolio: portfolioKind,
-        },
+        evaluationCampaignId: campaign.id,
+        portfolio: portfolioKind,
+        isComparison: true,
       },
       select: { id: true },
     });
@@ -258,13 +261,20 @@ export async function applyModelSelection(input: {
         select: { startingBankrollCents: true },
       });
       const sibling = await tx.paperCampaign.findFirst({
-        where: { evaluationCampaignId: campaign.id },
+        where: { evaluationCampaignId: campaign.id, isComparison: true },
         select: { autonomyEnabled: true },
       });
+      const COMPARISON_LABELS: Record<PaperPortfolio, string> = {
+        baseline: "Baseline",
+        simulation: "Simulation",
+        hybrid: "Hybrid",
+      };
       portfolio = await tx.paperCampaign.create({
         data: {
           evaluationCampaignId: campaign.id,
           portfolio: portfolioKind,
+          isComparison: true,
+          label: COMPARISON_LABELS[portfolioKind],
           startingBankrollCents: parent.startingBankrollCents,
           highWaterMarkCents: parent.startingBankrollCents,
           highWaterMarkAt: now,

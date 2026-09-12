@@ -194,6 +194,13 @@ describe("the correction is the only component that adapts to measured accuracy"
         relative.startsWith("/lib/paper/execute") ||
         relative.startsWith("/lib/paper/settlement") ||
         relative.startsWith("/lib/paper/controls") ||
+        // Paper Bot Lab: create/rename/pause a bot. A bot IS a PaperCampaign, so
+        // creating one writes a PaperCampaign (+ its own initial risk config) and
+        // renaming/pausing updates it. All are HUMAN admin actions reached only by
+        // POST — never adapting a risk parameter to P&L, which is the property
+        // this guard protects. The new create surface is sanctioned exactly like
+        // the configuration route.
+        relative.startsWith("/lib/paper/bots") ||
         // PME-6/D2: the confirmed, admin-only model-selection writes
         // `paperCampaign.update` to reset the newly-active portfolio's
         // readiness clock (`portfolioStartedAt`). It never touches a risk

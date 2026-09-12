@@ -3,13 +3,18 @@ import { readCode } from "@/lib/testing/source";
 import { prisma } from "@/lib/prisma";
 import { BASELINE_VERSION, SIMULATION_VERSION } from "@/lib/model-eval/config";
 import type { StatType } from "../../../generated/prisma/enums";
-import { resolvePortfolios, selectionIsHybrid } from "./portfolios";
+import {
+  resolveBots,
+  resolvePortfolios,
+  selectionIsHybrid,
+} from "./portfolios";
 
 jest.mock("@/lib/prisma", () => ({
   prisma: {
     paperEvaluationCampaign: { findUniqueOrThrow: jest.fn() },
     modelSelection: { findMany: jest.fn() },
     paperRiskConfig: { findFirst: jest.fn() },
+    paperCampaign: { findMany: jest.fn() },
     $transaction: jest.fn(),
   },
 }));
@@ -18,6 +23,7 @@ const mockPrisma = prisma as unknown as {
   paperEvaluationCampaign: { findUniqueOrThrow: jest.Mock };
   modelSelection: { findMany: jest.Mock };
   paperRiskConfig: { findFirst: jest.Mock };
+  paperCampaign: { findMany: jest.Mock };
   $transaction: jest.Mock;
 };
 
@@ -257,6 +263,97 @@ describe("resolvePortfolios", () => {
   });
 });
 
+describe("resolveBots enumerates comparison + custom bots (Paper Bot Lab)", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    installTransaction();
+  });
+
+  const START = new Date("2026-09-01T00:00:00Z");
+
+  it("returns the 3 comparison bots AND every custom bot, each priced by its engine", async () => {
+    mockPrisma.modelSelection.findMany.mockResolvedValue(
+      selectionRows({
+        passing_yards: BASELINE_VERSION,
+        receiving_yards: SIMULATION_VERSION,
+      }),
+    );
+    // The parent already has all three comparison bots provisioned.
+    mockPrisma.paperEvaluationCampaign.findUniqueOrThrow.mockResolvedValue({
+      startingBankrollCents: 100_000,
+      campaignStartedAt: START,
+      portfolios: [
+        {
+          id: "cb",
+          portfolio: "baseline",
+          highWaterMarkCents: 100_000,
+          startingBankrollCents: 100_000,
+          autonomyEnabled: true,
+        },
+        {
+          id: "cs",
+          portfolio: "simulation",
+          highWaterMarkCents: 100_000,
+          startingBankrollCents: 100_000,
+          autonomyEnabled: true,
+        },
+        {
+          id: "ch",
+          portfolio: "hybrid",
+          highWaterMarkCents: 100_000,
+          startingBankrollCents: 100_000,
+          autonomyEnabled: true,
+        },
+      ],
+    });
+    // Two custom Lab bots, one paused. Both must appear in the cycle enumeration.
+    mockPrisma.paperCampaign.findMany.mockResolvedValue([
+      {
+        id: "bot1",
+        portfolio: "baseline",
+        highWaterMarkCents: 50_000,
+        startingBankrollCents: 50_000,
+        autonomyEnabled: true,
+      },
+      {
+        id: "bot2",
+        portfolio: "hybrid",
+        highWaterMarkCents: 50_000,
+        startingBankrollCents: 50_000,
+        autonomyEnabled: false,
+      },
+    ]);
+
+    const bots = await resolveBots("ec1");
+    // Comparison bots first, then custom bots.
+    expect(bots.map((b) => b.campaignId)).toEqual([
+      "cb",
+      "cs",
+      "ch",
+      "bot1",
+      "bot2",
+    ]);
+    // Custom bots resolved to the query with isComparison=false.
+    expect(mockPrisma.paperCampaign.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { evaluationCampaignId: "ec1", isComparison: false },
+      }),
+    );
+    // A custom hybrid bot prices per stat from the live selection, exactly like
+    // the comparison hybrid; a custom baseline bot prices from baseline.
+    const customBaseline = bots.find((b) => b.campaignId === "bot1")!;
+    const customHybrid = bots.find((b) => b.campaignId === "bot2")!;
+    expect(customBaseline.modelVersionForStat("rushing_tds")).toBe(
+      BASELINE_VERSION,
+    );
+    expect(customHybrid.modelVersionForStat("receiving_yards")).toBe(
+      SIMULATION_VERSION,
+    );
+    // Paused custom bot still returned; the cycle filters on autonomyEnabled.
+    expect(customHybrid.autonomyEnabled).toBe(false);
+  });
+});
+
 describe("Hybrid attribution is fixed at open time and never rewritten (D6)", () => {
   it("sets sourceModelVersion on the position from the candidate's model version", () => {
     // The writer stamps the position's sourceModelVersion from the candidate's
@@ -285,31 +382,32 @@ describe("Hybrid attribution is fixed at open time and never rewritten (D6)", ()
   });
 });
 
-describe("the three portfolios never merge", () => {
-  it("scopes every cycle read and write by a single portfolio's campaignId", () => {
-    // The loop iterates portfolios and passes each portfolio's OWN campaignId
-    // into evaluateOneGame; there is no cross-portfolio aggregation in the
-    // cycle path.
-    expect(CYCLE).toContain("for (const portfolio of portfolios)");
-    expect(CYCLE).toContain("campaignId: portfolio.campaignId");
-    // No portfolio's ledger is read across a set of campaign ids in the cycle
-    // path — that would be a merge.
+describe("every bot's ledger stands alone and never merges", () => {
+  it("scopes every cycle read and write by a single bot's campaignId", () => {
+    // The loop iterates every bot (comparison + custom) and passes each bot's
+    // OWN campaignId into evaluateOneGame; there is no cross-bot aggregation in
+    // the cycle path.
+    expect(CYCLE).toContain("for (const bot of bots)");
+    expect(CYCLE).toContain("campaignId: bot.campaignId");
+    // No bot's ledger is read across a set of campaign ids in the cycle path —
+    // that would be a merge.
     expect(CYCLE).not.toMatch(/campaignId:\s*\{\s*in:/);
   });
 
-  it("namespaces the idempotency key per portfolio so a coalesce cannot cross portfolios", () => {
-    expect(CYCLE).toContain("${input.invocationId}:${portfolio.portfolio}");
+  it("namespaces the idempotency key per bot by campaignId (portfolio is no longer unique)", () => {
+    // Paper Bot Lab lets many bots share an engine, so the portfolio enum can no
+    // longer namespace the key; the campaignId is unique per bot.
+    expect(CYCLE).toContain("${input.invocationId}:${bot.campaignId}");
   });
 });
 
-describe("every portfolio sizes under the campaign's shared risk config", () => {
-  it("resolves ONE config scoped to the evaluation campaign, not per portfolio", () => {
-    // Regression guard: a per-portfolio config lookup left the Simulation and
-    // Hybrid siblings (which never had their own config row) skipped on every
-    // tick, so only Baseline ever traded. The config is authored once and shared,
-    // so the cycle resolves it by evaluationCampaignId and applies it to all.
-    expect(CYCLE).toContain(
-      "campaign: { evaluationCampaignId: evaluationCampaign.id }",
-    );
+describe("every bot sizes under its OWN latest risk config", () => {
+  it("resolves the config per bot by campaignId, not one shared config", () => {
+    // Paper Bot Lab: each bot has its own config from creation, and the cycle
+    // reads EACH bot's latest PaperRiskConfig. The comparison bots share the
+    // campaign config via saveConfiguration's fan-out; a custom bot uses its own.
+    // Resolving per-bot is safe now (every bot has a config) — the old bug where
+    // a config-less sibling was skipped cannot recur.
+    expect(CYCLE).toContain("where: { campaignId: bot.campaignId }");
   });
 });

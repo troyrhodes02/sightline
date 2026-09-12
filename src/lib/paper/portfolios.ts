@@ -78,6 +78,21 @@ function fixedEngineVersion(portfolio: PaperPortfolio): string {
  * SAME starting bankroll (from the parent) so the three accumulate under
  * identical assumptions.
  */
+/**
+ * Builds the per-stat model resolver for a target given its engine and the live
+ * selection. A fixed engine names one version for every stat; hybrid consults the
+ * selection per stat. Shared by the comparison bots and the Lab's custom bots — a
+ * custom bot prices from its chosen engine exactly as a comparison bot does.
+ */
+export function modelVersionResolver(
+  portfolio: PaperPortfolio,
+  selection: Map<StatType, string>,
+): (statType: StatType) => string | null {
+  return portfolio === "hybrid"
+    ? (statType: StatType) => selection.get(statType) ?? null
+    : () => fixedEngineVersion(portfolio);
+}
+
 export async function resolvePortfolios(
   evaluationCampaignId: string,
 ): Promise<PortfolioTarget[]> {
@@ -86,7 +101,11 @@ export async function resolvePortfolios(
     select: {
       startingBankrollCents: true,
       campaignStartedAt: true,
+      // Only the canonical COMPARISON bots power the engine comparison; a custom
+      // Lab bot that happens to share an engine must never be picked up here or
+      // provisioned over.
       portfolios: {
+        where: { isComparison: true },
         select: {
           id: true,
           portfolio: true,
@@ -126,6 +145,10 @@ export async function resolvePortfolios(
           data: {
             evaluationCampaignId,
             portfolio,
+            // A canonical comparison bot: named by its engine so the Lab list has
+            // a human label, and excluded from the custom-bot enumeration.
+            isComparison: true,
+            label: COMPARISON_LABELS[portfolio],
             startingBankrollCents: parent.startingBankrollCents,
             highWaterMarkCents: parent.startingBankrollCents,
             highWaterMarkAt: parent.campaignStartedAt,
@@ -159,20 +182,64 @@ export async function resolvePortfolios(
       existing.set(portfolio, created);
     }
 
-    const modelVersionForStat =
-      portfolio === "hybrid"
-        ? (statType: StatType) => selection.get(statType) ?? null
-        : () => fixedEngineVersion(portfolio);
-
     targets.push({
       campaignId: row.id,
       portfolio: row.portfolio,
       highWaterMarkCents: row.highWaterMarkCents,
       startingBankrollCents: row.startingBankrollCents,
       autonomyEnabled: row.autonomyEnabled,
-      modelVersionForStat,
+      modelVersionForStat: modelVersionResolver(portfolio, selection),
     });
   }
 
   return targets;
+}
+
+/** Display names for the three canonical comparison bots. */
+const COMPARISON_LABELS: Record<PaperPortfolio, string> = {
+  baseline: "Baseline",
+  simulation: "Simulation",
+  hybrid: "Hybrid",
+};
+
+/**
+ * Every bot the cycle should evaluate under one evaluation campaign: the three
+ * canonical comparison bots (provisioned idempotently by `resolvePortfolios`)
+ * PLUS every custom Lab bot, each priced by its own engine. A custom bot already
+ * exists with its own config from creation, so nothing is provisioned for it here.
+ *
+ * The cycle iterates the full list and reads EACH bot's own latest risk config,
+ * so a custom bot sizes under its own limits and the comparison bots under the
+ * shared campaign config that `saveConfiguration` fans out to them.
+ */
+export async function resolveBots(
+  evaluationCampaignId: string,
+): Promise<PortfolioTarget[]> {
+  // The comparison bots first (this also provisions any missing sibling), then
+  // the custom bots read straight off the table — they are never provisioned.
+  const comparison = await resolvePortfolios(evaluationCampaignId);
+
+  const selection = await modelSelectionMap();
+  const customRows = await prisma.paperCampaign.findMany({
+    where: { evaluationCampaignId, isComparison: false },
+    select: {
+      id: true,
+      portfolio: true,
+      highWaterMarkCents: true,
+      startingBankrollCents: true,
+      autonomyEnabled: true,
+    },
+    orderBy: { startedAt: "asc" },
+  });
+
+  const custom: PortfolioTarget[] = customRows.map((row) => ({
+    campaignId: row.id,
+    portfolio: row.portfolio,
+    highWaterMarkCents: row.highWaterMarkCents,
+    startingBankrollCents: row.startingBankrollCents,
+    autonomyEnabled: row.autonomyEnabled,
+    modelVersionForStat: modelVersionResolver(row.portfolio, selection),
+  }));
+
+  return [...comparison, ...custom];
 }

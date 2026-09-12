@@ -846,16 +846,96 @@ test("PaperCampaign is a portfolio within an evaluation campaign", () => {
     "PaperPortfolio",
     "portfolio must be the PaperPortfolio enum",
   );
-  // One portfolio of each kind per evaluation campaign.
-  assert.match(
-    child.body,
-    /@@unique\(\[evaluationCampaignId, portfolio\]\)/,
-    "one row per (evaluationCampaign, portfolio)",
-  );
   assert.match(
     child.body,
     /@@index\(\[evaluationCampaignId\]\)/,
     "portfolios must be indexed by their parent",
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Paper Bot Lab — named, freely-configurable bots
+// ---------------------------------------------------------------------------
+
+test("a bot is a PaperCampaign discriminated by is_comparison", () => {
+  // A "bot" IS a PaperCampaign row. Custom Lab bots are is_comparison=false; the
+  // three canonical Baseline/Simulation/Hybrid bots are is_comparison=true, which
+  // is what Model Performance filters on to keep its 3-way comparison intact.
+  const child = modelsByTable.get("paper_campaigns");
+  const isComparison = child.fields.get("isComparison");
+  assert.ok(isComparison, "paper_campaigns must carry isComparison");
+  assert.equal(
+    isComparison.type,
+    "Boolean",
+    "isComparison must be a Boolean",
+  );
+  assert.ok(
+    isComparison.required,
+    "isComparison must be non-nullable (has a default)",
+  );
+  assert.match(
+    isComparison.line,
+    /@map\("is_comparison"\)/,
+    "isComparison must map to is_comparison",
+  );
+});
+
+test("many bots may share an engine: the one-per-portfolio unique is gone", () => {
+  // Paper Bot Lab lets any number of custom bots share an engine, so the old
+  // @@unique([evaluationCampaignId, portfolio]) is dropped from the model and the
+  // migration replaces it with a comparison-only PARTIAL unique index (which
+  // Prisma cannot express in-schema).
+  const child = modelsByTable.get("paper_campaigns");
+  assert.ok(
+    !/@@unique\(\[evaluationCampaignId, portfolio\]\)/.test(child.body),
+    "paper_campaigns must NOT carry the one-per-portfolio unique any more",
+  );
+  assert.match(
+    child.body,
+    /@@index\(\[evaluationCampaignId, isComparison\]\)/,
+    "paper_campaigns must index (evaluationCampaignId, isComparison) for the bot list + cycle",
+  );
+});
+
+test("the Paper Bot Lab migration backfills comparison bots then swaps the unique", () => {
+  const pbl = readFileSync(
+    join(migrationsDir, "20260911120000_paper_bot_lab", "migration.sql"),
+    "utf8",
+  );
+  const at = (needle) => pbl.indexOf(needle);
+
+  // is_comparison lands, is backfilled true, then names any unnamed comparison bot.
+  assert.ok(
+    at('ADD COLUMN "is_comparison"') >= 0,
+    "adds the is_comparison column",
+  );
+  assert.ok(
+    at('UPDATE "paper_campaigns" SET "is_comparison" = true') >
+      at('ADD COLUMN "is_comparison"'),
+    "backfills existing rows as comparison bots after the column exists",
+  );
+  assert.ok(
+    at("SET \"label\" = 'Baseline'") >= 0 &&
+      at("SET \"label\" = 'Simulation'") >= 0 &&
+      at("SET \"label\" = 'Hybrid'") >= 0,
+    "names the unnamed comparison bots by engine",
+  );
+  // The old unique is dropped and the comparison-only partial unique replaces it,
+  // only after the backfill has populated is_comparison.
+  assert.match(
+    pbl,
+    /DROP INDEX "paper_campaigns_evaluation_campaign_id_portfolio_key"/,
+    "drops the one-per-portfolio unique",
+  );
+  assert.ok(
+    at('CREATE UNIQUE INDEX "paper_campaigns_comparison_portfolio_uniq"') >
+      at('UPDATE "paper_campaigns" SET "is_comparison" = true'),
+    "the comparison-only partial unique is created after the backfill",
+  );
+  assert.match(
+    pbl,
+    /WHERE "is_comparison"/,
+    "the replacement unique is PARTIAL, scoped to comparison bots only",
   );
 });
 

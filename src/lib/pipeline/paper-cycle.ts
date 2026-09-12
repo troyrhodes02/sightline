@@ -37,10 +37,7 @@ import {
   acceptedShadowProjectionIds,
   blockedSuggestionKeys,
 } from "@/lib/suggestions/active-projection";
-import {
-  resolvePortfolios,
-  type PortfolioTarget,
-} from "@/lib/paper/portfolios";
+import { resolveBots, type PortfolioTarget } from "@/lib/paper/portfolios";
 
 /**
  * The scheduled autonomous paper cycle.
@@ -102,10 +99,11 @@ export async function runPaperCycle(
   // posture as an offseason price refresh.
   if (!evaluationCampaign) return empty("not_expected");
 
-  // Baseline + simulation always; hybrid only when the selection is mixed.
-  // Provisioned idempotently here so a portfolio added mid-season begins
-  // accumulating on the next tick without a manual step.
-  const portfolios = await resolvePortfolios(evaluationCampaign.id);
+  // Every bot under this evaluation campaign: the three canonical comparison bots
+  // (baseline + simulation always; hybrid only when the selection is mixed,
+  // provisioned idempotently) PLUS every custom Paper Bot Lab bot. Each is priced
+  // by its own engine and sized under its own risk config, resolved per bot below.
+  const bots = await resolveBots(evaluationCampaign.id);
 
   const windowOpensAt = new Date(
     now.getTime() + EXECUTION_WINDOW_HOURS * 60 * 60 * 1000,
@@ -140,10 +138,10 @@ export async function runPaperCycle(
     await finishRun(runId, "succeeded", null);
     return { ...empty("killed"), windowsEvaluated: games.length };
   }
-  // Autonomy is per portfolio. When no portfolio is enabled the whole campaign
-  // is dormant; a subset being enabled is normal (a newly-provisioned sibling
-  // defaults off until the operator turns it on).
-  if (!portfolios.some((p) => p.autonomyEnabled)) {
+  // Autonomy is per bot. When no bot is enabled the whole campaign is dormant; a
+  // subset being enabled is normal (a newly-provisioned comparison sibling
+  // defaults off until the operator turns it on; a paused Lab bot is off).
+  if (!bots.some((b) => b.autonomyEnabled)) {
     await finishRun(runId, "succeeded", null);
     return { ...empty("disabled"), windowsEvaluated: games.length };
   }
@@ -170,32 +168,35 @@ export async function runPaperCycle(
   // Games later in the list go unevaluated, which the ten-minute cadence
   // recovers from on the next tick.
   try {
-    // Every portfolio evaluates every eligible window independently. A portfolio
-    // that is disabled, or has no risk config yet, is skipped without stopping
-    // its siblings — the three ledgers never merge and never depend on one
-    // another. The invocationId is namespaced per portfolio so each portfolio's
+    // Every bot evaluates every eligible window independently. A bot that is
+    // disabled, or has no risk config yet, is skipped without stopping the
+    // others — every ledger stands alone and none depends on another. The
+    // invocationId is namespaced per bot by its campaignId (portfolio is no
+    // longer unique now that Lab bots may share an engine), so each bot's
     // idempotency key is distinct on the (campaignId, gameId, invocationId)
-    // unique index, and a coalesce on one portfolio never suppresses another.
-    // The risk config is authored once (the configuration route is the only
-    // writer) and SHARED by every portfolio of the campaign, so all portfolios
-    // size under identical assumptions (D5/D11). Resolve it once, scoped to the
-    // evaluation campaign; a portfolio is skipped only when the campaign was
-    // never configured — never because a sibling lacks its own copy. Making this
-    // per-portfolio is what silently left Simulation and Hybrid untraded.
-    const config = await prisma.paperRiskConfig.findFirst({
-      where: { campaign: { evaluationCampaignId: evaluationCampaign.id } },
-      orderBy: { effectiveFrom: "desc" },
-    });
+    // unique index and a coalesce on one bot never suppresses another.
+    //
+    // The risk config is resolved PER BOT — each bot's own latest PaperRiskConfig
+    // (the comparison bots share the campaign config that saveConfiguration fans
+    // out to them; a Lab bot has its own from creation). Every bot has a config,
+    // so the old "sibling had no config → skipped" bug (which silently left
+    // Simulation and Hybrid untraded) cannot recur.
+    for (const bot of bots) {
+      if (!bot.autonomyEnabled) continue;
 
-    for (const portfolio of portfolios) {
-      if (!portfolio.autonomyEnabled) continue;
+      const config = await prisma.paperRiskConfig.findFirst({
+        where: { campaignId: bot.campaignId },
+        orderBy: { effectiveFrom: "desc" },
+      });
+      // Every bot is created with a config; a missing one is a data anomaly, not a
+      // normal state. Skip it rather than trading under no limits.
       if (!config) continue;
 
-      const portfolioInvocationId = `${input.invocationId}:${portfolio.portfolio}`;
+      const botInvocationId = `${input.invocationId}:${bot.campaignId}`;
 
       for (const game of games) {
         const lastCycle = await prisma.paperCycle.findFirst({
-          where: { campaignId: portfolio.campaignId, gameId: game.id },
+          where: { campaignId: bot.campaignId, gameId: game.id },
           orderBy: { startedAt: "desc" },
           select: { startedAt: true },
         });
@@ -212,15 +213,15 @@ export async function runPaperCycle(
         try {
           const cycle = await evaluateOneGame({
             campaign: {
-              id: portfolio.campaignId,
-              startingBankrollCents: portfolio.startingBankrollCents,
-              highWaterMarkCents: portfolio.highWaterMarkCents,
+              id: bot.campaignId,
+              startingBankrollCents: bot.startingBankrollCents,
+              highWaterMarkCents: bot.highWaterMarkCents,
             },
-            portfolio,
+            portfolio: bot,
             config,
             game,
             now,
-            invocationId: portfolioInvocationId,
+            invocationId: botInvocationId,
             pipelineRunId: runId,
             startedAt,
           });

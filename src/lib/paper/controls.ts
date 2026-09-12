@@ -524,35 +524,69 @@ export async function saveConfiguration(
       },
     });
 
-    const config = await tx.paperRiskConfig.create({
-      data: {
-        campaignId: campaign.id,
-        mode: resolved.mode,
-        kellyFraction: resolved.kellyFraction,
-        perGameCapPct: resolved.perGameCapPct,
-        perSlateCapPct: resolved.perSlateCapPct,
-        drawdownWarnPct: resolved.drawdownWarnPct,
-        drawdownHaltPct: resolved.drawdownHaltPct,
-        probabilityCeiling: resolved.probabilityCeiling,
-        withdrawalCeilingMultiple:
-          input.withdrawalCeilingMultiple ??
-          DEFAULT_WITHDRAWAL_CEILING_MULTIPLE,
-        effectiveFrom: now,
-        createdByUserId: actorUserId,
+    // The shared campaign config is FANNED OUT to every comparison bot (Baseline,
+    // Simulation, Hybrid) so the three keep sizing under identical assumptions
+    // (D3/D5/D11) — apples-to-apples is the whole point of the comparison. The
+    // cycle now reads EACH bot's own latest config (Paper Bot Lab), so a
+    // comparison bot without its own current row would be skipped; writing one per
+    // comparison bot is what keeps all three trading. Custom Lab bots are NOT
+    // touched here — each has its own config authored at creation, and this shared
+    // save must never restate it. This is still one human writer of risk config;
+    // nothing here derives a parameter from P&L.
+    const comparisonBots = await tx.paperCampaign.findMany({
+      where: {
+        evaluationCampaignId: parent.evaluationCampaignId,
+        isComparison: true,
       },
       select: { id: true },
     });
+    // Ensure the primary campaign is covered even if the comparison flag has not
+    // been set yet (e.g. a freshly bootstrapped campaign mid-migration).
+    const targetIds = new Set<string>([
+      campaign.id,
+      ...comparisonBots.map((b) => b.id),
+    ]);
+
+    const configData = {
+      mode: resolved.mode,
+      kellyFraction: resolved.kellyFraction,
+      perGameCapPct: resolved.perGameCapPct,
+      perSlateCapPct: resolved.perSlateCapPct,
+      drawdownWarnPct: resolved.drawdownWarnPct,
+      drawdownHaltPct: resolved.drawdownHaltPct,
+      probabilityCeiling: resolved.probabilityCeiling,
+      withdrawalCeilingMultiple:
+        input.withdrawalCeilingMultiple ?? DEFAULT_WITHDRAWAL_CEILING_MULTIPLE,
+      effectiveFrom: now,
+      createdByUserId: actorUserId,
+    };
+
+    let primaryConfigId: string | null = null;
+    for (const targetId of targetIds) {
+      const created = await tx.paperRiskConfig.create({
+        data: { campaignId: targetId, ...configData },
+        select: { id: true },
+      });
+      if (targetId === campaign.id) primaryConfigId = created.id;
+    }
 
     await tx.paperControlEvent.create({
       data: {
         campaignId: campaign.id,
         kind: input.autonomyEnabled ? "enabled" : "config_changed",
         actorUserId,
-        detail: { riskConfigId: config.id, mode: resolved.mode },
+        detail: {
+          riskConfigId: primaryConfigId,
+          mode: resolved.mode,
+          fannedOutToBots: targetIds.size,
+        },
         occurredAt: now,
       },
     });
 
-    return { campaignId: campaign.id, riskConfigId: config.id };
+    return {
+      campaignId: campaign.id,
+      riskConfigId: primaryConfigId as string,
+    };
   });
 }

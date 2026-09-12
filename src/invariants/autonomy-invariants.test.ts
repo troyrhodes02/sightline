@@ -22,16 +22,29 @@ const SRC = join(ROOT, "src");
 const relative = (file: string) => file.replace(SRC, "").split(sep).join("/");
 
 describe("nothing adapts a stake, a cap, or a threshold to observed P&L", () => {
-  it("writes a risk configuration from exactly one module", () => {
+  it("writes a risk configuration from exactly the two human-create modules", () => {
     // A config version is the only place the Kelly fraction, the caps, and the
-    // halt thresholds are set. One writer, reached only by a human POST, is
-    // what makes "risk mode never changes itself" structural.
+    // halt thresholds are set. Both writers are reached only by a human action —
+    // never by anything that reads P&L — which is what makes "risk mode never
+    // changes itself" structural.
+    //
+    // - `controls.ts` — the configuration route's append-a-version save (and the
+    //   comparison-bot fan-out that keeps the 3 canonical bots apples-to-apples).
+    // - `bots.ts` — Paper Bot Lab's create-bot action, which writes a bot's OWN
+    //   initial config once, at birth. This is a HUMAN create (the admin choosing
+    //   a bot's risk mode), NOT auto-tuning: every number comes from resolveConfig
+    //   applied to the chosen mode, never derived from a bankroll, win rate,
+    //   drawdown, or replay result. The spirit — no risk parameter derived from
+    //   P&L — is fully preserved; only the create surface is new.
     const writers = productionFiles(SRC).filter((file) =>
-      /(prisma|tx)\.paperRiskConfig\.(create|update|upsert|createMany)/.test(
+      /(prisma|tx|client)\.paperRiskConfig\.(create|update|upsert|createMany)/.test(
         readCode(file),
       ),
     );
-    expect(writers.map(relative).sort()).toEqual(["/lib/paper/controls.ts"]);
+    expect(writers.map(relative).sort()).toEqual([
+      "/lib/paper/bots.ts",
+      "/lib/paper/controls.ts",
+    ]);
   });
 
   it("reaches that writer only from the configuration route", () => {

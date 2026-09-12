@@ -306,7 +306,7 @@ export async function readAutonomyOverview(): Promise<AutonomyOverviewDto | null
   };
 }
 
-function toCycleRow(cycle: {
+export function toCycleRow(cycle: {
   id: string;
   startedAt: Date;
   outcome: CycleRowDto["outcome"];
