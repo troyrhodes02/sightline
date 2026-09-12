@@ -3,6 +3,10 @@ import { requireSession } from "@/lib/auth/session";
 import { prisma } from "@/lib/prisma";
 import { ControlStateError } from "@/lib/paper/controls";
 import { createBot, createBotInputSchema } from "@/lib/paper/bots";
+import {
+  DEFAULT_STARTING_BANKROLL_CENTS,
+  DEFAULT_WITHDRAWAL_CEILING_MULTIPLE,
+} from "@/lib/paper/config";
 
 export const dynamic = "force-dynamic";
 
@@ -41,15 +45,25 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   // The bot attaches to the active evaluation campaign, resolved server-side.
-  const campaign = await prisma.paperEvaluationCampaign.findFirst({
+  // On a fresh install there is none yet — creating the first bot bootstraps the
+  // container so the admin can start a bot without first visiting Settings. The
+  // three canonical comparison bots are provisioned lazily by the scheduler; the
+  // container enables continuous evaluation so the new bot actually runs.
+  let campaign = await prisma.paperEvaluationCampaign.findFirst({
     orderBy: { campaignStartedAt: "asc" },
     select: { id: true },
   });
   if (!campaign) {
-    return jsonError(
-      "not_found",
-      "No paper evaluation campaign exists to attach the bot to.",
-    );
+    campaign = await prisma.paperEvaluationCampaign.create({
+      data: {
+        startingBankrollCents: DEFAULT_STARTING_BANKROLL_CENTS,
+        withdrawalCeilingMultiple: DEFAULT_WITHDRAWAL_CEILING_MULTIPLE,
+        killSwitchEngaged: false,
+        continuousEvaluationEnabled: true,
+        campaignStartedAt: new Date(),
+      },
+      select: { id: true },
+    });
   }
 
   try {
