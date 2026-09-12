@@ -290,6 +290,7 @@ function mpDto(
       weeksRequired: 2,
     },
     hybridSelected: false,
+    projectionAccuracy: [],
     ...overrides,
   };
 }
@@ -466,5 +467,83 @@ describe("ModelPerformance — Advanced level (D9)", () => {
     expect(headings.filter((h) => h.textContent === "Accuracy").length).toBe(0);
     // The Accuracy body renders its scope bar.
     expect(container.textContent).toContain("Against the market");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Projection accuracy facet (Breakdown) — point-estimate error per engine
+// ---------------------------------------------------------------------------
+
+describe("Projection accuracy facet", () => {
+  function renderFacet(rows: ModelPerformanceDto["projectionAccuracy"]) {
+    window.history.replaceState(
+      {},
+      "",
+      "/model-performance?level=breakdown&facet=projection_accuracy",
+    );
+    return renderThemed(
+      <ModelPerformance
+        level="breakdown"
+        modelPerformance={mpDto({ projectionAccuracy: rows })}
+        accuracy={accuracyDto()}
+      />,
+    );
+  }
+
+  it("shows each engine's MAE + obs and names the closer engine", () => {
+    const { container } = renderFacet([
+      {
+        statType: "receiving_yards",
+        baseline: { mae: 12.4, rmse: 16, count: 210 },
+        simulation: { mae: 11.8, rmse: 15.2, count: 95 },
+        closer: "simulation",
+      },
+    ]);
+    expect(container.textContent).toContain("off by 12.4 yds on avg");
+    expect(container.textContent).toContain("off by 11.8 yds on avg");
+    expect(container.textContent).toContain("210 obs");
+    expect(container.textContent).toContain("Simulation projects closer here.");
+  });
+
+  it("renders — for an engine with no grades and the one-engine line", () => {
+    const { container } = renderFacet([
+      {
+        statType: "rushing_yards",
+        baseline: { mae: 9, rmse: 11, count: 148 },
+        simulation: null,
+        closer: null,
+      },
+    ]);
+    expect(container.textContent).toContain(
+      "Only one engine has graded predictions so far.",
+    );
+    expect(container.textContent).toContain("—");
+  });
+
+  it("shows the numbers but withholds a winner below the 30 floor", () => {
+    const { container } = renderFacet([
+      {
+        statType: "passing_yards",
+        baseline: { mae: 40, rmse: 55, count: 20 },
+        simulation: { mae: 30, rmse: 42, count: 12 },
+        closer: null,
+      },
+    ]);
+    expect(container.textContent).toContain("off by 40.0 yds on avg");
+    expect(container.textContent).toContain(
+      "Not enough graded predictions to compare yet",
+    );
+  });
+
+  it("is empty when no engine has any graded projections", () => {
+    const { container } = renderFacet([
+      {
+        statType: "receptions",
+        baseline: null,
+        simulation: null,
+        closer: null,
+      },
+    ]);
+    expect(container.textContent).toContain("No graded projections yet");
   });
 });

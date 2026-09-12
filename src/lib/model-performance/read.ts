@@ -3,6 +3,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import {
   readComparison,
+  readProjectionAccuracy,
   readRecommendation,
   readStatLeaders,
 } from "@/lib/model-eval";
@@ -35,12 +36,14 @@ export async function readModelPerformance(): Promise<ModelPerformanceDto> {
     recommendation,
     statLeadersLive,
     statLeadersBacktest,
+    projectionAccuracy,
   ] = await Promise.all([
     readComparison("live", "contract_like"),
     readComparison("backtest", "contract_like"),
     readRecommendation("live"),
     readStatLeaders("live"),
     readStatLeaders("backtest"),
+    readProjectionAccuracy(),
   ]);
 
   // Resolve the active paper evaluation campaign. There is at most one running
@@ -92,6 +95,7 @@ export async function readModelPerformance(): Promise<ModelPerformanceDto> {
     scorecards,
     readiness,
     hybridSelected,
+    projectionAccuracy,
   };
 }
 

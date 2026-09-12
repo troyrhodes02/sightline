@@ -12,6 +12,7 @@ export {
 } from "./comparison";
 export { readModelSeries } from "./read";
 export { readContractTrackRecord } from "./track-record";
+export { readProjectionAccuracy } from "./projection-accuracy";
 export {
   determineLeader,
   recommendation,
@@ -39,4 +40,6 @@ export type {
   StatLeaderRowDto,
   ModelRecommendationDto,
   ContractTrackRecordDto,
+  EngineErrorDto,
+  ProjectionAccuracyRowDto,
 } from "@/lib/dto/model-eval";

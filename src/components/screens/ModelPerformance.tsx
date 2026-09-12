@@ -32,10 +32,12 @@ import { PortfolioScorecard } from "@/components/model-performance/PortfolioScor
 import { ComparisonBarChart } from "@/components/model-performance/ComparisonBarChart";
 import type { AccuracyDto } from "@/lib/dto/accuracy";
 import type {
+  EngineErrorDto,
   EvidenceRecord,
   ModelComparisonDto,
   ModelPerformanceDto,
   ModelPerformanceLevel,
+  ProjectionAccuracyRowDto,
   StatLeaderRowDto,
 } from "@/lib/dto/model-eval";
 import type { StatType } from "../../../generated/prisma/enums";
@@ -403,14 +405,30 @@ function ReadinessStrip({
 // ---------------------------------------------------------------------------
 
 type Facet =
-  "stat" | "confidence" | "probability" | "live_vs_backtest" | "financial";
+  | "stat"
+  | "projection_accuracy"
+  | "confidence"
+  | "probability"
+  | "live_vs_backtest"
+  | "financial";
 
 const FACET_LABEL: Record<Facet, string> = {
   stat: "Stat type",
+  projection_accuracy: "Projection accuracy",
   confidence: "Confidence",
   probability: "Probability range",
   live_vs_backtest: "Live vs backtest",
   financial: "Financial",
+};
+
+/** Display unit per stat — yardage in yards, receptions/TDs are bare counts. */
+const STAT_UNIT: Record<StatType, string> = {
+  passing_yards: "yds",
+  rushing_yards: "yds",
+  receiving_yards: "yds",
+  receptions: "",
+  rushing_tds: "",
+  receiving_tds: "",
 };
 
 function BreakdownLevel({ data }: { data: ModelPerformanceDto }) {
@@ -444,6 +462,8 @@ function BreakdownLevel({ data }: { data: ModelPerformanceDto }) {
 
       {facet === "stat" ? (
         <StatFacet data={data} />
+      ) : facet === "projection_accuracy" ? (
+        <ProjectionAccuracyFacet rows={data.projectionAccuracy} />
       ) : facet === "live_vs_backtest" ? (
         <LiveVsBacktestFacet data={data} />
       ) : facet === "financial" ? (
@@ -559,6 +579,125 @@ function RecordColumn({
 
 function FinancialFacet({ data }: { data: ModelPerformanceDto }) {
   return <Scorecards data={data} />;
+}
+
+// ---------------------------------------------------------------------------
+// Projection accuracy — point-estimate error (how close the projected NUMBER
+// was to the actual result), per engine per stat type.
+// ---------------------------------------------------------------------------
+
+function ProjectionAccuracyFacet({
+  rows,
+}: {
+  rows: ProjectionAccuracyRowDto[];
+}) {
+  const anyData = rows.some((row) => row.baseline || row.simulation);
+  if (!anyData) {
+    return (
+      <FacetEmpty message="No graded projections yet — projection accuracy fills in as games are graded." />
+    );
+  }
+  return (
+    <Stack spacing={2}>
+      <Typography variant="body2" sx={{ color: "text.secondary" }}>
+        How close each engine&apos;s projected number landed to the actual
+        result — mean absolute error (MAE), the average distance between the
+        projected number and what happened, in the stat&apos;s own units. Lower
+        is closer. It accumulates as games are graded; Simulation fills in as
+        its shadow projections grade.
+      </Typography>
+      {rows.map((row) => (
+        <Paper key={row.statType} sx={{ p: 2 }}>
+          <Stack spacing={1}>
+            <Typography variant="label">{STAT_LABEL[row.statType]}</Typography>
+            <Box
+              sx={{
+                display: "grid",
+                gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" },
+                gap: 2,
+              }}
+            >
+              <EngineError
+                name="Baseline"
+                error={row.baseline}
+                unit={STAT_UNIT[row.statType]}
+                highlight={row.closer === "baseline"}
+              />
+              <EngineError
+                name="Simulation"
+                error={row.simulation}
+                unit={STAT_UNIT[row.statType]}
+                highlight={row.closer === "simulation"}
+              />
+            </Box>
+            <ClosenessLine row={row} />
+          </Stack>
+        </Paper>
+      ))}
+    </Stack>
+  );
+}
+
+function EngineError({
+  name,
+  error,
+  unit,
+  highlight,
+}: {
+  name: string;
+  error: EngineErrorDto;
+  unit: string;
+  highlight: boolean;
+}) {
+  const suffix = unit ? ` ${unit}` : "";
+  return (
+    <Stack spacing={0.25}>
+      <Typography
+        variant="body2"
+        sx={{ color: highlight ? "primary.main" : "text.secondary" }}
+      >
+        {name}
+      </Typography>
+      {error === null ? (
+        <NumericText size="md" muted>
+          —
+        </NumericText>
+      ) : (
+        <>
+          <NumericText size="md">
+            off by {error.mae.toFixed(1)}
+            {suffix} on avg
+          </NumericText>
+          <NumericText size="sm" muted>
+            RMSE {error.rmse.toFixed(1)}
+            {suffix} · {error.count.toLocaleString("en-US")} obs
+          </NumericText>
+        </>
+      )}
+    </Stack>
+  );
+}
+
+function ClosenessLine({ row }: { row: ProjectionAccuracyRowDto }) {
+  let text: string;
+  if (row.closer === "baseline") {
+    text = "Baseline projects closer here.";
+  } else if (row.closer === "simulation") {
+    text = "Simulation projects closer here.";
+  } else if (row.closer === "even") {
+    text = "The two are evenly close here.";
+  } else if (row.baseline && row.simulation) {
+    text = "Not enough graded predictions to compare yet (need ≥ 30 each).";
+  } else if (row.baseline || row.simulation) {
+    text = "Only one engine has graded predictions so far.";
+  } else {
+    text = "No graded predictions yet.";
+  }
+  return (
+    <Typography variant="caption" sx={{ color: "text.secondary" }}>
+      {text}
+    </Typography>
+  );
 }
 
 function InsufficientFacet({ facet }: { facet: Facet }) {

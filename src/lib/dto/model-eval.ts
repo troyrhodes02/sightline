@@ -182,6 +182,36 @@ export type ReadinessSummaryDto = {
 export type ModelPerformanceLevel = "summary" | "breakdown" | "advanced";
 
 /**
+ * One engine's point-estimate error for a stat type — how far its projected
+ * VALUE landed from the actual game result, over graded live projections.
+ * `mae` is the mean absolute error in the stat's own units (yards for yardage,
+ * counts for receptions/TDs); `rmse` penalises big misses more; `count` is the
+ * number of graded projections behind both. `null` when the engine has no
+ * graded projections for the stat yet (e.g. Simulation before its shadow
+ * projections have graded).
+ */
+export type EngineErrorDto = {
+  mae: number;
+  rmse: number;
+  count: number;
+} | null;
+
+/**
+ * Per-stat projection-accuracy comparison (Model Performance → Breakdown). Shows
+ * how close each engine's projected number was to what actually happened. The
+ * figures always render (never hidden behind a floor); `closer` names the engine
+ * with the lower MAE only when BOTH engines clear the 30-observation floor —
+ * otherwise `null` ("not enough to compare yet"), and `"even"` when both clear
+ * the floor but their MAEs are within a negligible margin.
+ */
+export type ProjectionAccuracyRowDto = {
+  statType: StatType;
+  baseline: EngineErrorDto;
+  simulation: EngineErrorDto;
+  closer: "baseline" | "simulation" | "even" | null;
+};
+
+/**
  * Everything Model Performance → Summary and → Breakdown read from the
  * evidence + paper layers, assembled server-side (spec §UI data contracts, D9).
  *
@@ -208,6 +238,11 @@ export type ModelPerformanceDto = {
   readiness: ReadinessSummaryDto | null;
   /** Whether a hybrid selection has been made (Hybrid scorecard present). */
   hybridSelected: boolean;
+  /**
+   * Per-stat point-estimate accuracy — how close each engine's projected value
+   * was to the actual result, over graded live projections (Breakdown facet).
+   */
+  projectionAccuracy: ProjectionAccuracyRowDto[];
 };
 
 /**
